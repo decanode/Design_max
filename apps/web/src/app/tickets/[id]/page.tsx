@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { Nav } from '../../../components/Nav';
 import { DocEditor, DocView, type EditorApi } from '../../../components/DocEditor';
+import { MergeDialog } from '../../../components/MergeDialog';
 import { CommentsPanel, useThreads } from '../../../components/CommentsPanel';
 import { KINDS, LABEL, FULL, GENERATE_IN, EDIT_IN, HINT, type Kind } from '../../../lib/docKinds';
 import { ApprovalPanel, type ApprovalRequest } from '../../../components/ApprovalPanel';
@@ -34,6 +35,7 @@ export default function TicketPage() {
   const [viewJson, setViewJson] = useState<unknown>(null);   // a saved version being viewed
   const [changed, setChanged] = useState(false);               // the shared draft is ahead of the latest version
   const [lock, setLock] = useState<string | null>(null);
+  const [merging, setMerging] = useState(false);
   const [api, setApi] = useState<EditorApi | null>(null);
   const [hasSel, setHasSel] = useState(false);
   const [active, setActive] = useState<string | null>(null);
@@ -160,6 +162,7 @@ export default function TicketPage() {
               {editable && (
                 <div className="row">
                   <button className="btn" disabled={!dirty || busy} onClick={save}>Save version</button>
+                  {can('spec.edit') && <button className="btn ghost" disabled={busy} onClick={() => setMerging(true)}>Upload &amp; merge a Word file</button>}
                   {dirty && <span className="note">The shared draft has changes that are not in a saved version yet</span>}
                 </div>
               )}
@@ -177,6 +180,7 @@ export default function TicketPage() {
                   </div>
                 </div>)}
             </section>
+            {merging && <MergeDialog ticketId={id} kind={kind} onClose={() => setMerging(false)} onDone={(v) => { setMerging(false); setMsg({ kind: 'ok', text: `Merged. Saved as version ${v}.` }); load(); refreshStatus(); }} />}
             <aside className="side" aria-label="History">
               {can('doc.comment') || threads.length ? (
                 <div className="cm-wrap" style={{ marginBottom: 16 }}>

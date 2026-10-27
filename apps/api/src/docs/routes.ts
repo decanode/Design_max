@@ -10,6 +10,7 @@ import { signCollab } from '../collab/token.js';
 import { docName } from '../collab/token.js';
 import { KINDS } from './kinds.js';
 import { assertCommentsResolved, registerCommentRoutes } from './comments.js';
+import { registerUploadRoutes } from './upload.js';
 import { versionPm, versionText } from './content.js';
 import { exportDocument } from '../docgen/exportDocument.js';
 import { approvalPlan, cancelRequest, decideAsUser, decideByToken, requestApproval } from '../approvals/engine.js';
@@ -21,6 +22,7 @@ export interface DocDeps { generator: DocGenerator; mailer: Mailer; embedder?: E
 
 export function registerDocRoutes(app: FastifyInstance, d: DocDeps) {
   registerCommentRoutes(app, d);
+  registerUploadRoutes(app);
 
   const visible = async (req: import('fastify').FastifyRequest, id: string) => {
     if (!(await ticketVisible(req.user!, id))) throw new DocError('Ticket not found', 404); // 404, not 403: do not reveal it exists
