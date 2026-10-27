@@ -20,8 +20,16 @@ export default function Login() {
   const router = useRouter();
 
   const load = useCallback(async () => {
-    const r = await fetch('/api/auth/dev-users');
-    if (r.ok) setUsers(await r.json()); else { setUsers([]); setError('Development sign-in is disabled on this server.'); }
+    try {
+      const r = await fetch('/api/auth/dev-users');
+      if (r.ok) { setUsers(await r.json()); setError(''); }
+      else {
+        setUsers([]);
+        setError(r.status === 404
+          ? 'Development sign-in is turned off on this server.'
+          : 'The server could not load accounts. The database may be stopped — check it is running, then reload.');
+      }
+    } catch { setUsers([]); setError('Cannot reach the server. Check the API is running, then reload.'); }
   }, []);
   useEffect(() => { load(); }, [load]);
 
