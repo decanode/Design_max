@@ -15,6 +15,7 @@ import { need, needAny, registerAuth, ticketScope } from './rbac/auth.js';
 import { registerAuthRoutes } from './rbac/authRoutes.js';
 import { registerAdminRoutes, AdminError } from './rbac/adminRoutes.js';
 import { registerDashboardRoutes } from './rbac/dashboardRoutes.js';
+import { registerReportRoutes } from './reports/routes.js';
 
 export function buildApp(deps: Partial<DocDeps> = {}) {
   const app = Fastify();
@@ -110,5 +111,6 @@ export function buildApp(deps: Partial<DocDeps> = {}) {
   });
   registerAdminRoutes(app);
   registerDashboardRoutes(app);
+  registerReportRoutes(app);
   return app;
 }

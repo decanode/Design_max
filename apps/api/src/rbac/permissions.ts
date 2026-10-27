@@ -28,6 +28,10 @@ export const CATALOG: FeatureDef[] = [
   { feature: 'Dashboards', permissions: [
     { key: 'dashboard.team', label: 'Team dashboard', description: 'Workload per consultant and the unassigned queue.' },
     { key: 'dashboard.portfolio', label: 'Portfolio dashboard', description: 'Tickets by phase and pending approvals across projects.' }] },
+  { feature: 'Reports & dashboards', permissions: [
+    { key: 'report.view', label: 'View dashboards & reports', description: 'Open shared dashboards and reports. Numbers only ever include tickets the person may see.' },
+    { key: 'report.build', label: 'Build reports & dashboards', description: 'Create, change, copy and share their own reports and dashboards.' },
+    { key: 'report.manage_all', label: 'Manage everyone\'s reports', description: 'Edit or delete any report or dashboard, including the built-in ones.' }] },
   { feature: 'Developer tools', permissions: [
     { key: 'mailbox.view', label: 'View the dev mailbox', description: 'Inspect emails the system "sent" (development only).' }] },
   { feature: 'Administration', permissions: [

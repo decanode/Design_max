@@ -2,7 +2,7 @@
 import Link from 'next/link';
 import { useAuth } from '../lib/auth';
 
-type Key = 'board' | 'chat' | 'mailbox' | 'admin' | 'none';
+type Key = 'board' | 'chat' | 'dashboards' | 'mailbox' | 'admin' | 'none';
 
 export function Nav({ current }: { current: Key }) {
   const { me, can, canAny, logout } = useAuth();
@@ -15,6 +15,7 @@ export function Nav({ current }: { current: Key }) {
       </Link>
       <nav aria-label="Primary">
         {link('/', 'board', 'Board', can('board.view'))}
+        {link('/dashboards', 'dashboards', 'Dashboards', can('report.view'))}
         {link('/chat', 'chat', 'Chat', canAny('chat.as_customer', 'chat.as_consultant', 'chat.view_all'))}
         {link('/mailbox', 'mailbox', 'Mailbox', can('mailbox.view'))}
         {link('/admin', 'admin', 'Admin', canAny('admin.roles', 'admin.users'))}

@@ -53,6 +53,14 @@ Automated background ingestion workers populate a central Vector Database (`pgve
 *   **Retrieval is stack-filtered:** embeddings can carry a stack tag, and Technical Spec generation only draws on generic assets and assets tagged with an allowed stack (SAP metadata is tagged `SAP`).
 *   **Project choice:** customers pick the project when starting a conversation; the conversation shows the project and its allowed stacks.
 
+### H. Customizable Dashboards & Reporting (added by approved design change)
+*   **Reports are saved definitions, not SQL:** a report picks a dataset (Tickets, Approvals, Phase changes), a measure (count, average age, average time to decision, …), an optional grouping (phase, project, consultant, source, month/week/day, …), filters, and a chart (single number, columns, bars, line, share-of-total, table). The server validates the definition and builds the query only from whitelisted fragments with bound parameters.
+*   **Every number respects visibility:** report queries are restricted to the tickets the *viewer* may see (same rule as the board), so the same shared dashboard shows each person only their own slice.
+*   **Dashboards are arranged collections of report widgets** (small/medium/large, reorderable) that can be private or shared. Built-in reports and a "Delivery overview" dashboard ship ready to use; they can be copied and customized.
+*   **Permissions:** `report.view`, `report.build` (create/edit/copy/share own), `report.manage_all` (edit anyone's, including built-ins). Admin can grant these to any role.
+*   **Reporting output:** each report downloads as CSV (formula-injection safe); every chart has a table view and hover/keyboard tooltips for accessibility.
+*   **Not yet:** scheduled/emailed reports, dashboard-wide filters, drill-through to tickets, and PDF export.
+
 ## 2. Technology Stack
 
 | Layer | Component | Purpose |

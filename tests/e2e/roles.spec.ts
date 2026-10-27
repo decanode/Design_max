@@ -16,8 +16,8 @@ test.describe('each role sees its own view', () => {
       test.use({ storageState: `.auth/${role}.json` });
       test(`${role}: navigation and dashboard panels`, async ({ page }) => {
         await page.goto('/');
-        for (const l of shown) await expect(nav(page).getByRole('link', { name: l })).toBeVisible();
-        for (const l of hidden) await expect(nav(page).getByRole('link', { name: l })).toHaveCount(0);
+        for (const l of shown) await expect(nav(page).getByRole('link', { name: l, exact: true })).toBeVisible();
+        for (const l of hidden) await expect(nav(page).getByRole('link', { name: l, exact: true })).toHaveCount(0);
         for (const p of panels) await expect(page.getByRole('heading', { name: p, level: 3 })).toBeVisible();
         await expect(page.locator('.role-badge').first()).toHaveText(role);
       });
