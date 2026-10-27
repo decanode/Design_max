@@ -22,7 +22,7 @@ export function registerDocRoutes(app: FastifyInstance, d: DocDeps) {
   app.get('/api/tickets/:id', async (req) => {
     const { id } = Id.parse(req.params);
     await visible(req, id);
-    const o = await ticketOverview(id);
+    const o = await ticketOverview(id, req.user!.fields);
     return req.user!.perms.has('spec.view') ? o : { ...o, docs: { FS: null, TS: null }, approvals: [] };
   });
 

@@ -2,13 +2,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Nav } from '../../components/Nav';
 import { WorkflowAdmin } from '../../components/WorkflowAdmin';
+import { FieldAdmin } from '../../components/FieldAdmin';
 import { NoAccess, useAuth, j } from '../../lib/auth';
 
 type Role = { id: number; name: string; description: string; is_system: boolean; locked: boolean; users: number; permissions: string[] };
 type Catalog = { feature: string; permissions: { key: string; label: string; description: string }[] }[];
 type User = { id: string; email: string; name: string; active: boolean; role_id: number; role: string };
 type Audit = { id: number; action: string; detail: any; created_at: string; actor: string | null };
-type Tab = 'roles' | 'users' | 'projects' | 'workflows' | 'activity';
+type Tab = 'roles' | 'fields' | 'users' | 'projects' | 'workflows' | 'activity';
 type Stack = { id: number; name: string; description: string; keywords: string[]; projects: number };
 type Proj = { id: string; name: string; tickets: number; stacks: { id: number; name: string }[] };
 
@@ -109,7 +110,7 @@ export default function Admin() {
   if (loading || !me) return <><Nav current="admin" /><main id="main"><p className="note">Loading…</p></main></>;
   if (!canAny('admin.roles', 'admin.users', 'admin.projects', 'admin.workflows')) return <><Nav current="admin" /><main id="main"><NoAccess what="administration" /></main></>;
 
-  const tabs: [Tab, string, boolean][] = [['roles', 'Roles & permissions', can('admin.roles') || can('admin.users')], ['users', 'Users', can('admin.users')], ['projects', 'Projects & stacks', can('admin.projects')], ['workflows', 'Approval workflows', can('admin.workflows')], ['activity', 'Activity', true]];
+  const tabs: [Tab, string, boolean][] = [['roles', 'Roles & permissions', can('admin.roles') || can('admin.users')], ['fields', 'Ticket fields', can('admin.roles')], ['users', 'Users', can('admin.users')], ['projects', 'Projects & stacks', can('admin.projects')], ['workflows', 'Approval workflows', can('admin.workflows')], ['activity', 'Activity', true]];
 
   return (
     <>
@@ -242,6 +243,8 @@ export default function Admin() {
           <p className="note">Keywords let the server double-check the AI: if a request or draft uses terms from a stack the project doesn’t allow, it is flagged.</p>
         </>)}
 
+        {tab === 'fields' && can('admin.roles') && <FieldAdmin flash={flash} />}
+
         {tab === 'workflows' && can('admin.workflows') && <WorkflowAdmin flash={flash} />}
 
         {tab === 'activity' && (
@@ -277,6 +280,8 @@ function summarize(a: Audit) {
   const d = a.detail ?? {};
   if (a.action === 'role.permissions') return `${d.name}: +${(d.added ?? []).join(', ') || 'none'} / −${(d.removed ?? []).join(', ') || 'none'}`;
   if (a.action === 'role.create') return d.name;
+  if (a.action === 'role.ticket-fields') return `${d.name}: ${(d.changed ?? []).map((c: any) => `${c.field} ${c.from}→${c.to}`).join(', ')}`;
+  if (a.action === 'ticket.update') return `ticket fields changed: ${(d.fields ?? []).join(', ')}`;
   if (a.action.startsWith('workflow.')) return `${d.name}${d.levels ? ` · ${d.levels} level${d.levels === 1 ? '' : 's'}` : ''}`;
   if (a.action.startsWith('stack.') || a.action.startsWith('project.') && a.action !== 'project.stacks') return d.name;
   if (a.action === 'project.stacks') return `${d.name}: ${(d.stackIds ?? []).length} stack(s)`;

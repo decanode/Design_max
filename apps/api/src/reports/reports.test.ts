@@ -29,6 +29,7 @@ beforeAll(async () => {
   // A custom role that may view reports but only sees its own tickets.
   const role = (await pool.query("INSERT INTO roles(name) VALUES('Scoped viewer') RETURNING id")).rows[0].id;
   await pool.query("INSERT INTO role_permissions(role_id, permission) SELECT $1, unnest(ARRAY['report.view','board.view','ticket.view_own'])", [role]);
+  await pool.query("INSERT INTO ticket_field_access(role_id, field, access) VALUES ($1,'project','read')", [role]);   // the shared report filters by project
   const id = (await pool.query("INSERT INTO users(email, display_name, role_id) VALUES('scoped@test.dev','Scoped',$1) RETURNING id", [role])).rows[0].id;
   scoped = { id, email: 'scoped@test.dev', cookie: `dm_session=${signSession(id)}` };
 

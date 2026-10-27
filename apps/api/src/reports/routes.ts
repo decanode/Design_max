@@ -3,7 +3,8 @@ import { z } from 'zod';
 import { pool } from '../db.js';
 import { need, type SessionUser } from '../rbac/auth.js';
 import { DocError } from '../docs/service.js';
-import { ReportDefinition, datasetMeta, runReport, toCsv, type ReportDef } from './engine.js';
+import { ReportDefinition, FILTER_FIELD, datasetMeta, runReport, toCsv, type ReportDef } from './engine.js';
+import { FIELD_KEYS, canRead } from '../tickets/fields.js';
 
 const Layout = z.array(z.object({ id: z.string().uuid(), reportId: z.string().uuid(), size: z.union([z.literal(1), z.literal(2), z.literal(3)]) })).max(40);
 const Visibility = z.enum(['private', 'shared']);
@@ -48,6 +49,8 @@ export function registerReportRoutes(app: FastifyInstance) {
 
   app.get('/api/reports/meta', { preHandler: view }, async (req) => ({
     datasets: datasetMeta(),
+    readableFields: FIELD_KEYS.filter((f) => canRead(req.user!.fields, f)),   // groupings/filters on other fields are refused by the engine
+    filterFields: FILTER_FIELD,
     // Filter choices are only needed (and only offered) to people who build reports.
     projects: req.user!.perms.has('report.build') ? (await pool.query('SELECT id, name FROM projects ORDER BY name')).rows : [],
     people: req.user!.perms.has('report.build')

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { pool } from '../db.js';
 import { need, needAny } from './auth.js';
 import { ADMIN_ROLE, ALL_KEYS, CATALOG, isKnownKey } from './permissions.js';
+import { FIELD_KEYS } from '../tickets/fields.js';
 
 async function setStacks(c: import('pg').PoolClient, projectId: string, stackIds: number[]) {
   const ids = [...new Set(stackIds)];
@@ -119,6 +120,10 @@ export function registerAdminRoutes(app: FastifyInstance) {
         const src = await roleRow(b.copyFromRoleId);
         if (src.name === ADMIN_ROLE) await c.query('INSERT INTO role_permissions (role_id, permission) SELECT $1, unnest($2::text[])', [id, ALL_KEYS]);
         else await c.query('INSERT INTO role_permissions (role_id, permission) SELECT $1, permission FROM role_permissions WHERE role_id=$2', [id, b.copyFromRoleId]);
+        // …and the same column-level access to ticket fields (Admin, being implicit-all, copies as full Edit).
+        await c.query(src.name === ADMIN_ROLE
+          ? `INSERT INTO ticket_field_access (role_id, field, access) SELECT $1, f, CASE WHEN f IN ('customer','project','legacy') THEN 'read' ELSE 'write' END FROM unnest($2::text[]) f`
+          : 'INSERT INTO ticket_field_access (role_id, field, access) SELECT $1, field, access FROM ticket_field_access WHERE role_id=$2', src.name === ADMIN_ROLE ? [id, FIELD_KEYS] : [id, b.copyFromRoleId]);
       }
       await c.query('COMMIT');
       await audit(req, 'role.create', { id, name: b.name, copyFrom: b.copyFromRoleId ?? null });

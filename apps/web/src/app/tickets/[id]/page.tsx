@@ -4,6 +4,7 @@ import { useParams } from 'next/navigation';
 import { Nav } from '../../../components/Nav';
 import { Markdown } from '../../../components/Markdown';
 import { ApprovalPanel, type ApprovalRequest } from '../../../components/ApprovalPanel';
+import { TicketDetails, type DetailTicket } from '../../../components/TicketDetails';
 import { NoAccess, useAuth } from '../../../lib/auth';
 
 const API = '';
@@ -11,7 +12,8 @@ const STATES = ['Requirement Verified', 'FS Drafted', 'FS Approved', 'TS Drafted
 type Kind = 'FS' | 'TS';
 type Ver = { version: number; author: string | null; note: string | null; at: string };
 type Overview = {
-  ticket: { id: string; title: string; current_state: string; ai_summary: string | null; customer_name: string | null; consultant_name: string | null; consultant_id: string | null };
+  ticket: DetailTicket & { current_state: string; customer_name?: string | null; consultant_name?: string | null; consultant_id?: string | null; is_assigned?: boolean };
+  fields: Record<string, 'hidden' | 'read' | 'write'>;
   docs: Record<Kind, { latest: { version_number: number; content_md: string }; versions: Ver[] } | null>;
   stacks?: string[]; stackWarnings?: { kind: Kind; stack: string; terms: string[] }[];
   approvals: { id: string; approver_id: string; kind: Kind; version_number: number; status: string; comment: string | null; approver: string; level_name: string | null }[];
@@ -96,10 +98,10 @@ export default function TicketPage() {
       <main id="main">
         <h2 style={{ marginTop: 0 }}>{o.ticket.title}</h2>
         <div className="row" style={{ marginTop: -4 }}>
-          <span className="note">Customer: {o.ticket.customer_name ?? '—'}</span>
-          <span className="note">· Consultant: {o.ticket.consultant_name ?? 'Unassigned'}</span>
-          {!o.ticket.consultant_id && can('ticket.claim') && <button className="btn sm" disabled={busy} onClick={claim}>Claim this ticket</button>}
-          {can('ticket.assign') && (
+          {o.fields.customer !== 'hidden' && <span className="note">Customer: {o.ticket.customer_name ?? '—'}</span>}
+          {o.fields.consultant !== 'hidden' && <span className="note">{o.fields.customer !== 'hidden' ? '· ' : ''}Consultant: {o.ticket.consultant_name ?? 'Unassigned'}</span>}
+          {o.fields.consultant === 'write' && !o.ticket.is_assigned && can('ticket.claim') && <button className="btn sm" disabled={busy} onClick={claim}>Claim this ticket</button>}
+          {o.fields.consultant === 'write' && can('ticket.assign') && (
             <select aria-label="Assign consultant" value={o.ticket.consultant_id ?? ''} onChange={(e) => assign(e.target.value)}>
               <option value="">Unassigned</option>{people.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>)}
@@ -113,6 +115,8 @@ export default function TicketPage() {
         <ol className="stepper" aria-label="Ticket lifecycle">
           {STATES.map((s, i) => <li key={s} className={i < idx ? 'done' : i === idx ? 'cur' : ''} aria-current={i === idx ? 'step' : undefined}>{s}</li>)}
         </ol>
+
+        <TicketDetails ticket={o.ticket} fields={o.fields} onSaved={() => load()} />
 
         {!can('spec.view') ? <NoAccess what="the specifications" /> : (<>
         <div className="tabs" role="tablist" aria-label="Specification">

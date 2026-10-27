@@ -69,6 +69,13 @@ Automated background ingestion workers populate a central Vector Database (`pgve
 *   **Visibility:** the ticket page shows the route before requesting and a live level-by-level timeline afterwards (who approved, who is pending, comments); reports gain an "Approval level" grouping.
 *   **Not yet:** escalation/timeouts, delegation/out-of-office, conditional levels (e.g. by ticket size), and email/Teams reminders.
 
+### J. Column-Level Security for Tickets (added by approved design change)
+*   **Field access per role:** each ticket field — title, requirement summary, customer, assigned consultant, project, legacy (Jira/ServiceNow) reference, resolution notes, acceptance criteria — is set per role to **Hidden**, **Read only** or **Can edit** by an Admin in a grid (fields × roles). ID, phase, dates, the awaiting-approval flag and an "is assigned" flag are core and always visible; the title can never be hidden; customer, project and legacy fields are never editable. Admin always has the maximum for every field.
+*   **Defaults:** existing roles keep today's access (built-in roles tuned: Customer cannot see the legacy reference; Consultant and Lead can edit summary, notes, criteria and the assignment; Manager reads everything; Approver sees little). A newly created role is closed — title only — until an Admin opens fields; cloning a role copies its field access.
+*   **Enforced server-side wherever ticket data leaves:** board list, ticket detail, create/phase-change responses, ticket edits, claim/assign (need Edit on the consultant field), reports and CSV downloads (a report may not group or filter by a field the viewer cannot read — the widget shows "your role cannot see this data" instead of leaking it), and the team dashboard. A ticket's *visibility* (which rows) is decided independently of which columns are readable.
+*   **Editing:** a Details panel on the ticket page edits title/summary/notes/criteria; a request touching any field the role cannot edit is refused as a whole; the audit log records which fields changed, never their values.
+*   **Scope and limits:** this is application-level enforcement. Documents (FS/TS), chat summaries and approvals are governed by their own permissions, not by these field rules. Database-level protection (Postgres row-level security / column grants) remains part of the pending security-foundations work. Reads are not audit-logged.
+
 ## 2. Technology Stack
 
 | Layer | Component | Purpose |

@@ -9,6 +9,7 @@ import { supersedeOpenRequest, requestsForTicket } from '../approvals/engine.js'
 import { assessFit, loadStackPolicy, projectPolicyForTicket } from '../stacks.js';
 
 import { DocError } from '../errors.js';
+import { sanitizeTicket, type FieldAccess } from '../tickets/fields.js';
 export { DocError };
 
 const draftedState = (k: DocKind) => `${k} Drafted` as TicketState;
@@ -118,12 +119,12 @@ export async function viewApproval(token: string) {
   };
 }
 
-export async function ticketOverview(id: string) {
+export async function ticketOverview(id: string, fields: FieldAccess) {
   const base = await getTicket(id);
   const names = (await pool.query(
-    `SELECT cu.display_name AS customer_name, co.display_name AS consultant_name FROM tickets t
-     LEFT JOIN users cu ON cu.id=t.customer_id LEFT JOIN users co ON co.id=t.consultant_id WHERE t.id=$1`, [id])).rows[0];
-  const ticket = { ...base, ...names };
+    `SELECT cu.display_name AS customer_name, co.display_name AS consultant_name, p.name AS project_name, (t.consultant_id IS NOT NULL) AS is_assigned FROM tickets t
+     JOIN projects p ON p.id=t.project_id LEFT JOIN users cu ON cu.id=t.customer_id LEFT JOIN users co ON co.id=t.consultant_id WHERE t.id=$1`, [id])).rows[0];
+  const ticket = sanitizeTicket({ ...base, ...names }, fields);     // column-level security
   const docs: Record<string, unknown> = {};
   for (const k of ['FS', 'TS'] as const) { const v = await listVersions(id, k); docs[k] = v.length ? { latest: v[0], versions: v.map((x) => ({ version: x.version_number, author: x.author_name, note: x.change_note, at: x.created_at })) } : null; }
   const approvals = (await pool.query(
@@ -135,5 +136,5 @@ export async function ticketOverview(id: string) {
     return latest ? assessFit(latest, policy).foreign.map((f) => ({ kind: k, ...f })) : [];
   });
   const stacks = policy?.allowed.map((a) => a.name) ?? [];
-  return { ticket, docs, approvals, requests: await requestsForTicket(id), stacks, stackWarnings };
+  return { ticket, docs, approvals, requests: await requestsForTicket(id), stacks, stackWarnings, fields };
 }

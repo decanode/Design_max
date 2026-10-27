@@ -2,8 +2,9 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { pool } from '../db.js';
 import { ADMIN_ROLE, ALL_KEYS } from './permissions.js';
+import { ALL_WRITE, resolveFieldAccess, type FieldAccess } from '../tickets/fields.js';
 
-export interface SessionUser { id: string; email: string; name: string; roleId: number; roleName: string; perms: Set<string> }
+export interface SessionUser { id: string; email: string; name: string; roleId: number; roleName: string; perms: Set<string>; fields: FieldAccess }
 declare module 'fastify' { interface FastifyRequest { user: SessionUser | null } }
 
 export const COOKIE = 'dm_session';
@@ -47,7 +48,10 @@ export async function loadUser(id: string): Promise<SessionUser | null> {
   const perms = u.role_name === ADMIN_ROLE
     ? ALL_KEYS
     : (await pool.query('SELECT permission FROM role_permissions WHERE role_id = $1', [u.role_id])).rows.map((r) => r.permission as string);
-  return { id: u.id, email: u.email, name: u.display_name, roleId: u.role_id, roleName: u.role_name, perms: new Set(perms) };
+  const fields = u.role_name === ADMIN_ROLE
+    ? ALL_WRITE
+    : resolveFieldAccess((await pool.query('SELECT field, access FROM ticket_field_access WHERE role_id = $1', [u.role_id])).rows);
+  return { id: u.id, email: u.email, name: u.display_name, roleId: u.role_id, roleName: u.role_name, perms: new Set(perms), fields };
 }
 
 export async function userFromCookie(header: string | undefined) {

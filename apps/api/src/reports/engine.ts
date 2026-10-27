@@ -2,6 +2,8 @@ import { z } from 'zod';
 import { pool } from '../db.js';
 import { STATES } from '../stateMachine.js';
 import { ticketScope, type SessionUser } from '../rbac/auth.js';
+import { DocError } from '../errors.js';
+import { canRead, fieldDef } from '../tickets/fields.js';
 
 /**
  * Report engine. A report is a validated definition (dataset + measure + grouping + filters + chart).
@@ -77,6 +79,22 @@ export const DATASETS: Record<string, Dataset> = {
   },
 };
 
+/**
+ * Column-level security: a report may not group by, or filter on, a ticket field the viewer cannot read,
+ * otherwise a chart would reveal the hidden values (e.g. "tickets per consultant" for someone who cannot see consultants).
+ */
+export const DIM_FIELD: Record<string, Record<string, string>> = {
+  tickets: { project: 'project', consultant: 'consultant', customer: 'customer', source: 'legacy' }, approvals: {}, transitions: {},
+};
+export const FILTER_FIELD: Record<string, string> = { projectIds: 'project', consultantIds: 'consultant', sources: 'legacy' };
+
+export function fieldsNeeded(def: { dataset: string; groupBy: string | null; filters: Record<string, unknown> }): string[] {
+  const need = new Set<string>();
+  if (def.groupBy && DIM_FIELD[def.dataset]?.[def.groupBy]) need.add(DIM_FIELD[def.dataset][def.groupBy]);
+  for (const k of Object.keys(def.filters)) if (FILTER_FIELD[k]) need.add(FILTER_FIELD[k]);
+  return [...need];
+}
+
 const RANGES: Record<string, string> = { '7d': '7 days', '30d': '30 days', '90d': '90 days', '365d': '365 days' };
 const uuid = z.string().uuid();
 
@@ -125,7 +143,7 @@ export function datasetMeta() {
   return Object.entries(DATASETS).map(([key, d]) => ({
     key, label: d.label, filters: d.filters,
     measures: Object.entries(d.measures).map(([k, m]) => ({ key: k, label: m.label, unit: m.unit })),
-    dimensions: Object.entries(d.dims).map(([k, v]) => ({ key: k, label: v.label, time: v.time ?? null })),
+    dimensions: Object.entries(d.dims).map(([k, v]) => ({ key: k, label: v.label, time: v.time ?? null, field: DIM_FIELD[key]?.[k] ?? null })),
   }));
 }
 
@@ -146,6 +164,8 @@ function fillGaps(rows: { label: string; value: number | null }[], t: Time) {
 }
 
 export async function runReport(def: ReportDef, user: SessionUser): Promise<ReportResult> {
+  const blocked = fieldsNeeded(def).filter((f) => !canRead(user.fields, f));
+  if (blocked.length) throw new DocError(`This report uses ${blocked.map((f) => fieldDef(f)!.label.toLowerCase()).join(' and ')} data your role cannot see.`, 403, { blockedFields: blocked });
   const ds = DATASETS[def.dataset];
   const measure = ds.measures[def.measure];
   const dim = def.groupBy ? ds.dims[def.groupBy] : null;

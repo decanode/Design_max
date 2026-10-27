@@ -2,10 +2,12 @@ import type { FastifyInstance } from 'fastify';
 import { pool } from '../db.js';
 import { need } from './auth.js';
 import { STATES } from '../stateMachine.js';
+import { canRead } from '../tickets/fields.js';
 
 export function registerDashboardRoutes(app: FastifyInstance) {
   /** Lead view: who is carrying what, and what is waiting for an owner. */
-  app.get('/api/dashboard/team', { preHandler: need('dashboard.team') }, async () => {
+  app.get('/api/dashboard/team', { preHandler: need('dashboard.team') }, async (req, reply) => {
+    if (!canRead(req.user!.fields, 'consultant')) return reply.code(403).send({ error: 'Your role cannot see who tickets are assigned to' });
     const consultants = (await pool.query(
       `SELECT u.id, u.display_name AS name, r.name AS role,
               count(t.id) FILTER (WHERE t.current_state <> 'Deployed')::int AS open,

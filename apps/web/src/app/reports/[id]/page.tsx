@@ -8,7 +8,7 @@ import { NoAccess, useAuth, j } from '../../../lib/auth';
 
 type Filters = { states?: string[]; projectIds?: string[]; consultantIds?: string[]; sources?: string[]; openOnly?: boolean; statuses?: string[]; kinds?: string[]; range?: string };
 type Def = { dataset: string; measure: string; groupBy: string | null; filters: Filters; sort: 'natural' | 'value_desc' | 'value_asc'; limit: number; chart: ChartKind };
-type Meta = { datasets: { key: string; label: string; filters: string[]; measures: { key: string; label: string }[]; dimensions: { key: string; label: string; time: string | null }[] }[]; projects: { id: string; name: string }[]; people: { id: string; name: string }[] };
+type Meta = { datasets: { key: string; label: string; filters: string[]; measures: { key: string; label: string }[]; dimensions: { key: string; label: string; time: string | null; field: string | null }[] }[]; projects: { id: string; name: string }[]; people: { id: string; name: string }[]; readableFields: string[]; filterFields: Record<string, string> };
 
 const STATES = ['Requirement Verified', 'FS Drafted', 'FS Approved', 'TS Drafted', 'TS Approved', 'Development', 'QA', 'UAT', 'Deployed'];
 const NEW: Def = { dataset: 'tickets', measure: 'count', groupBy: 'state', filters: {}, sort: 'natural', limit: 12, chart: 'column' };
@@ -57,7 +57,10 @@ export default function Builder() {
     });
   }, [id, isNew, can]);
 
-  const ds = meta?.datasets.find((d) => d.key === def.dataset);
+  // Column-level security: groupings and filters on fields this viewer cannot read are not offered (the server refuses them anyway).
+  const ds0 = meta?.datasets.find((d) => d.key === def.dataset);
+  const readable = (f?: string | null) => !f || (meta?.readableFields.includes(f) ?? true);
+  const ds = ds0 && { ...ds0, dimensions: ds0.dimensions.filter((d) => readable(d.field) || d.key === def.groupBy), filters: ds0.filters.filter((k) => readable(meta?.filterFields[k]) || k in def.filters) };
   const dim = ds?.dimensions.find((d) => d.key === def.groupBy);
   const timeDim = ds?.dimensions.find((d) => d.time)?.key ?? null;
   const readOnly = !editable || !can('report.build');

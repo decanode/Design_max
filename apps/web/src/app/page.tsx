@@ -8,9 +8,9 @@ import { NoAccess, useAuth, j as jj } from '../lib/auth';
 const API = '';
 
 type Ticket = {
-  id: string; title: string; current_state: string; ai_summary: string | null;
-  legacy_id: string | null; legacy_source: 'jira' | 'servicenow' | null;
-  created_at: string; updated_at: string; awaiting_approval: boolean; consultant_id: string | null; consultant: string | null;
+  id: string; title: string; current_state: string; ai_summary?: string | null;
+  legacy_id?: string | null; legacy_source?: 'jira' | 'servicenow' | null;
+  created_at: string; updated_at: string; awaiting_approval: boolean; is_assigned: boolean; consultant?: string | null;
 };
 
 /** Phases grouped into lanes so the lifecycle reads left-to-right at a glance. */

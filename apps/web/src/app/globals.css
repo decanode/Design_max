@@ -253,3 +253,14 @@ header.top nav { overflow-x: auto; scrollbar-width: none; } header.top nav a { w
 .step[data-state='rejected'] .step-dot { background: var(--danger); border-color: var(--danger); color: #fff; }
 .step-title { font-weight: 650; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; } .step-who { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 2px; font-size: 13px; }
 .st-approved { color: var(--done); font-weight: 600; } .st-rejected { color: var(--danger); font-weight: 600; } .st-pending { color: var(--warn); font-weight: 600; } .st-skipped, .st-superseded { color: var(--muted); }
+
+/* ---------- Ticket field access + details ---------- */
+.lvl { padding: 5px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--text); font-size: 12.5px; min-width: 104px; }
+.lvl-hidden { color: var(--muted); background: var(--panel-2); } .lvl-write { border-color: color-mix(in srgb, var(--done) 60%, var(--line)); } .lvl:disabled { opacity: .7; }
+.details { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; margin-bottom: 16px; }
+.details h3 { margin: 0 0 8px; font-size: 14px; }
+.dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px 24px; margin: 0; }
+.dl > div { min-width: 0; } .dl dt { font-size: 11.5px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); margin-bottom: 2px; } .dl dd { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.dl dd.empty { color: var(--muted); font-style: italic; }
+.dl textarea, .dl input { width: 100%; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--text); font: inherit; }
+.ro-tag { font-size: 10.5px; padding: 1px 7px; border-radius: 99px; border: 1px solid var(--line); color: var(--muted); margin-left: 6px; text-transform: none; letter-spacing: 0; }
