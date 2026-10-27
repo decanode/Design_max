@@ -1,6 +1,6 @@
 # Enterprise AI Project Lifecycle Platform (Architecture & Design Document)
 
-**Project Name:** Antigravity
+**Project Name:** Design Max
 **Document Version:** 2.0 (Final Draft for Kickoff)
 **Project Objective:** Build a unified, chat-first enterprise platform consolidating IT Service Management, Agile Project Management, and Technical Documentation into a single AI-driven workflow, serving SAP and multi-stack (.NET/Java/Node) environments. It includes full ETL capabilities to migrate legacy Jira and ServiceNow data.
 
@@ -22,7 +22,7 @@ Every ticket adheres to a strict, immutable lifecycle enforced at the database l
 
 ### C. Legacy Migration Engine (ETL for ServiceNow & Jira)
 *   **Extraction (API Connectors):** Scripts to pull data from ServiceNow (Incidents, Problems, Changes) and Jira (Epics, Stories, Bugs, Comments, Attachments).
-*   **Transformation:** Map legacy states (e.g., Jira "Done", SNOW "Resolved") to Antigravity's Phase Gates. Map `sys_users` and Jira Account IDs to corporate Entra ID emails.
+*   **Transformation:** Map legacy states (e.g., Jira "Done", SNOW "Resolved") to Design Max's Phase Gates. Map `sys_users` and Jira Account IDs to corporate Entra ID emails.
 *   **Vectorization:** Run Resolution Notes and Acceptance Criteria through the LLM to store as embeddings, allowing the AI to suggest historical fixes for new incoming tickets.
 *   **Attachments:** Migrate legacy binaries to S3/Blob storage and link to migrated tickets.
 

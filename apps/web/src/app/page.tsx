@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Nav } from '../components/Nav';
 
-const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
+const API = process.env.NEXT_PUBLIC_API_URL ?? '';
 type Ticket = { id: string; title: string; current_state: string };
 
 export default function Board() {

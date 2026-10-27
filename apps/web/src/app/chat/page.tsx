@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { io, type Socket } from 'socket.io-client';
 import { Nav } from '../../components/Nav';
 
-const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
+const API = process.env.NEXT_PUBLIC_API_URL ?? '';
 type Msg = { id: number; sender_role: 'customer' | 'consultant' | 'system'; sender_name: string; body: string };
 type Draft = { title: string; summary: string; status: 'draft' | 'verified'; ticket_id: string | null; entities: { businessObjects?: string[]; vendors?: string[]; materialTypes?: string[] } };
 
@@ -23,7 +23,7 @@ export default function Chat() {
 
   useEffect(() => {
     if (!cid) return;
-    const s = io(API); sock.current = s;
+    const s = io(API || undefined); sock.current = s;
     s.on('connect', () => s.emit('join', { conversationId: cid }, (r: any) => {
       if (r.error) return setError(r.error);
       setMsgs(r.messages); setDraft(r.draft); setError('');

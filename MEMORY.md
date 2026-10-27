@@ -1,4 +1,4 @@
-# MEMORY.md — Project Antigravity State Log
+# MEMORY.md — Design Max State Log
 
 ## Status
 Sprint 0: **complete**. Sprint 1 (ETL & ingestion workers): **core ETL complete; ingestion workers partial (see Open Items); validated against fixtures only** — no live Jira/SNOW/SAP/SharePoint/Git/OpenAI connection has been tested. Sprint 2 (Intelligent Intake & Chat): **built, verified with offline observer only**. Next: Sprint 3 (docs engine & approvals).
@@ -32,7 +32,11 @@ Sprint 0: **complete**. Sprint 1 (ETL & ingestion workers): **core ETL complete;
 - Web: `/chat` page (conversation + live AI summary pane + Verify & Approve, entity chips, reconnect/error states, ARIA live regions, responsive), shared Nav.
 - Tests: 22 Vitest (incl. real-socket integration) + 3 Playwright E2E, all passing.
 
+- Renamed project to **Design Max** (UI, package scopes `@design-max/*`, design doc title, MEMORY). Left as-is: Postgres user/db name `antigravity` (renaming means recreating the DB volume), a comment in applied migration 002, and the persona name in `system_ground_rules.md` (user-authored).
+- Bug fix: browser showed "Cannot reach the API" because the frontend called `http://localhost:4000` directly, which doesn't resolve to the Codespace from the user's browser. Web now uses same-origin and Next rewrites `/api/*` and `/socket.io` to the API (`API_INTERNAL_URL`). Only port 3000 needs forwarding.
+
 ## Decisions
+- **Same-origin API proxy via Next rewrites**: removes CORS and the second-port forwarding requirement. `skipTrailingSlashRedirect` + explicit `/socket.io` rewrite because engine.io requires the trailing slash Next strips.
 - **USER DIRECTIVE: connectors/integrations are parked** (Jira, ServiceNow, SAP, SharePoint, Git, OpenAI keys) until the user obtains approvals/keys/system access. Do not work on them or the embedding-recording step until told.
 - **Observer behind an interface with an offline stand-in**: build and test the intake flow with no API key.
 - **Observer failures never block chat**: messages persist first; draft errors surface as a non-blocking notice.

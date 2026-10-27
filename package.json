@@ -1,5 +1,5 @@
 {
-  "name": "antigravity",
+  "name": "design-max",
   "private": true,
   "workspaces": [
     "apps/*"

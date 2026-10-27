@@ -1,7 +1,7 @@
 import './globals.css';
 import type { ReactNode } from 'react';
 
-export const metadata = { title: 'Antigravity', description: 'Chat-first enterprise project lifecycle platform' };
+export const metadata = { title: 'Design Max', description: 'Chat-first enterprise project lifecycle platform' };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (

@@ -1,5 +1,5 @@
 {
-  "name": "@antigravity/web",
+  "name": "@design-max/web",
   "private": true,
   "scripts": {
     "dev": "next dev -p 3000",
