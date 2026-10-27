@@ -7,6 +7,8 @@ import { testDbUrl } from './src/testdb.js';
 export default defineConfig({
   test: {
     globalSetup: './test-setup.ts',
+    // Fixtures run outside any request, so they act as the platform; the app code under test runs inside each request's own project context.
+    setupFiles: ['./test-context.ts'],
     fileParallelism: false,
     exclude: ['dist/**', 'node_modules/**'],
     env: { AI_PROVIDER: 'offline', DATABASE_URL: testDbUrl() },

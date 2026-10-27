@@ -13,6 +13,7 @@ import { defaultLlm } from './chat/observer.js';
 import { defaultEmbedder } from './etl/vectorize.js';
 import { createTicket, transitionTicket, TransitionError } from './tickets.js';
 import { inProject, need, needAny, registerAuth, ticketScope } from './rbac/auth.js';
+import { audit } from './rbac/audit.js';
 import { membersWithPermission } from './rbac/effective.js';
 import { registerAuthRoutes } from './rbac/authRoutes.js';
 import { registerPlatformRoutes } from './platform/routes.js';
@@ -90,7 +91,7 @@ export function buildApp(deps: Partial<DocDeps> = {}) {
     const sets = keys.map((k, i) => `${EDITABLE[k].column} = $${i + 2}`);
     const row = (await pool.query(`UPDATE tickets SET ${sets.join(', ')} WHERE id = $1 RETURNING *`, [id, ...keys.map((k) => b[k] === '' ? null : b[k])])).rows[0];
     // The log records WHICH fields changed, never their (possibly sensitive) values.
-    await pool.query('INSERT INTO audit_log (actor_id, action, detail) VALUES ($1,$2,$3)', [req.user!.id, 'ticket.update', JSON.stringify({ ticketId: id, fields: keys.map((k) => EDITABLE[k].field) })]);
+    await audit(req, 'ticket.update', { ticketId: id, fields: keys.map((k) => EDITABLE[k].field) });
     return sanitizeTicket(row, req.user!.fields);
   });
 

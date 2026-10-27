@@ -133,7 +133,7 @@ describe('projects are walled off from each other', () => {
     // a person in both projects only sees and decides a task while working in its project
     await addMember(beta, mgrA.id, 'Customer');
     expect((await call(mgrA, 'GET', '/api/my/approvals', undefined, beta)).body.map((x: any) => x.ticket_id)).not.toContain(t);
-    expect((await call(mgrA, 'POST', `/api/my/approvals/${task.id}/decision`, { decision: 'approved' }, beta)).status).toBe(409);
+    expect((await call(mgrA, 'POST', `/api/my/approvals/${task.id}/decision`, { decision: 'approved' }, beta)).status).toBe(404);   // from Beta that approval does not exist at all
     expect((await call(mgrA, 'POST', `/api/my/approvals/${task.id}/decision`, { decision: 'approved' }, alpha)).status).toBe(200);
   });
 

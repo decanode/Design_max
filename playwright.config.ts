@@ -4,7 +4,8 @@ import { defineConfig } from '@playwright/test';
 // and never depend on (or disturb) the dev servers or a live AI provider.
 const API = 4100, WEB = 3100;
 // Same rule as apps/api/src/testdb.ts (duplicated: this file is loaded as CommonJS and cannot import ESM).
-const testDbUrl = () => { const u = new URL(process.env.DATABASE_URL ?? 'postgres://antigravity:antigravity@localhost:5432/antigravity'); u.pathname = '/design_max_test'; return u.toString(); };
+// The API under test connects as the restricted application account (row-level security applies); only the test setup uses the owner.
+const testDbUrl = () => process.env.TEST_APP_DATABASE_URL ?? 'postgres://design_max_app:design_max_app@localhost:5432/design_max_test';
 
 export default defineConfig({
   testDir: 'tests/e2e',

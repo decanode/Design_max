@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import { pool } from '../db.js';
+import { pool, runWithContext, type DbContext } from '../db.js';
 import { ALL_KEYS } from './permissions.js';
 import { effectiveFields, effectivePerms } from './effective.js';
 import { ALL_WRITE, resolveFieldAccess, type FieldAccess } from '../tickets/fields.js';
@@ -103,10 +103,28 @@ export async function userFromCookie(header: string | undefined) {
 /** Routes under /api/ that work without a session. Approval-by-token carries its own credential. */
 const PUBLIC = [/^\/api\/auth\//, /^\/api\/states$/, /^\/api\/approvals\/[^/]+(\/decision)?$/];
 
+/**
+ * Routes that legitimately span projects run as the platform: the Super Admin console (guarded by `needSuper`), sign-in and
+ * project switching, and the public emailed-link approval (the link's token is its authority for exactly one approval).
+ */
+const PLATFORM_ROUTES = [/^\/api\/platform\//, /^\/api\/auth\//, /^\/api\/approvals\/[^/]+(\/decision)?$/, /^\/health\/db$/];
+
 export function registerAuth(app: FastifyInstance) {
   app.decorateRequest('user', null);
+
+  // 1. Work out who this is and which database context the rest of the request runs in. Everything after this hook
+  //    (including the route handler) runs inside that context, so the database itself enforces the project wall.
+  app.addHook('onRequest', (req, _reply, done) => {
+    userFromCookie(req.headers.cookie).then((u) => {
+      req.user = u;
+      const path = req.url.split('?')[0];
+      const ctx: DbContext = PLATFORM_ROUTES.some((p) => p.test(path)) ? { platform: true } : u?.projectId ? { projectId: u.projectId } : {};
+      runWithContext(ctx, () => done());
+    }, done);
+  });
+
+  // 2. Everything under /api needs a session, except the public routes.
   app.addHook('onRequest', async (req, reply) => {
-    req.user = await userFromCookie(req.headers.cookie);
     const path = req.url.split('?')[0];
     if (path.startsWith('/api/') && !req.user && !PUBLIC.some((p) => p.test(path)))
       return reply.code(401).send({ error: 'Sign in required' });

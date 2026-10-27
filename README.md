@@ -15,3 +15,9 @@ npm run dev               # database + migrations + API (:4000) + web (:3000)
   database is not running (this happens after a Codespace is paused: the container is stopped, the data is not lost).
 - `npm run test:unit` and `npm run test:e2e` use a separate throwaway database and never touch your data.
 - Open http://localhost:3000. On first run, choose **Create demo accounts** on the sign-in page.
+- **Two database accounts.** The server connects as `design_max_app`, a restricted account that cannot bypass the row-level
+  security keeping projects apart (`DATABASE_URL`). Schema upgrades run as the database owner (`MIGRATE_DATABASE_URL`) and
+  create that account. In production, set its password yourself: `ALTER ROLE design_max_app PASSWORD '…'`.
+- **People.** *Super Admins* (the platform tier) create projects and appoint each project's *Project Admin*, who runs that
+  project's members, roles, workflows, technology and fields. Roles belong to a project, so one person can hold different
+  roles in different projects; use the project menu in the header to switch.
