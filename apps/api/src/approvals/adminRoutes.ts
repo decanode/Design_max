@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { KINDS } from '../docs/kinds.js';
 import { z } from 'zod';
 import { pool } from '../db.js';
 import { need } from '../rbac/auth.js';
@@ -18,7 +19,7 @@ const Level = z.object({
 const Workflow = z.object({
   name: z.string().trim().min(2).max(80),
   description: z.string().max(300).default(''),
-  kinds: z.array(z.enum(['FS', 'TS'])).min(1).max(2),
+  kinds: z.array(z.enum(KINDS)).min(1).max(4),
   active: z.boolean().default(true),
   levels: z.array(Level).min(1).max(10),
 });

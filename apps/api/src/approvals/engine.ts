@@ -11,14 +11,15 @@ import type { Mail, Mailer } from '../docs/mailer.js';
  * Level N+1 only starts once level N is complete. A rejection anywhere ends the request.
  * Decisions are serialized by locking the request row, so concurrent approvers can never double-advance a level.
  */
-export type Kind = 'FS' | 'TS';
+import { RULES, LABEL, type DocKind } from '../docs/kinds.js';
+export type Kind = DocKind;
 export interface ApproverRef { kind: 'user' | 'role'; id: string | number; name: string }
 export interface LevelSnap { position: number; name: string; rule: 'any' | 'all'; approvers: ApproverRef[] }
 export interface Person { id: string; email: string; name: string }
 
 const hash = (t: string) => createHash('sha256').update(t).digest('hex');
 export const TOKEN_TTL_DAYS = 7;
-const label = (k: Kind) => (k === 'FS' ? 'Functional' : 'Technical');
+const label = (k: Kind) => LABEL[k].replace(/ (Specification|Checklist|Test)$/, '');
 type Db = Pick<pg.Pool, 'query'>;
 
 /** The project's active workflow for this kind of document. Each project has its own; nothing is shared across projects. */
@@ -86,7 +87,7 @@ async function startLevel(c: pg.PoolClient, req: any, fromIndex: number, ticketT
           [req.ticket_id, p.id, req.kind, req.version_number, hash(token), String(TOKEN_TTL_DAYS), req.id, lvl.position, lvl.name]);
         mails.push({
           to: p.email,
-          subject: `Approval needed (${lvl.name} of ${levels[levels.length - 1].name}): ${label(req.kind)} Specification – ${ticketTitle}`,
+          subject: `Approval needed (${lvl.name} of ${levels[levels.length - 1].name}): ${LABEL[req.kind as Kind]} – ${ticketTitle}`,
           body: `You are asked to approve at level ${lvl.name} (${lvl.rule === 'all' ? 'everyone at this level must approve' : 'any one approver is enough'}), version ${req.version_number}:\n\n${appUrl}/approve/${token}\n\nThis link is single-use and expires in ${TOKEN_TTL_DAYS} days. You can also decide inside the app.`,
         });
       }
@@ -111,11 +112,14 @@ export async function requestApproval(ticketId: string, kind: Kind, requester: {
     await c.query('BEGIN');
     const t = (await c.query('SELECT title, project_id, current_state FROM tickets WHERE id=$1 FOR UPDATE', [ticketId])).rows[0];
     if (!t) throw new DocError('Ticket not found', 404);
-    if (t.current_state !== `${kind} Drafted`) throw new DocError(`Approval for the ${kind} can only be requested while the ticket is in "${kind} Drafted"`);
+    if (!RULES[kind].editIn.includes(t.current_state)) throw new DocError(`Approval for the ${kind} can only be requested while the ticket is in ${RULES[kind].editIn.map((x) => `"${x}"`).join(' or ')}`);
+    if (RULES[kind].lockedWhenApproved && (await c.query(`SELECT 1 FROM approval_requests WHERE ticket_id=$1 AND kind=$2 AND status='approved'`, [ticketId, kind])).rowCount)
+      throw new DocError(`The ${kind} is already approved`);
+    if (!(await c.query('SELECT 1 FROM documents WHERE ticket_id=$1 AND kind=$2 LIMIT 1', [ticketId, kind])).rowCount) throw new DocError(`There is no ${kind} to approve yet`);
     if ((await c.query(`SELECT 1 FROM approval_requests WHERE ticket_id=$1 AND kind=$2 AND status='in_progress'`, [ticketId, kind])).rowCount)
       throw new DocError('An approval is already in progress for this document');
     const wf = await findWorkflow(c, t.project_id, kind);
-    if (!wf) throw new DocError(`No approval workflow covers the ${label(kind)} Specification for this project. Ask an Admin to set one up.`, 409);
+    if (!wf) throw new DocError(`No approval workflow covers the ${LABEL[kind]} for this project. Ask an Admin to set one up.`, 409);
 
     // Every level must be satisfiable before we start, so a request can never stall halfway for a fixable reason.
     for (const l of wf.levels) {
@@ -171,7 +175,7 @@ async function decide(lookup: (c: pg.PoolClient) => Promise<any>, decision: Deci
     if (decision === 'rejected') {
       await c.query(`UPDATE approvals SET status='skipped' WHERE request_id=$1 AND status='pending'`, [req.id]);
       await c.query(`UPDATE approval_requests SET status='rejected', completed_at=now() WHERE id=$1`, [req.id]);
-      mails = await requesterMail(c, req, `Rejected at ${lvl.name}: ${label(req.kind)} Specification – ${title}`, `${who} rejected your request at level ${lvl.name}.\n\nReason: ${comment!.trim()}\n\nUpdate the document and request approval again.`);
+      mails = await requesterMail(c, req, `Rejected at ${lvl.name}: ${LABEL[req.kind as Kind]} – ${title}`, `${who} rejected your request at level ${lvl.name}.\n\nReason: ${comment!.trim()}\n\nUpdate the document and request approval again.`);
     } else {
       const left = (await c.query(`SELECT count(*)::int n FROM approvals WHERE request_id=$1 AND level=$2 AND status='pending'`, [req.id, lvl.position])).rows[0].n as number;
       if (lvl.rule === 'any' || left === 0) {
@@ -180,8 +184,9 @@ async function decide(lookup: (c: pg.PoolClient) => Promise<any>, decision: Deci
         mails = next.mails;
         if (next.finished) {
           await c.query(`UPDATE approval_requests SET status='approved', completed_at=now() WHERE id=$1`, [req.id]);
-          await applyTransition(c, req.ticket_id, `${req.kind} Approved` as TicketState, task.approver_id);
-          mails.push(...await requesterMail(c, req, `Approved: ${label(req.kind)} Specification – ${title}`, `All ${levels.length} approval level${levels.length > 1 ? 's' : ''} signed off. The ticket has moved to ${req.kind} Approved.`));
+          const to = RULES[req.kind as Kind].onApprove;
+          if (to) await applyTransition(c, req.ticket_id, to, task.approver_id);
+          mails.push(...await requesterMail(c, req, `Approved: ${LABEL[req.kind as Kind]} – ${title}`, `All ${levels.length} approval level${levels.length > 1 ? 's' : ''} signed off.${to ? ` The ticket has moved to ${to}.` : ' The document is now locked.'}`));
         }
       }
     }

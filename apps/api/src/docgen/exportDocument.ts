@@ -5,9 +5,10 @@ import { loadStackPolicy } from '../stacks.js';
 import { canRead } from '../tickets/fields.js';
 import type { SessionUser } from '../rbac/auth.js';
 import { baseTemplate } from './baseTemplate.js';
-import { markdownToPm } from './pm.js';
+import { versionPm } from '../docs/content.js';
 import { simpleTable } from './ooxml.js';
 import { fillTemplate, type Typography } from './template.js';
+import { docNumber, effectiveSettings, typographyOf } from '../docs/settings.js';
 
 export const DOC_LABEL: Record<string, string> = { FS: 'Functional Specification', TS: 'Technical Specification', TUT: 'Technical Unit Test', CRC: 'Code Review Checklist' };
 const isoDate = (d: Date | string) => new Date(d).toISOString().slice(0, 10);
@@ -22,9 +23,10 @@ export interface ExportResult { buffer: Buffer; filename: string; version: numbe
  * does not get the customer name in the file.
  */
 export async function exportDocument(user: SessionUser, ticketId: string, kind: string, version?: number, typography?: Typography): Promise<ExportResult> {
+  const cfg = await effectiveSettings(user.projectId!);
   const t = (await pool.query('SELECT id, title, project_id FROM tickets WHERE id=$1', [ticketId])).rows[0];
   if (!t) throw new DocError('Ticket not found', 404);
-  const versions = (await pool.query('SELECT version_number, content_md, author_name, change_note, created_at FROM documents WHERE ticket_id=$1 AND kind=$2 ORDER BY version_number', [ticketId, kind])).rows;
+  const versions = (await pool.query('SELECT version_number, content_json, content_md, content_text, author_name, change_note, created_at FROM documents WHERE ticket_id=$1 AND kind=$2 ORDER BY version_number', [ticketId, kind])).rows;
   if (!versions.length) throw new DocError('There is no document to download yet', 404);
   const v = version == null ? versions[versions.length - 1] : versions.find((x) => x.version_number === version);
   if (!v) throw new DocError('That version does not exist', 404);
@@ -46,12 +48,12 @@ export async function exportDocument(user: SessionUser, ticketId: string, kind: 
 
   const out = fillTemplate(baseTemplate(), {
     title: `${label}: ${t.title}`,
-    typography,
+    typography: typography ?? typographyOf(cfg),
     tokens: {
-      PROJECT_NAME: user.projectName ?? '', TICKET_ID: String(t.id).slice(0, 8).toUpperCase(), TICKET_TITLE: t.title, DOCUMENT_TYPE: label,
-      VERSION: `v${v.version_number}`, STATUS: status, DATE: isoDate(v.created_at), AUTHOR: v.author_name ?? '—', CUSTOMER: customer, TECHNOLOGY: stacks, CONFIDENTIALITY: 'Confidential',
+      PROJECT_NAME: cfg.displayName || user.projectName || '', CLIENT_NAME: cfg.clientName, HEADER_TEXT: cfg.headerText, FOOTER_TEXT: cfg.footerText, DOC_NUMBER: docNumber(cfg.docNumberFormat, { project: cfg.displayName || user.projectName || '', ticket: String(t.id).slice(0, 8).toUpperCase(), type: kind, version: v.version_number }), TICKET_ID: String(t.id).slice(0, 8).toUpperCase(), TICKET_TITLE: t.title, DOCUMENT_TYPE: label,
+      VERSION: `v${v.version_number}`, STATUS: status, DATE: isoDate(v.created_at), AUTHOR: v.author_name ?? '—', CUSTOMER: customer, TECHNOLOGY: stacks, CONFIDENTIALITY: cfg.confidentiality,
     },
-    body: markdownToPm(v.content_md),
+    body: versionPm(v),
     blocks: {
       APPROVALS: approvalRows.length ? simpleTable(['Level', 'Approver', 'Decision', 'Date'], approvalRows) : simpleTable(['Level', 'Approver', 'Decision', 'Date'], [['—', 'Not yet approved', '', '']]),
       REVISIONS: simpleTable(['Version', 'Date', 'Author', 'Change'], versions.map((x) => [`v${x.version_number}`, isoDate(x.created_at), x.author_name ?? '—', x.change_note ?? ''])),

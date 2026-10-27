@@ -15,7 +15,7 @@ const cell = (txt: string, w: number, bold = false) => `<w:tc><w:tcPr><w:tcW w:w
 const infoRow = (k: string, v: string) => `<w:tr>${cell(k, 2400, true)}${cell(v, 6600)}</w:tr>`;
 
 function documentXml() {
-  const info = ['Project|{{PROJECT_NAME}}', 'Ticket|{{TICKET_ID}} · {{TICKET_TITLE}}', 'Document|{{DOCUMENT_TYPE}}', 'Version|{{VERSION}}', 'Status|{{STATUS}}', 'Date|{{DATE}}', 'Prepared by|{{AUTHOR}}', 'Customer|{{CUSTOMER}}', 'Technology|{{TECHNOLOGY}}'].map((r) => infoRow(...(r.split('|') as [string, string]))).join('');
+  const info = ['Project|{{PROJECT_NAME}}', 'Client|{{CLIENT_NAME}}', 'Document no.|{{DOC_NUMBER}}', 'Ticket|{{TICKET_ID}} · {{TICKET_TITLE}}', 'Document|{{DOCUMENT_TYPE}}', 'Version|{{VERSION}}', 'Status|{{STATUS}}', 'Date|{{DATE}}', 'Prepared by|{{AUTHOR}}', 'Customer|{{CUSTOMER}}', 'Technology|{{TECHNOLOGY}}'].map((r) => infoRow(...(r.split('|') as [string, string]))).join('');
   return `${XML}<w:document ${NS}><w:body>
 ${p(t('{{DOCUMENT_TYPE}}'), '<w:pStyle w:val="Title"/>')}
 ${p(t('{{TICKET_TITLE}}'), '<w:pStyle w:val="Subtitle"/>')}
@@ -51,9 +51,9 @@ const numberingXml = () => `${XML}<w:numbering xmlns:w="${W}">
 <w:abstractNum w:abstractNumId="1"><w:multiLevelType w:val="hybridMultilevel"/>${[0, 1, 2].map((l) => `<w:lvl w:ilvl="${l}"><w:start w:val="1"/><w:numFmt w:val="${['decimal', 'lowerLetter', 'lowerRoman'][l]}"/><w:lvlText w:val="%${l + 1}."/><w:lvlJc w:val="left"/><w:pPr><w:ind w:left="${720 + l * 360}" w:hanging="360"/></w:pPr></w:lvl>`).join('')}</w:abstractNum>
 <w:num w:numId="1"><w:abstractNumId w:val="0"/></w:num><w:num w:numId="2"><w:abstractNumId w:val="1"/></w:num></w:numbering>`;
 
-const header = () => `${XML}<w:hdr ${NS}>${p(t('{{PROJECT_NAME}}  ·  {{DOCUMENT_TYPE}}  ·  {{TICKET_ID}}'), '<w:pBdr><w:bottom w:val="single" w:sz="4" w:space="4" w:color="BFBFBF"/></w:pBdr>')}</w:hdr>`;
+const header = () => `${XML}<w:hdr ${NS}>${p(t('{{PROJECT_NAME}}  ·  {{DOCUMENT_TYPE}}  ·  {{DOC_NUMBER}}  {{HEADER_TEXT}}'), '<w:pBdr><w:bottom w:val="single" w:sz="4" w:space="4" w:color="BFBFBF"/></w:pBdr>')}</w:hdr>`;
 const field = (instr: string) => `<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> ${instr} </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>1</w:t></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r>`;
-const footer = () => `${XML}<w:ftr ${NS}>${p(`${t('{{CONFIDENTIALITY}}   ·   Version {{VERSION}}   ·   Page ')}${field('PAGE')}${t(' of ')}${field('NUMPAGES')}`, '<w:jc w:val="center"/>')}</w:ftr>`;
+const footer = () => `${XML}<w:ftr ${NS}>${p(`${t('{{CONFIDENTIALITY}}  {{FOOTER_TEXT}}   ·   Version {{VERSION}}   ·   Page ')}${field('PAGE')}${t(' of ')}${field('NUMPAGES')}`, '<w:jc w:val="center"/>')}</w:ftr>`;
 
 const CT = (kind: string) => `application/vnd.openxmlformats-officedocument.wordprocessingml.${kind}+xml`;
 let cached: Buffer | undefined;

@@ -52,7 +52,7 @@ export const DATASETS: Record<string, Dataset> = {
     dateCol: 'a.requested_at',
     dims: {
       status: { label: 'Status', sql: 'a.status' },
-      kind: { label: 'Document', sql: `CASE a.kind WHEN 'FS' THEN 'Functional spec' ELSE 'Technical spec' END` },
+      kind: { label: 'Document', sql: `CASE a.kind WHEN 'FS' THEN 'Functional spec' WHEN 'TS' THEN 'Technical spec' WHEN 'TUT' THEN 'Unit test' ELSE 'Code review' END` },
       approver: { label: 'Approver', sql: 'ap.display_name' },
       level: { label: 'Approval level', sql: `COALESCE(a.level_name, 'Ad hoc')` },
       ...timeDims('a.requested_at', 'requested_', 'Requested'),
@@ -103,7 +103,7 @@ export const Filters = z.object({
   sources: z.array(z.enum(['jira', 'servicenow', 'native'])).max(3).optional(),
   openOnly: z.boolean().optional(),
   statuses: z.array(z.enum(['pending', 'approved', 'rejected', 'superseded', 'skipped'])).max(5).optional(),
-  kinds: z.array(z.enum(['FS', 'TS'])).max(2).optional(),
+  kinds: z.array(z.enum(['FS', 'TS', 'TUT', 'CRC'])).max(4).optional(),
   range: z.enum(['7d', '30d', '90d', '365d', 'all']).optional(),
 }).strict();
 

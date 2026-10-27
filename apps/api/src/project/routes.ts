@@ -8,6 +8,7 @@ import { effectiveFields, effectivePerms, overrideFlags } from '../rbac/effectiv
 import { DocError } from '../errors.js';
 import { FIELDS, FIELD_KEYS, LEVELS, validateFieldAccess } from '../tickets/fields.js';
 import { setProjectStacks } from '../stacks.js';
+import { DocSettings, FONTS, STACK_SETS, effectiveSettings, saveProjectSettings } from '../docs/settings.js';
 import { findOrCreateUser } from '../platform/routes.js';
 
 /**
@@ -181,6 +182,15 @@ export function registerProjectRoutes(app: FastifyInstance) {
   });
 
   // ---------------- activity
+  // ---------------- document settings
+  app.get('/api/project/doc-settings', { preHandler: settings }, async (req) => ({ settings: await effectiveSettings(pid(req)), fonts: FONTS, templateSets: STACK_SETS }));
+  app.put('/api/project/doc-settings', { preHandler: settings }, async (req) => {
+    const patch = DocSettings.partial().parse(req.body);
+    const out = await saveProjectSettings(pid(req), patch, req.user!.id);
+    await audit(req, 'project.doc_settings', patch);
+    return { settings: out };
+  });
+
   app.get('/api/project/audit', { preHandler: anyAdmin }, async (req) =>
     (await pool.query(`SELECT a.id, a.action, a.detail, a.created_at, u.display_name AS actor FROM audit_log a LEFT JOIN users u ON u.id = a.actor_id WHERE a.project_id = $1 ORDER BY a.id DESC LIMIT 100`, [pid(req)])).rows);
 }

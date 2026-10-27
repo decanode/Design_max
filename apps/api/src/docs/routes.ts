@@ -6,11 +6,13 @@ import type { DocGenerator } from './generator.js';
 import type { Mailer } from './mailer.js';
 import { need, needSuper, ticketVisible } from '../rbac/auth.js';
 import { DocError, diffVersions, generateDocument, saveVersion, ticketOverview, viewApproval } from './service.js';
+import { KINDS } from './kinds.js';
+import { versionPm, versionText } from './content.js';
 import { exportDocument } from '../docgen/exportDocument.js';
 import { approvalPlan, cancelRequest, decideAsUser, decideByToken, requestApproval } from '../approvals/engine.js';
 
 const Id = z.object({ id: z.string().uuid() });
-const Kind = z.enum(['FS', 'TS']);
+const Kind = z.enum(KINDS);
 
 export interface DocDeps { generator: DocGenerator; mailer: Mailer; embedder?: Embedder; appUrl: string }
 
@@ -24,29 +26,31 @@ export function registerDocRoutes(app: FastifyInstance, d: DocDeps) {
     const { id } = Id.parse(req.params);
     await visible(req, id);
     const o = await ticketOverview(id, req.user!.fields);
-    return req.user!.perms.has('spec.view') ? o : { ...o, docs: { FS: null, TS: null }, approvals: [] };
+    return req.user!.perms.has('spec.view') ? o : { ...o, docs: Object.fromEntries(KINDS.map((k) => [k, null])), approvals: [] };
   });
 
   app.post('/api/tickets/:id/documents/generate', { preHandler: need('spec.generate') }, async (req, reply) => {
     const { id } = Id.parse(req.params);
     await visible(req, id);
     const { kind } = z.object({ kind: Kind }).parse(req.body);
-    return reply.code(201).send(await generateDocument(id, kind, d.generator, d.embedder));
+    const row = await generateDocument(id, kind, d.generator, d.embedder);
+    return reply.code(201).send({ ...row, content_md: versionText(row) });
   });
 
   app.post('/api/tickets/:id/documents/:kind/versions', { preHandler: need('spec.edit') }, async (req, reply) => {
     const { id, kind } = z.object({ id: z.string().uuid(), kind: Kind }).parse(req.params);
     await visible(req, id);
     const b = z.object({ content: z.string().min(1).max(200_000), baseVersion: z.number().int(), author: z.string().max(80).optional(), note: z.string().max(200).optional() }).parse(req.body);
-    return reply.code(201).send(await saveVersion(id, kind, b.content, b.baseVersion, req.user!.name, b.note));
+    const row = await saveVersion(id, kind, b.content, b.baseVersion, req.user!.name, b.note);
+    return reply.code(201).send({ ...row, content_md: versionText(row) });
   });
 
   app.get('/api/tickets/:id/documents/:kind/versions/:v', { preHandler: need('spec.view') }, async (req) => {
     const p = z.object({ id: z.string().uuid(), kind: Kind, v: z.coerce.number().int() }).parse(req.params);
     await visible(req, p.id);
-    const r = (await pool.query('SELECT version_number, content_md, author_name, change_note, created_at FROM documents WHERE ticket_id=$1 AND kind=$2 AND version_number=$3', [p.id, p.kind, p.v])).rows[0];
+    const r = (await pool.query('SELECT version_number, content_json, content_md, content_text, author_name, change_note, created_at FROM documents WHERE ticket_id=$1 AND kind=$2 AND version_number=$3', [p.id, p.kind, p.v])).rows[0];
     if (!r) throw new DocError('Version not found', 404);
-    return r;
+    return { ...r, content_md: versionText(r), content_json: versionPm(r) };
   });
 
   /** Download one version (default: the latest) as a Word file in the project's document design. */

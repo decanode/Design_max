@@ -1,5 +1,6 @@
 import type pg from 'pg';
 import { pool } from './db.js';
+import { qaGateProblem } from './docs/settings.js';
 import { canTransition, type TicketState } from './stateMachine.js';
 
 export async function createTicket(projectId: string, title: string, aiSummary?: string) {
@@ -40,6 +41,7 @@ export async function transitionTicket(id: string, to: TicketState, actorId?: st
       const cur = await client.query('SELECT current_state FROM tickets WHERE id=$1', [id]);
       const why = cur.rowCount && GATED[`${cur.rows[0].current_state}->${to}`];
       if (why) throw new TransitionError(why);
+      if (cur.rowCount && cur.rows[0].current_state === 'Development' && to === 'QA') { const p = await qaGateProblem(client, id); if (p) throw new TransitionError(p); }
     }
     const t = await applyTransition(client, id, to, actorId);
     await client.query('COMMIT');
