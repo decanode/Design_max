@@ -14,6 +14,7 @@
 6. **Automated Testing:** **Playwright** must be configured and utilized for automated end-to-end testing as part of the core build process.
 7. **Conversational Habit:** Maintain a highly professional, concise, and solution-oriented tone. Do not change this persona.
 8. **Design Change Proposals:** You are authorized to decide design changes and propose better ways to implement this project. When you see one, ask the human in short, plain, non-technical terms: what changes, why it is better, and the trade-off. Wait for approval before acting. After approval, proceed with the new design, update `architecture_and_design_document.md` to reflect it, and log the decision and its "why" in `MEMORY.md`. Never deviate without approval.
+9. **Feature Process Guide:** After every new feature is implemented, and before reporting it as done, update `feature_process_guide.md`. Every feature gets an entry that covers three things in plain language: **what the feature is**, **how to use it** (who can use it, where it is in the app, the steps), and **what to expect** (the results, the limits, and what is deliberately not built yet). When a change alters how an existing feature behaves, update that feature's entry instead of adding a new one, and move anything now built out of the "Not built yet" list. Log the update in `MEMORY.md`.
 
 ## MEMORY AND LOGGING PROTOCOL:
 

@@ -112,6 +112,10 @@ Sprint 0: **complete**. Sprint 1 (ETL & ingestion workers): **core ETL complete;
 - Tests: vitest `setupFiles` makes fixtures platform-level while code under test runs in each request's own context, so RLS is exercised for real; new `rls.test.ts` (11 tests) attacks the DB directly (role is not superuser, cannot DDL/TRUNCATE/read migrations; no context shows nothing; per-project visibility incl. child tables; cross-project insert/update/delete refused or no-op; shared rows; append-only audit; an unfiltered handler stays inside its project; fail-closed; no stale stamp between callers; platform vs project for the same person). Existing suites needed only small fixes (a fixture that disabled a trigger, a direct audit insert missing its project, one expectation that is now "404 not found" instead of "409 switch project").
 - Totals now: 145 Vitest + 26 Playwright, all passing.
 
+## Feature Process Guide + ground rule 9 (user request)
+- Added `feature_process_guide.md`: plain-language guide to every feature built so far (getting started, roles and projects, chat + AI summary, technology scoping, board/lifecycle, specifications, approval workflows, dashboards/reports, column-level security, platform and project consoles, isolation/security, legacy-data import, reliability notes) in the shape *what it is / how to use it / what to expect*, with an honest "Not built yet" list.
+- Added rule 9 to `system_ground_rules.md`: after every new feature (and before calling it done) update that guide; update existing entries when behaviour changes; move built items out of "Not built yet"; log it here.
+
 ## Decisions
 - **Fail closed**: a code path that forgets to declare a project sees nothing, rather than everything. Platform routes are an explicit allow-list in `registerAuth`.
 - **Owner vs app account**: migrations (and test setup) run as the owner; the server never does, so a bug or injection cannot disable the policies.
