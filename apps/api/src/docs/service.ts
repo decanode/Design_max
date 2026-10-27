@@ -40,7 +40,7 @@ async function buildContext(ticketId: string, kind: DocKind, embedder?: Embedder
     ctx.fs = (await listVersions(ticketId, 'FS'))[0]?.content_md;
     // Only meaningful with a real embedding model; the offline stand-in would return noise.
     if (embedder?.semantic) {
-      const hits = await similar(pool, embedder, `${t.title}\n${ctx.summary}`, 5, policy?.allowed.map((a) => a.name));
+      const hits = await similar(pool, embedder, `${t.title}\n${ctx.summary}`, 5, policy?.allowed.map((a) => a.name), t.project_id);   // this project's knowledge + shared platform knowledge only
       ctx.knowledge = hits.map((h) => `[${h.source_type}] ${h.source_ref}: ${String(h.content).slice(0, 600)}`);
     }
   }

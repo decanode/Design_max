@@ -10,22 +10,24 @@ import { HashEmbedder, similar, storeEmbeddings } from './etl/vectorize.js';
 import { assessFit, loadStackPolicy, matchKeywords, stackInstruction } from './stacks.js';
 import { createConversation } from './chat/service.js';
 import { createTicket } from './tickets.js';
-import { makeUser } from './testAuth.js';
+import { addMember, makeProject, makeUser } from './testAuth.js';
 
 const app = buildApp({ generator: new TemplateGenerator(), embedder: new HashEmbedder() });
-let url: string, sapProject: string, openProject: string, admin: Awaited<ReturnType<typeof makeUser>>, customer: typeof admin, consultant: typeof admin;
+let url: string, sapProject: string, openProject: string, admin: Awaited<ReturnType<typeof makeUser>>, customer: typeof admin, consultant: typeof admin, projAdmin: typeof admin;
 const stackId = async (name: string) => (await pool.query('SELECT id FROM tech_stacks WHERE name=$1', [name])).rows[0].id as number;
-const call = async (u: typeof admin, method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE', path: string, payload?: unknown) => {
-  const r = await app.inject({ method, url: path, payload: payload as any, headers: { cookie: u.cookie } });
+const call = async (u: typeof admin, method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE', path: string, payload?: unknown, project?: string) => {
+  const r = await app.inject({ method, url: path, payload: payload as any, headers: { cookie: project ? u.cookieIn(project) : u.cookie } });
   return { status: r.statusCode, body: r.json() as any };
 };
 
 beforeAll(async () => {
   await app.ready(); attachChat(app.server, new RuleBasedObserver()); await app.listen({ port: 0 });
   url = `http://localhost:${(app.server.address() as AddressInfo).port}`;
-  [admin, customer, consultant] = await Promise.all(['Admin', 'Customer', 'Consultant'].map((r) => makeUser(r)));
-  sapProject = (await call(admin, 'POST', '/api/admin/projects', { name: `SAP Rollout ${Date.now()}`, stackIds: [await stackId('SAP')] })).body.id;
-  openProject = (await call(admin, 'POST', '/api/admin/projects', { name: `Open ${Date.now()}`, stackIds: [] })).body.id;
+  sapProject = await makeProject(`SAP Rollout ${Date.now()}`);
+  openProject = await makeProject(`Open ${Date.now()}`);
+  await pool.query('INSERT INTO project_stacks (project_id, stack_id) VALUES ($1,$2)', [sapProject, await stackId('SAP')]);
+  [admin, customer, consultant, projAdmin] = await Promise.all([makeUser('Admin', undefined, sapProject), makeUser('Customer', undefined, sapProject), makeUser('Consultant', undefined, sapProject), makeUser('Project Admin', undefined, sapProject)]);
+  await addMember(openProject, customer.id, 'Customer');                      // the customer works in both projects
 });
 afterAll(async () => { await app.close(); await pool.end(); });
 
@@ -87,11 +89,10 @@ describe('the AI is confined to the project stack', () => {
 });
 
 describe('chat in a restricted project', () => {
-  it('an off-stack request is flagged and cannot be verified; an on-stack one can', async () => {
-    const sock = (u: typeof admin) => client(url, { extraHeaders: { cookie: u.cookie }, reconnection: false });
-    const emit = (s: ReturnType<typeof sock>, ev: string, data: unknown) => new Promise<any>((r) => s.emit(ev, data, r));
-    const open = async () => { const s = sock(customer); await new Promise<void>((r) => s.once('connect', () => r())); return s; };
-    const s = await open();
+  it('an off-stack request is flagged and cannot be verified; an on-stack one can; the same text is fine in an unrestricted project', async () => {
+    const emit = (s: ReturnType<typeof client>, ev: string, data: unknown) => new Promise<any>((r) => s.emit(ev, data, r));
+    const openSock = async (project: string) => { const s = client(url, { extraHeaders: { cookie: customer.cookieIn(project) }, reconnection: false }); await new Promise<void>((r) => s.once('connect', () => r())); return s; };
+    const s = await openSock(sapProject);
 
     const bad = (await createConversation(sapProject, undefined, customer.id)).id as string;
     const joined = await emit(s, 'join', { conversationId: bad });
@@ -108,20 +109,26 @@ describe('chat in a restricted project', () => {
     await emit(s, 'message', { conversationId: good, body: 'Block vendor Acme in the purchase order BAPI' });
     expect((await ok).stack_fit).toBe('in_scope');
     expect((await emit(s, 'verify', { conversationId: good })).ok).toBe(true);
-
-    // the same off-stack text is fine in an unrestricted project
-    const free = (await createConversation(openProject, undefined, customer.id)).id as string;
-    await emit(s, 'join', { conversationId: free });
-    const d = new Promise<any>((r) => s.once('draft', r));
-    await emit(s, 'message', { conversationId: free, body: 'Please build a C# ASP.NET web API' });
-    expect((await d).stack_fit).toBe('in_scope');
     s.close();
+
+    // the same off-stack text is fine in an unrestricted project (a separate workspace)
+    const s2 = await openSock(openProject);
+    const free = (await createConversation(openProject, undefined, customer.id)).id as string;
+    await emit(s2, 'join', { conversationId: free });
+    const d = new Promise<any>((r) => s2.once('draft', r));
+    await emit(s2, 'message', { conversationId: free, body: 'Please build a C# ASP.NET web API' });
+    expect((await d).stack_fit).toBe('in_scope');
+    s2.close();
   });
 
-  it('starting a conversation validates the project, and project lists show allowed stacks', async () => {
-    expect((await call(customer, 'POST', '/api/conversations', { projectId: '00000000-0000-4000-8000-000000000000' })).status).toBe(404);
+  it('a conversation starts in the project you are working in, and your project list shows each one\'s allowed stacks', async () => {
+    const inSap = (await call(customer, 'POST', '/api/conversations', {}, sapProject)).body;
+    expect(inSap.project_id).toBe(sapProject);
+    const inOpen = (await call(customer, 'POST', '/api/conversations', {}, openProject)).body;
+    expect(inOpen.project_id).toBe(openProject);
     const list = (await call(customer, 'GET', '/api/projects')).body;
     expect(list.find((p: any) => p.id === sapProject).stacks).toEqual(['SAP']);
+    expect(list.find((p: any) => p.id === openProject).stacks).toEqual([]);
   });
 });
 
@@ -140,29 +147,40 @@ describe('ticket specs in a restricted project', () => {
 });
 
 describe('administration of stacks and projects', () => {
-  it('requires the admin.projects permission', async () => {
-    for (const [m, p] of [['GET', '/api/admin/stacks'], ['GET', '/api/admin/projects'], ['POST', '/api/admin/projects']] as const)
-      expect((await call(consultant, m, p, {})).status).toBe(403);
+  it('the stack catalog is the Super Admin\'s; a Project Admin only chooses from it for their own project', async () => {
+    expect((await call(projAdmin, 'GET', '/api/platform/stacks')).status).toBe(403);
+    expect((await call(projAdmin, 'POST', '/api/platform/stacks', { name: 'Nope' })).status).toBe(403);
+    const cat = (await call(projAdmin, 'GET', '/api/project/stacks')).body;
+    expect(cat.catalog.map((s: any) => s.name)).toEqual(expect.arrayContaining(['SAP', '.NET', 'Java', 'Node.js']));
+    expect(cat.selected).toEqual([await stackId('SAP')]);
+    expect((await call(consultant, 'GET', '/api/project/stacks')).status).toBe(403);
   });
-  it('creates a custom stack, assigns it, and protects stacks that are in use', async () => {
+
+  it('Super Admin builds the catalog; stacks in use are protected; Project Admin applies one to their project', async () => {
     const name = `Salesforce ${Date.now()}`;
-    const made = await call(admin, 'POST', '/api/admin/stacks', { name, description: 'Apex, Lightning', keywords: ['apex', 'lightning'] });
+    const made = await call(admin, 'POST', '/api/platform/stacks', { name, description: 'Apex, Lightning', keywords: ['apex', 'lightning'] });
     expect(made.status).toBe(201);
-    expect((await call(admin, 'POST', '/api/admin/stacks', { name: name.toUpperCase() })).status).toBe(409);
-    const proj = (await call(admin, 'POST', '/api/admin/projects', { name: `CRM ${Date.now()}`, stackIds: [made.body.id] })).body.id;
-    expect((await call(admin, 'DELETE', `/api/admin/stacks/${made.body.id}`)).status).toBe(409);
-    expect((await call(admin, 'PUT', `/api/admin/projects/${proj}/stacks`, { stackIds: [99999] })).status).toBe(400);
-    expect((await call(admin, 'PUT', `/api/admin/projects/${proj}/stacks`, { stackIds: [] })).status).toBe(200);
-    expect((await call(admin, 'DELETE', `/api/admin/stacks/${made.body.id}`)).status).toBe(200);
-    expect((await call(admin, 'GET', '/api/admin/audit')).body.map((a: any) => a.action)).toEqual(expect.arrayContaining(['stack.create', 'project.create', 'project.stacks']));
+    expect((await call(admin, 'POST', '/api/platform/stacks', { name: name.toUpperCase() })).status).toBe(409);
+
+    expect((await call(projAdmin, 'PUT', '/api/project/stacks', { stackIds: [made.body.id, await stackId('SAP')] })).status).toBe(200);
+    expect((await call(admin, 'DELETE', `/api/platform/stacks/${made.body.id}`)).status).toBe(409);       // in use
+    expect((await call(projAdmin, 'PUT', '/api/project/stacks', { stackIds: [99999] })).status).toBe(400);
+    expect((await call(projAdmin, 'PUT', '/api/project/stacks', { stackIds: [await stackId('SAP')] })).status).toBe(200);
+    expect((await call(admin, 'DELETE', `/api/platform/stacks/${made.body.id}`)).status).toBe(200);
+    expect((await call(admin, 'GET', '/api/platform/audit')).body.map((a: any) => a.action)).toEqual(expect.arrayContaining(['stack.create', 'stack.delete']));
+    expect((await call(projAdmin, 'GET', '/api/project/audit')).body.map((a: any) => a.action)).toContain('project.stacks');
   });
-  it('a role can be granted project management', async () => {
-    const role = (await call(admin, 'POST', '/api/admin/roles', { name: `PMO ${Date.now()}` })).body.id;
-    await call(admin, 'PUT', `/api/admin/roles/${role}/permissions`, { permissions: ['admin.projects'] });
-    const u = (await call(admin, 'POST', '/api/admin/users', { email: `pmo${Date.now()}@t.dev`, name: 'PMO', roleId: role })).body.id;
-    const pmo = { id: u, cookie: `dm_session=${(await import('./rbac/auth.js')).signSession(u)}` } as typeof admin;
-    expect((await call(pmo, 'GET', '/api/admin/projects')).status).toBe(200);
-    expect((await call(pmo, 'GET', '/api/admin/users')).status).toBe(403);
+
+  it('a Project Admin can delegate stack choice to another role in their project', async () => {
+    const pmo = await makeUser('Consultant', undefined, sapProject);
+    expect((await call(pmo, 'GET', '/api/project/stacks')).status).toBe(403);
+    const consultantRole = (await pool.query("SELECT id FROM roles WHERE name='Consultant'")).rows[0].id;
+    const current = (await call(projAdmin, 'GET', '/api/project/roles')).body.roles.find((r: any) => r.id === consultantRole).permissions as string[];
+    await call(projAdmin, 'PUT', `/api/project/roles/${consultantRole}/permissions`, { permissions: [...current, 'admin.projects'] });
+    expect((await call(pmo, 'GET', '/api/project/stacks')).status).toBe(200);
+    expect((await call(pmo, 'GET', '/api/project/members')).status).toBe(403);                              // only what was delegated
+    await call(projAdmin, 'DELETE', `/api/project/roles/${consultantRole}/permissions`);                    // back to the standard role
+    expect((await call(pmo, 'GET', '/api/project/stacks')).status).toBe(403);
   });
 });
 

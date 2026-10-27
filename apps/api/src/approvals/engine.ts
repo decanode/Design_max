@@ -21,11 +21,10 @@ export const TOKEN_TTL_DAYS = 7;
 const label = (k: Kind) => (k === 'FS' ? 'Functional' : 'Technical');
 type Db = Pick<pg.Pool, 'query'>;
 
-/** The active workflow that covers this kind for the project: a project-specific one wins over the global one. */
+/** The project's active workflow for this kind of document. Each project has its own; nothing is shared across projects. */
 export async function findWorkflow(db: Db, projectId: string, kind: Kind) {
   const w = (await db.query(
-    `SELECT id, name FROM approval_workflows WHERE active AND $2 = ANY(kinds) AND (project_id = $1 OR project_id IS NULL)
-     ORDER BY (project_id IS NOT NULL) DESC, created_at LIMIT 1`, [projectId, kind])).rows[0];
+    `SELECT id, name FROM approval_workflows WHERE active AND NOT is_template AND project_id = $1 AND $2 = ANY(kinds) ORDER BY created_at LIMIT 1`, [projectId, kind])).rows[0];
   if (!w) return null;
   const levels = (await db.query(
     `SELECT l.position, l.name, l.rule,
@@ -36,12 +35,16 @@ export async function findWorkflow(db: Db, projectId: string, kind: Kind) {
   return { id: w.id as string, name: w.name as string, levels };
 }
 
-/** Everyone who currently satisfies a level: the named users plus every active member of the named roles. */
-export async function resolveLevel(db: Db, level: LevelSnap): Promise<Person[]> {
+/**
+ * Everyone who currently satisfies a level, within this project: the named people who are still members, plus every
+ * active member holding a named role. (Roles are per project, so "Manager" means this project's Managers.)
+ */
+export async function resolveLevel(db: Db, level: LevelSnap, projectId: string): Promise<Person[]> {
   const users = level.approvers.filter((a) => a.kind === 'user').map((a) => String(a.id));
   const roles = level.approvers.filter((a) => a.kind === 'role').map((a) => Number(a.id));
   return (await db.query(
-    `SELECT id, email, display_name AS name FROM users WHERE active AND (id = ANY($1::uuid[]) OR role_id = ANY($2::int[])) ORDER BY display_name`, [users, roles])).rows;
+    `SELECT u.id, u.email, u.display_name AS name FROM project_members m JOIN users u ON u.id = m.user_id
+     WHERE m.project_id = $3 AND u.active AND (m.user_id = ANY($1::uuid[]) OR m.role_id = ANY($2::int[])) ORDER BY u.display_name`, [users, roles, projectId])).rows;
 }
 
 /** What would happen if this ticket's document were sent for approval now (shown to the requester first). */
@@ -52,7 +55,7 @@ export async function approvalPlan(ticketId: string, kind: Kind, requesterId: st
   if (!wf) return { workflow: null, levels: [] };
   const levels = [];
   for (const l of wf.levels) {
-    const people = (await resolveLevel(pool, l)).filter((p) => p.id !== requesterId);
+    const people = (await resolveLevel(pool, l, t.project_id)).filter((p) => p.id !== requesterId);
     levels.push({ position: l.position, name: l.name, rule: l.rule, approvers: people.map((p) => p.name), problem: people.length ? null : 'No eligible approvers' });
   }
   return { workflow: { id: wf.id, name: wf.name }, levels };
@@ -66,13 +69,13 @@ async function approvedBefore(c: pg.PoolClient, requestId: string) {
  * Opens the first level from `fromIndex` that still needs someone. Levels whose people have all already approved
  * earlier in this request pass automatically. Returns the emails to send, and whether every level is now complete.
  */
-async function startLevel(c: pg.PoolClient, req: any, fromIndex: number, ticketTitle: string, appUrl: string) {
+async function startLevel(c: pg.PoolClient, req: any, fromIndex: number, ticketTitle: string, appUrl: string, projectId: string) {
   const levels: LevelSnap[] = req.levels;
   const done = await approvedBefore(c, req.id);
   const mails: Mail[] = [];
   for (let i = fromIndex; i < levels.length; i++) {
     const lvl = levels[i];
-    const pool_ = await resolveLevel(c, lvl);
+    const pool_ = await resolveLevel(c, lvl, projectId);
     const eligible = pool_.filter((p) => p.id !== req.requested_by && !done.has(p.id));
     if (eligible.length) {
       for (const p of eligible) {
@@ -116,14 +119,14 @@ export async function requestApproval(ticketId: string, kind: Kind, requester: {
 
     // Every level must be satisfiable before we start, so a request can never stall halfway for a fixable reason.
     for (const l of wf.levels) {
-      const people = (await resolveLevel(c, l)).filter((p) => p.id !== requester.id);
+      const people = (await resolveLevel(c, l, t.project_id)).filter((p) => p.id !== requester.id);
       if (!people.length) throw new DocError(`Approval level ${l.name} has no eligible approvers (you can't approve your own request). Ask an Admin to update the “${wf.name}” workflow.`, 409);
     }
     const version = (await c.query('SELECT max(version_number) v FROM documents WHERE ticket_id=$1 AND kind=$2', [ticketId, kind])).rows[0].v;
     const req = (await c.query(
       `INSERT INTO approval_requests (ticket_id, kind, version_number, workflow_id, workflow_name, levels, requested_by) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
       [ticketId, kind, version, wf.id, wf.name, JSON.stringify(wf.levels), requester.id])).rows[0];
-    const started = await startLevel(c, req, 0, t.title, appUrl);
+    const started = await startLevel(c, req, 0, t.title, appUrl, t.project_id);
     if (started.finished) throw new DocError('This workflow has no one left to ask', 409);
     mails = started.mails;
     await c.query('COMMIT');
@@ -161,7 +164,8 @@ async function decide(lookup: (c: pg.PoolClient) => Promise<any>, decision: Deci
     await c.query(`UPDATE approvals SET status=$2, comment=$3, decided_at=now() WHERE id=$1`, [task.id, decision, comment?.trim() || null]);
     const levels: LevelSnap[] = req.levels;
     const lvl = levels.find((l) => l.position === req.current_level)!;
-    const title = (await c.query('SELECT title FROM tickets WHERE id=$1', [req.ticket_id])).rows[0].title as string;
+    const tk = (await c.query('SELECT title, project_id FROM tickets WHERE id=$1', [req.ticket_id])).rows[0];
+    const title = tk.title as string;
     const who = (await c.query('SELECT display_name FROM users WHERE id=$1', [task.approver_id])).rows[0].display_name as string;
 
     if (decision === 'rejected') {
@@ -172,7 +176,7 @@ async function decide(lookup: (c: pg.PoolClient) => Promise<any>, decision: Deci
       const left = (await c.query(`SELECT count(*)::int n FROM approvals WHERE request_id=$1 AND level=$2 AND status='pending'`, [req.id, lvl.position])).rows[0].n as number;
       if (lvl.rule === 'any' || left === 0) {
         await c.query(`UPDATE approvals SET status='skipped' WHERE request_id=$1 AND level=$2 AND status='pending'`, [req.id, lvl.position]);   // "any one" is satisfied
-        const next = await startLevel(c, req, levels.findIndex((l) => l.position === lvl.position) + 1, title, appUrl);
+        const next = await startLevel(c, req, levels.findIndex((l) => l.position === lvl.position) + 1, title, appUrl, tk.project_id);
         mails = next.mails;
         if (next.finished) {
           await c.query(`UPDATE approval_requests SET status='approved', completed_at=now() WHERE id=$1`, [req.id]);
@@ -196,11 +200,12 @@ export const decideByToken = (token: string, d: Decision, comment: string | unde
   }, d, comment, false, mailer, appUrl);
 
 /** In-app decision: only the person the task was addressed to, and the emailed link's expiry doesn't apply. */
-export const decideAsUser = (taskId: string, userId: string, d: Decision, comment: string | undefined, mailer: Mailer, appUrl: string) =>
+export const decideAsUser = (taskId: string, userId: string, projectId: string | null, d: Decision, comment: string | undefined, mailer: Mailer, appUrl: string) =>
   decide(async (c) => {
-    const a = (await c.query(`SELECT a.* FROM approvals a WHERE a.id=$1 AND a.request_id IS NOT NULL`, [taskId])).rows[0];
+    const a = (await c.query(`SELECT a.*, t.project_id FROM approvals a JOIN tickets t ON t.id = a.ticket_id WHERE a.id=$1 AND a.request_id IS NOT NULL`, [taskId])).rows[0];
     if (!a) throw new DocError('Approval not found', 404);
     if (a.approver_id !== userId) throw new DocError('This approval is addressed to someone else', 403);
+    if (a.project_id !== projectId) throw new DocError('This approval belongs to another project. Switch to it first', 409);
     return a;
   }, d, comment, true, mailer, appUrl);
 

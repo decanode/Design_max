@@ -4,11 +4,11 @@ import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Nav } from '../../../components/Nav';
 import { ChartView, type ChartKind, type Result } from '../../../components/charts';
-import { NoAccess, useAuth, j } from '../../../lib/auth';
+import { NoAccess, NoProject, useAuth, j } from '../../../lib/auth';
 
-type Filters = { states?: string[]; projectIds?: string[]; consultantIds?: string[]; sources?: string[]; openOnly?: boolean; statuses?: string[]; kinds?: string[]; range?: string };
+type Filters = { states?: string[]; consultantIds?: string[]; sources?: string[]; openOnly?: boolean; statuses?: string[]; kinds?: string[]; range?: string };
 type Def = { dataset: string; measure: string; groupBy: string | null; filters: Filters; sort: 'natural' | 'value_desc' | 'value_asc'; limit: number; chart: ChartKind };
-type Meta = { datasets: { key: string; label: string; filters: string[]; measures: { key: string; label: string }[]; dimensions: { key: string; label: string; time: string | null; field: string | null }[] }[]; projects: { id: string; name: string }[]; people: { id: string; name: string }[]; readableFields: string[]; filterFields: Record<string, string> };
+type Meta = { datasets: { key: string; label: string; filters: string[]; measures: { key: string; label: string }[]; dimensions: { key: string; label: string; time: string | null; field: string | null }[] }[]; people: { id: string; name: string }[]; readableFields: string[]; filterFields: Record<string, string> };
 
 const STATES = ['Requirement Verified', 'FS Drafted', 'FS Approved', 'TS Drafted', 'TS Approved', 'Development', 'QA', 'UAT', 'Deployed'];
 const NEW: Def = { dataset: 'tickets', measure: 'count', groupBy: 'state', filters: {}, sort: 'natural', limit: 12, chart: 'column' };
@@ -123,6 +123,7 @@ export default function Builder() {
   const back = toDash ? `/dashboards?d=${toDash}` : '/reports';
   const people = useMemo(() => [{ id: 'unassigned', name: 'Unassigned' }, ...(meta?.people ?? [])], [meta]);
   if (loading || !me) return <><Nav current="dashboards" /><main id="main"><p className="note">Loading…</p></main></>;
+  if (!me.project) return <><Nav current="dashboards" /><main id="main"><NoProject /></main></>;
   if (!can('report.view')) return <><Nav current="dashboards" /><main id="main"><NoAccess what="reports" /></main></>;
   if (isNew && !can('report.build')) return <><Nav current="dashboards" /><main id="main"><NoAccess what="building reports" /></main></>;
 
@@ -178,7 +179,6 @@ export default function Builder() {
               {F('statuses') && <Check legend="Approval status" options={['pending', 'approved', 'rejected', 'superseded'].map((s) => ({ value: s, label: s[0].toUpperCase() + s.slice(1) }))} value={def.filters.statuses} onChange={(v) => setFilter('statuses', v)} />}
               {F('kinds') && <Check legend="Document" options={[{ value: 'FS', label: 'Functional spec' }, { value: 'TS', label: 'Technical spec' }]} value={def.filters.kinds} onChange={(v) => setFilter('kinds', v)} />}
               {F('sources') && <Check legend="Source" options={[{ value: 'native', label: 'Design Max' }, { value: 'jira', label: 'Jira' }, { value: 'servicenow', label: 'ServiceNow' }]} value={def.filters.sources} onChange={(v) => setFilter('sources', v)} />}
-              {F('projectIds') && (meta?.projects.length ?? 0) > 0 && <Check legend="Project" options={meta!.projects.map((p) => ({ value: p.id, label: p.name }))} value={def.filters.projectIds} onChange={(v) => setFilter('projectIds', v)} />}
               {F('consultantIds') && <Check legend="Consultant" options={people.map((p) => ({ value: p.id, label: p.name }))} value={def.filters.consultantIds} onChange={(v) => setFilter('consultantIds', v)} />}
 
               <div className="field"><label htmlFor="vi">Who can see this report</label>

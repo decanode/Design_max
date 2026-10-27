@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Nav } from '../../components/Nav';
-import { NoAccess, useAuth } from '../../lib/auth';
+import { NoAccess, NoProject, useAuth } from '../../lib/auth';
 
 type Item = { id: string; name: string; description: string; visibility: 'private' | 'shared'; isSystem: boolean; owner: string | null; mine: boolean; canEdit: boolean; definition: { dataset: string; chart: string; groupBy: string | null } };
 const CHART: Record<string, string> = { kpi: 'Number', bar: 'Bars', column: 'Columns', line: 'Line', share: 'Share', table: 'Table' };
@@ -21,6 +21,7 @@ export default function Reports() {
     setMsg(r.ok ? { kind: 'ok', text: ok } : { kind: 'err', text: b.error ?? 'Failed' }); load(); return b;
   }
   if (loading || !me) return <><Nav current="dashboards" /><main id="main"><p className="note">Loading…</p></main></>;
+  if (!me.project) return <><Nav current="dashboards" /><main id="main"><NoProject /></main></>;
   if (!can('report.view')) return <><Nav current="dashboards" /><main id="main"><NoAccess what="reports" /></main></>;
 
   const shown = items.filter((i) => !q.trim() || i.name.toLowerCase().includes(q.trim().toLowerCase()));

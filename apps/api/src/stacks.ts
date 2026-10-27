@@ -55,3 +55,11 @@ export async function projectPolicyForTicket(ticketId: string) {
   const r = (await pool.query('SELECT project_id FROM tickets WHERE id=$1', [ticketId])).rows[0];
   return r ? loadStackPolicy(r.project_id) : null;
 }
+
+/** Replaces a project's allowed stacks (empty = unrestricted). Callers own the transaction. */
+export async function setProjectStacks(c: import('pg').PoolClient, projectId: string, stackIds: number[]) {
+  const ids = [...new Set(stackIds)];
+  if (ids.length && (await c.query('SELECT count(*)::int n FROM tech_stacks WHERE id = ANY($1)', [ids])).rows[0].n !== ids.length) throw new Error('UNKNOWN_STACK');
+  await c.query('DELETE FROM project_stacks WHERE project_id=$1', [projectId]);
+  if (ids.length) await c.query('INSERT INTO project_stacks (project_id, stack_id) SELECT $1, unnest($2::int[])', [projectId, ids]);
+}

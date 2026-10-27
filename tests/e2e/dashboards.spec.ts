@@ -5,8 +5,7 @@ test.describe('Lead builds reports and dashboards', () => {
 
   // Charts need something to draw; create a ticket through the API as the signed-in Lead.
   test.beforeEach(async ({ page }) => {
-    const proj = await (await page.request.post('/api/projects', { data: { name: `Reports ${Date.now()}` } })).json();
-    await page.request.post('/api/tickets', { data: { projectId: proj.id, title: `Seed ticket ${Date.now()}` } });
+    await page.request.post('/api/tickets', { data: { title: `Seed ticket ${Date.now()}` } });
   });
 
   test('built-in dashboard renders charts and numbers, with a table view and CSV', async ({ page }) => {
@@ -106,11 +105,12 @@ test.describe('who can do what', () => {
       await expect(page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name: 'Dashboards' })).toHaveCount(0);
     });
   });
-  test.describe('Admin', () => {
-    test.use({ storageState: '.auth/Admin.json' });
-    test('can edit a built-in dashboard directly', async ({ page }) => {
+  test.describe('Super Admin', () => {
+    test.use({ storageState: '.auth/Super Admin.json' });
+    test('built-in dashboards are shared by every project, so even a Super Admin copies them instead of editing', async ({ page }) => {
       await page.goto('/dashboards');
-      await expect(page.getByRole('button', { name: 'Edit dashboard' })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Edit dashboard' })).toHaveCount(0);
+      await expect(page.getByRole('button', { name: 'Copy to customize' })).toBeVisible();
     });
   });
 });

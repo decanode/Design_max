@@ -1,37 +1,40 @@
 import { test, expect } from '@playwright/test';
 
-test('a project limited to SAP: off-stack requests are flagged and blocked, SAP ones go through', async ({ page }) => {
-  const project = `SAP Rollout ${Date.now()}`;
+test('a Project Admin limits the project to SAP: off-stack requests are flagged and blocked, SAP ones go through', async ({ browser }) => {
+  const [paCtx, custCtx] = await Promise.all(['Project Admin', 'Customer'].map((r) => browser.newContext({ storageState: `.auth/${r}.json` })));
+  const pa = await paCtx.newPage();
+  try {
+    // The Project Admin ticks SAP for their project
+    await pa.goto('/admin');
+    await pa.getByRole('tab', { name: 'Technology' }).click();
+    await pa.getByLabel('SAP').check();
+    await expect(pa.getByRole('status')).toContainText('only in the ticked technologies');
 
-  // Admin creates a project and restricts it to SAP
-  await page.goto('/admin');
-  await page.getByRole('tab', { name: 'Projects & stacks' }).click();
-  await page.getByLabel('Project name').fill(project);
-  await page.getByRole('form', { name: 'Create a project' }).getByLabel('SAP').check();
-  await page.getByRole('button', { name: 'Create project' }).click();
-  await expect(page.getByRole('status')).toContainText(`“${project}” created`);
-  await expect(page.getByRole('group', { name: `Project ${project}` }).getByText('The AI works only in')).toBeVisible();
+    // The customer asks for something that needs another technology
+    const cp = await custCtx.newPage();
+    await cp.goto('/chat');
+    await cp.getByRole('button', { name: 'Start a conversation' }).click();
+    await expect(cp.getByRole('heading', { name: /^Conversation/ })).toContainText('SAP only');
+    await cp.getByLabel('Message').fill('Please build a C# ASP.NET web API for our vendor data');
+    await cp.getByRole('button', { name: 'Send' }).click();
+    const summary = cp.getByRole('complementary', { name: 'AI requirement summary' });
+    await expect(summary.getByRole('alert')).toContainText('Outside this project’s technology');
+    await expect(summary.getByRole('alert')).toContainText('limited to SAP');
+    await expect(summary.getByRole('button', { name: 'Verify & Approve' })).toBeDisabled();
 
-  // A request that needs another technology
-  await page.goto('/chat');
-  await page.getByLabel('Project').selectOption({ label: `${project} · SAP` });
-  await page.getByRole('button', { name: 'Start a conversation' }).click();
-  await expect(page.getByRole('heading', { name: new RegExp(`Conversation · ${project}`) })).toContainText('SAP only');
-  await page.getByLabel('Message').fill('Please build a C# ASP.NET web API for our vendor data');
-  await page.getByRole('button', { name: 'Send' }).click();
-
-  const summary = page.getByRole('complementary', { name: 'AI requirement summary' });
-  await expect(summary.getByRole('alert')).toContainText('Outside this project’s technology');
-  await expect(summary.getByRole('alert')).toContainText('limited to SAP');
-  await expect(summary.getByRole('button', { name: 'Verify & Approve' })).toBeDisabled();
-
-  // A request inside the stack, in a fresh conversation
-  await page.getByLabel('Project').selectOption({ label: `${project} · SAP` });
-  await page.getByRole('button', { name: 'Start a conversation' }).click();
-  await page.getByLabel('Message').fill('Block vendor Acme in the purchase order BAPI');
-  await page.getByRole('button', { name: 'Send' }).click();
-  await expect(summary.getByRole('heading', { level: 3 })).toContainText('Block vendor Acme');
-  await expect(summary.getByRole('alert')).toHaveCount(0);
-  await summary.getByRole('button', { name: 'Verify & Approve' }).click();
-  await expect(summary.getByText('Verified & logged')).toBeVisible();
+    // …and then a request inside the stack, in a fresh conversation
+    await cp.getByRole('button', { name: 'Start a conversation' }).click();
+    await cp.getByLabel('Message').fill('Block vendor Acme in the purchase order BAPI');
+    await cp.getByRole('button', { name: 'Send' }).click();
+    await expect(summary.getByRole('heading', { level: 3 })).toContainText('Block vendor Acme');
+    await expect(summary.getByRole('alert')).toHaveCount(0);
+    await summary.getByRole('button', { name: 'Verify & Approve' }).click();
+    await expect(summary.getByText('Verified & logged')).toBeVisible();
+  } finally {
+    await pa.reload();
+    await pa.getByRole('tab', { name: 'Technology' }).click();
+    await pa.getByLabel('SAP').uncheck();
+    await expect(pa.getByRole('status')).toContainText('no technology restriction');
+    await Promise.all([paCtx, custCtx].map((c) => c.close()));
+  }
 });

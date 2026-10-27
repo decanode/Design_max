@@ -5,7 +5,7 @@ import { TemplateGenerator, LlmGenerator } from './generator.js';
 import { OutboxMailer } from './mailer.js';
 import { diffLines } from './diff.js';
 import { createTicket } from '../tickets.js';
-import { makeUser, makeWorkflow } from '../testAuth.js';
+import { makeUser, makeWorkflow, testProject } from '../testAuth.js';
 import { HashEmbedder } from '../etl/vectorize.js';
 
 const app = buildApp({ generator: new TemplateGenerator(), mailer: new OutboxMailer(), embedder: new HashEmbedder(), appUrl: 'http://app.test' });
@@ -14,7 +14,7 @@ let cookie: string;
 let mgr: Awaited<ReturnType<typeof makeUser>>;
 beforeAll(async () => {
   await app.ready(); cookie = (await makeUser('Admin')).cookie;
-  projectId = (await pool.query("INSERT INTO projects(name) VALUES('docs') RETURNING id")).rows[0].id;
+  projectId = await testProject();
   mgr = await makeUser('Manager');
   await makeWorkflow({ projectId, levels: [{ users: [mgr.id] }] });   // this project: one level, one named approver
 });

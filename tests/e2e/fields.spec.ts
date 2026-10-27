@@ -1,15 +1,14 @@
 import { test, expect } from '@playwright/test';
 
-test('an Admin hides and locks ticket fields per role, and the role\'s screens change at once', async ({ browser }) => {
+test('a Project Admin hides and locks ticket fields per role for their project, and the role\'s screens change at once', async ({ browser }) => {
   const stamp = Date.now();
   const title = `Column security ${stamp}`;
-  const [adminCtx, samCtx, leoCtx] = await Promise.all(['Admin', 'Consultant', 'Lead'].map((r) => browser.newContext({ storageState: `.auth/${r}.json` })));
+  const [adminCtx, samCtx, leoCtx] = await Promise.all(['Project Admin', 'Consultant', 'Lead'].map((r) => browser.newContext({ storageState: `.auth/${r}.json` })));
   const admin = await adminCtx.newPage();
 
   // A ticket assigned to Sam, with notes only some roles should see
-  const proj = await (await admin.request.post('/api/projects', { data: { name: `Col ${stamp}` } })).json();
   const sam = (await (await admin.request.get('/api/auth/dev-users')).json()).find((u: any) => u.role === 'Consultant');
-  const t = await (await admin.request.post('/api/tickets', { data: { projectId: proj.id, title } })).json();
+  const t = await (await admin.request.post('/api/tickets', { data: { title } })).json();
   await admin.request.post(`/api/tickets/${t.id}/assign`, { data: { consultantId: sam.id } });
   await admin.request.patch(`/api/tickets/${t.id}`, { data: { resolutionNotes: `SECRET-NOTES-${stamp}`, acceptanceCriteria: 'Must reconcile to ledger' } });
 
@@ -32,7 +31,7 @@ test('an Admin hides and locks ticket fields per role, and the role\'s screens c
     // The Admin hides resolution notes from Consultants (new grid on the Admin page)
     await admin.goto('/admin');
     await admin.getByRole('tab', { name: 'Ticket fields' }).click();
-    await expect(admin.getByLabel('Admin role: Resolution notes', { exact: true })).toBeDisabled();       // Admin is locked
+    await expect(admin.getByLabel('Project Admin role: Resolution notes', { exact: true })).toBeDisabled();   // Project Admin is locked
     await expect(admin.getByLabel('Consultant role: Title', { exact: true }).locator('option[value=hidden]')).toHaveCount(0);   // title can't be hidden
     await expect(admin.getByLabel('Consultant role: Customer', { exact: true }).locator('option[value=write]')).toHaveCount(0); // customer is never editable
     await setLevel('Consultant', 'Resolution notes', 'hidden', 'resolution notes is now hidden');
@@ -65,12 +64,13 @@ test('an Admin hides and locks ticket fields per role, and the role\'s screens c
     await lp.goto('/');
     await expect(lp.locator('.tag[title="Assigned consultant"]')).toHaveCount(0);                     // no consultant name on any card
   } finally {
-    // leave the roles exactly as they were for the other tests
+    // leave the roles exactly as they were for the other tests: reset each tuned role to the standard one
     await admin.goto('/admin');
     await admin.getByRole('tab', { name: 'Ticket fields' }).click();
-    await setLevel('Consultant', 'Resolution notes', 'write', 'resolution notes is now can edit');
-    await setLevel('Consultant', 'Acceptance criteria', 'write', 'acceptance criteria is now can edit');
-    await setLevel('Lead', 'Assigned consultant', 'write', 'assigned consultant is now can edit');
+    for (const role of ['Consultant', 'Lead']) {
+      await admin.getByRole('button', { name: `Reset ${role} to the standard role` }).click();
+      await expect(admin.getByRole('status')).toContainText(`${role} is back to the standard role`);
+    }
     await Promise.all([adminCtx, samCtx, leoCtx].map((c) => c.close()));
   }
 });

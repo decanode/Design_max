@@ -6,7 +6,7 @@ import { buildApp } from '../app.js';
 import { attachChat } from './socket.js';
 import { RuleBasedObserver, LlmObserver, AnthropicClient, GitHubModelsClient, GeminiClient } from './observer.js';
 import { createConversation } from './service.js';
-import { makeUser } from '../testAuth.js';
+import { makeUser, testProject } from '../testAuth.js';
 import { GeminiEmbedder, EMBEDDING_DIM } from '../etl/vectorize.js';
 
 const app = buildApp();
@@ -19,7 +19,7 @@ beforeAll(async () => {
   attachChat(app.server, new RuleBasedObserver());
   await app.listen({ port: 0 });
   url = `http://localhost:${(app.server.address() as AddressInfo).port}`;
-  const pid = (await pool.query("INSERT INTO projects(name) VALUES('chat') RETURNING id")).rows[0].id;
+  const pid = await testProject();
   const admin = await makeUser('Admin'); cookie = admin.cookie;
   cid = (await createConversation(pid, undefined, admin.id)).id;
   sock = client(url, { extraHeaders: { cookie } });

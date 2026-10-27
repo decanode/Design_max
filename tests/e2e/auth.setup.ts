@@ -1,5 +1,6 @@
 import { test as setup, request as pwRequest } from '@playwright/test';
 
+/** Creates the demo workspace and one signed-in browser state per role (saved as .auth/<Role>.json). */
 setup('create demo accounts and a signed-in state per role', async ({ request }) => {
   const baseURL = setup.info().project.use.baseURL!;
   await request.post('/api/auth/bootstrap-demo');
@@ -7,6 +8,11 @@ setup('create demo accounts and a signed-in state per role', async ({ request })
   for (const u of users) {
     const ctx = await pwRequest.newContext({ baseURL });
     await ctx.post('/api/auth/dev-login', { data: { userId: u.id } });
+    // A Super Admin belongs to no project, so start them inside the demo one (people with a single membership land there on their own).
+    if (u.role === 'Super Admin') {
+      const projects: { id: string }[] = await (await ctx.get('/api/projects')).json();
+      await ctx.post('/api/auth/project', { data: { projectId: projects[0].id } });
+    }
     await ctx.storageState({ path: `.auth/${u.role}.json` });
     await ctx.dispose();
   }

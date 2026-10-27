@@ -264,3 +264,9 @@ header.top nav { overflow-x: auto; scrollbar-width: none; } header.top nav a { w
 .dl dd.empty { color: var(--muted); font-style: italic; }
 .dl textarea, .dl input { width: 100%; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--text); font: inherit; }
 .ro-tag { font-size: 10.5px; padding: 1px 7px; border-radius: 99px; border: 1px solid var(--line); color: var(--muted); margin-left: 6px; text-transform: none; letter-spacing: 0; }
+
+.proj-switch select { padding: 6px 28px 6px 10px; border-radius: 9px; border: 1px solid var(--line); background: var(--panel); color: var(--text); font-weight: 600; max-width: 240px; }
+.proj-name { font-weight: 600; font-size: 14px; padding: 5px 10px; border-radius: 9px; border: 1px solid var(--line); background: var(--panel); max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.role-badge[data-role='Super Admin'], .role-badge[data-role='Project Admin'] { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 50%, var(--line)); }
+.role-badge[data-role='Project Admin'] { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 50%, var(--line)); }
+@media (max-width: 760px) { .proj-switch select, .proj-name { max-width: 130px; } }

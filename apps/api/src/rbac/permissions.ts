@@ -1,5 +1,7 @@
 /** The fixed catalog of permissions, grouped by feature. Roles are arbitrary subsets of these keys. */
-export interface PermissionDef { key: string; label: string; description: string }
+/** `platform` permissions belong to Super Admins only; `project` permissions can be given to roles inside a project. */
+export type Scope = 'platform' | 'project';
+export interface PermissionDef { key: string; label: string; description: string; scope?: Scope }
 export interface FeatureDef { feature: string; permissions: PermissionDef[] }
 
 export const CATALOG: FeatureDef[] = [
@@ -32,14 +34,22 @@ export const CATALOG: FeatureDef[] = [
     { key: 'report.build', label: 'Build reports & dashboards', description: 'Create, change, copy and share their own reports and dashboards.' },
     { key: 'report.manage_all', label: 'Manage everyone\'s reports', description: 'Edit or delete any report or dashboard, including the built-in ones.' }] },
   { feature: 'Developer tools', permissions: [
-    { key: 'mailbox.view', label: 'View the dev mailbox', description: 'Inspect emails the system "sent" (development only).' }] },
+    { key: 'mailbox.view', label: 'View the dev mailbox', description: 'Inspect emails the system "sent" (development only). Spans all projects, so Super Admins only.', scope: 'platform' }] },
   { feature: 'Administration', permissions: [
-    { key: 'admin.users', label: 'Manage users', description: 'Create users and assign their roles.' },
-    { key: 'admin.projects', label: 'Manage projects & stacks', description: 'Create projects and choose which technology stacks the AI may work in for each.' },
+    { key: 'admin.users', label: 'Manage project members', description: 'Add people to this project and choose their roles in it.' },
+    { key: 'admin.projects', label: 'Manage project settings', description: 'Choose which technology stacks the AI may work in for this project.' },
     { key: 'admin.workflows', label: 'Manage approval workflows', description: 'Define the approval levels (L1, L2, L3…) and who approves at each.' },
-    { key: 'admin.roles', label: 'Manage roles', description: 'Create roles and choose their permissions per feature.' }] },
+    { key: 'admin.roles', label: 'Tune roles for this project', description: 'Change what each role can do, and see, inside this project.' }] },
+  { feature: 'Platform', permissions: [
+    { key: 'platform.projects', label: 'Manage projects', description: 'Create and archive projects and appoint their Project Admins.', scope: 'platform' },
+    { key: 'platform.users', label: 'Manage all users', description: 'Create users, deactivate them, and grant Super Admin.', scope: 'platform' },
+    { key: 'platform.roles', label: 'Manage the role and stack catalogs', description: 'Define the standard roles, their default access and the technology stacks.', scope: 'platform' }] },
 ];
 
 export const ALL_KEYS: string[] = CATALOG.flatMap((f) => f.permissions.map((p) => p.key));
+export const PLATFORM_KEYS: string[] = CATALOG.flatMap((f) => f.permissions.filter((p) => p.scope === 'platform').map((p) => p.key));
+/** Everything a Project Admin holds inside their project (and the only keys a project role may ever carry). */
+export const PROJECT_KEYS: string[] = ALL_KEYS.filter((k) => !PLATFORM_KEYS.includes(k));
+export const PROJECT_ADMIN_ROLE = 'Project Admin';
 export const isKnownKey = (k: string) => ALL_KEYS.includes(k);
-export const ADMIN_ROLE = 'Admin';
+

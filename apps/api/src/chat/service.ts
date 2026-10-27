@@ -8,20 +8,20 @@ export async function createConversation(projectId: string, title?: string, cust
 }
 
 /** A user may open a conversation they own, or any conversation if their role can see all of them. */
-export async function canAccessConversation(u: { id: string; perms: Set<string> }, conversationId: string) {
-  const c = (await pool.query('SELECT customer_id FROM conversations WHERE id=$1', [conversationId])).rows[0];
-  if (!c) return false;
+export async function canAccessConversation(u: { id: string; perms: Set<string>; projectId: string | null }, conversationId: string) {
+  const c = (await pool.query('SELECT customer_id, project_id FROM conversations WHERE id=$1', [conversationId])).rows[0];
+  if (!c || c.project_id !== u.projectId) return false;                       // other projects' conversations do not exist for you
   return u.perms.has('chat.view_all') || c.customer_id === u.id;
 }
 
-export async function listConversations(u: { id: string; perms: Set<string> }) {
+export async function listConversations(u: { id: string; perms: Set<string>; projectId: string | null }) {
   const all = u.perms.has('chat.view_all');
   return (await pool.query(
     `SELECT c.id, c.created_at, c.customer_id, cu.display_name AS customer, pr.name AS project, d.title AS draft_title, d.status AS draft_status,
             (SELECT body FROM messages m WHERE m.conversation_id = c.id ORDER BY m.id DESC LIMIT 1) AS last_message,
             COALESCE((SELECT max(created_at) FROM messages m WHERE m.conversation_id = c.id), c.created_at) AS last_at
      FROM conversations c LEFT JOIN users cu ON cu.id = c.customer_id LEFT JOIN requirement_drafts d ON d.conversation_id = c.id JOIN projects pr ON pr.id = c.project_id
-     WHERE ($1 OR c.customer_id = $2) ORDER BY last_at DESC LIMIT 100`, [all, u.id])).rows;
+     WHERE c.project_id = $3 AND ($1 OR c.customer_id = $2) ORDER BY last_at DESC LIMIT 100`, [all, u.id, u.projectId])).rows;
 }
 
 export async function getMessages(conversationId: string) {

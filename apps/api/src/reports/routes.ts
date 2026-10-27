@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { pool } from '../db.js';
 import { need, type SessionUser } from '../rbac/auth.js';
+import { membersWithPermission } from '../rbac/effective.js';
 import { DocError } from '../docs/service.js';
 import { ReportDefinition, FILTER_FIELD, datasetMeta, runReport, toCsv, type ReportDef } from './engine.js';
 import { FIELD_KEYS, canRead } from '../tickets/fields.js';
@@ -10,12 +11,14 @@ const Layout = z.array(z.object({ id: z.string().uuid(), reportId: z.string().uu
 const Visibility = z.enum(['private', 'shared']);
 const Id = z.object({ id: z.string().uuid() });
 
-interface Row { id: string; owner_id: string | null; visibility: string; is_system: boolean }
+interface Row { id: string; owner_id: string | null; visibility: string; is_system: boolean; project_id: string | null }
 const manage = (u: SessionUser) => u.perms.has('report.manage_all');
-/** Who can open an item: shared ones, their own, or anyone who manages all. */
-const canSee = (u: SessionUser, r: Row) => r.visibility === 'shared' || r.owner_id === u.id || manage(u);
-/** Who can change it: built-in items need manage_all; otherwise the owner (with build permission). */
-const canEdit = (u: SessionUser, r: Row) => manage(u) || (!r.is_system && r.owner_id === u.id && u.perms.has('report.build'));
+/** Built-ins (no project) are shared templates; everything else belongs to one project and never crosses it. */
+const inScope = (u: SessionUser, r: Row) => r.project_id === null || r.project_id === u.projectId;
+/** Who can open an item: within the project, shared ones, their own, or anyone who manages all. */
+const canSee = (u: SessionUser, r: Row) => inScope(u, r) && (r.visibility === 'shared' || r.owner_id === u.id || manage(u));
+/** Who can change it: never a built-in (copy it instead: it is shared by every project); otherwise the owner or a manager of the project's reports. */
+const canEdit = (u: SessionUser, r: Row) => !r.is_system && inScope(u, r) && (manage(u) || (r.owner_id === u.id && u.perms.has('report.build')));
 
 const notFound = (what: string) => new DocError(`${what} not found`, 404);
 const forbidden = () => new DocError('You can’t change this. Make your own copy first.', 403);
@@ -35,7 +38,7 @@ async function loadDashboard(id: string) {
 async function canRun(u: SessionUser, rep: Row) {
   if (canSee(u, rep)) return true;
   return !!(await pool.query(
-    `SELECT 1 FROM dashboards WHERE layout @> $1::jsonb AND (visibility = 'shared' OR owner_id = $2) LIMIT 1`, [JSON.stringify([{ reportId: rep.id }]), u.id])).rowCount;
+    `SELECT 1 FROM dashboards WHERE layout @> $1::jsonb AND (project_id IS NULL OR project_id = $3) AND (visibility = 'shared' OR owner_id = $2) LIMIT 1`, [JSON.stringify([{ reportId: rep.id }]), u.id, u.projectId])).rowCount;
 }
 
 const summary = (u: SessionUser, r: any) => ({
@@ -52,10 +55,7 @@ export function registerReportRoutes(app: FastifyInstance) {
     readableFields: FIELD_KEYS.filter((f) => canRead(req.user!.fields, f)),   // groupings/filters on other fields are refused by the engine
     filterFields: FILTER_FIELD,
     // Filter choices are only needed (and only offered) to people who build reports.
-    projects: req.user!.perms.has('report.build') ? (await pool.query('SELECT id, name FROM projects ORDER BY name')).rows : [],
-    people: req.user!.perms.has('report.build')
-      ? (await pool.query(`SELECT u.id, u.display_name AS name FROM users u JOIN roles r ON r.id = u.role_id WHERE u.active AND (r.name = 'Admin' OR EXISTS (SELECT 1 FROM role_permissions p WHERE p.role_id = r.id AND p.permission = 'ticket.claim')) ORDER BY u.display_name`)).rows
-      : [],
+    people: req.user!.perms.has('report.build') ? (await membersWithPermission(pool, req.user!.projectId!, 'ticket.claim')).map(({ id, name }) => ({ id, name })) : [],
   }));
 
   // ---------------- reports
@@ -72,8 +72,8 @@ export function registerReportRoutes(app: FastifyInstance) {
 
   app.post('/api/reports', { preHandler: build }, async (req, reply) => {
     const b = z.object({ name: z.string().trim().min(1).max(80), description: z.string().max(300).default(''), definition: ReportDefinition, visibility: Visibility.default('private') }).parse(req.body);
-    const id = (await pool.query('INSERT INTO reports (name, description, definition, owner_id, visibility) VALUES ($1,$2,$3,$4,$5) RETURNING id',
-      [b.name, b.description, JSON.stringify(b.definition), req.user!.id, b.visibility])).rows[0].id;
+    const id = (await pool.query('INSERT INTO reports (name, description, definition, owner_id, visibility, project_id) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id',
+      [b.name, b.description, JSON.stringify(b.definition), req.user!.id, b.visibility, req.user!.projectId])).rows[0].id;
     return reply.code(201).send({ id });
   });
 
@@ -97,8 +97,8 @@ export function registerReportRoutes(app: FastifyInstance) {
   app.post('/api/reports/:id/duplicate', { preHandler: build }, async (req, reply) => {
     const r = await loadReport(Id.parse(req.params).id);
     if (!(await canRun(req.user!, r))) throw notFound('Report');
-    const id = (await pool.query('INSERT INTO reports (name, description, definition, owner_id) VALUES ($1,$2,$3,$4) RETURNING id',
-      [`Copy of ${r.name}`.slice(0, 80), r.description, r.definition, req.user!.id])).rows[0].id;
+    const id = (await pool.query('INSERT INTO reports (name, description, definition, owner_id, project_id) VALUES ($1,$2,$3,$4,$5) RETURNING id',
+      [`Copy of ${r.name}`.slice(0, 80), r.description, r.definition, req.user!.id, req.user!.projectId])).rows[0].id;
     return reply.code(201).send({ id });
   });
 
@@ -152,9 +152,9 @@ export function registerReportRoutes(app: FastifyInstance) {
 
   app.post('/api/dashboards', { preHandler: build }, async (req, reply) => {
     const b = z.object({ name: z.string().trim().min(1).max(80), description: z.string().max(300).default(''), visibility: Visibility.default('private'), layout: Layout.default([]) }).parse(req.body);
-    await assertReportsExist(b.layout);
-    const id = (await pool.query('INSERT INTO dashboards (name, description, layout, owner_id, visibility) VALUES ($1,$2,$3,$4,$5) RETURNING id',
-      [b.name, b.description, JSON.stringify(b.layout), req.user!.id, b.visibility])).rows[0].id;
+    await assertReportsExist(b.layout, req.user!.projectId);
+    const id = (await pool.query('INSERT INTO dashboards (name, description, layout, owner_id, visibility, project_id) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id',
+      [b.name, b.description, JSON.stringify(b.layout), req.user!.id, b.visibility, req.user!.projectId])).rows[0].id;
     return reply.code(201).send({ id });
   });
 
@@ -164,7 +164,7 @@ export function registerReportRoutes(app: FastifyInstance) {
     if (!canSee(req.user!, d)) throw notFound('Dashboard');
     if (!canEdit(req.user!, d)) throw forbidden();
     const b = z.object({ name: z.string().trim().min(1).max(80).optional(), description: z.string().max(300).optional(), visibility: Visibility.optional(), layout: Layout.optional() }).parse(req.body);
-    if (b.layout) await assertReportsExist(b.layout);
+    if (b.layout) await assertReportsExist(b.layout, req.user!.projectId);
     await pool.query('UPDATE dashboards SET name=COALESCE($2,name), description=COALESCE($3,description), visibility=COALESCE($4,visibility), layout=COALESCE($5,layout), updated_at=now() WHERE id=$1',
       [id, b.name ?? null, b.description ?? null, b.visibility ?? null, b.layout ? JSON.stringify(b.layout) : null]);
     return { ok: true };
@@ -175,8 +175,8 @@ export function registerReportRoutes(app: FastifyInstance) {
     if (!canSee(req.user!, d)) throw notFound('Dashboard');
     // Fresh widget ids so the copy and the original never share identities.
     const layout = (d.layout as any[]).map((w) => ({ ...w, id: crypto.randomUUID() }));
-    const id = (await pool.query('INSERT INTO dashboards (name, description, layout, owner_id) VALUES ($1,$2,$3,$4) RETURNING id',
-      [`Copy of ${d.name}`.slice(0, 80), d.description, JSON.stringify(layout), req.user!.id])).rows[0].id;
+    const id = (await pool.query('INSERT INTO dashboards (name, description, layout, owner_id, project_id) VALUES ($1,$2,$3,$4,$5) RETURNING id',
+      [`Copy of ${d.name}`.slice(0, 80), d.description, JSON.stringify(layout), req.user!.id, req.user!.projectId])).rows[0].id;
     return reply.code(201).send({ id });
   });
 
@@ -190,9 +190,9 @@ export function registerReportRoutes(app: FastifyInstance) {
   });
 }
 
-async function assertReportsExist(layout: z.infer<typeof Layout>) {
+async function assertReportsExist(layout: z.infer<typeof Layout>, projectId: string | null) {
   const ids = [...new Set(layout.map((w) => w.reportId))];
   if (!ids.length) return;
-  const n = (await pool.query('SELECT count(*)::int n FROM reports WHERE id = ANY($1::uuid[])', [ids])).rows[0].n;
+  const n = (await pool.query('SELECT count(*)::int n FROM reports WHERE id = ANY($1::uuid[]) AND (project_id IS NULL OR project_id = $2)', [ids, projectId])).rows[0].n;
   if (n !== ids.length) throw new DocError('A widget points to a report that does not exist', 400);
 }

@@ -4,13 +4,12 @@ import { buildApp } from '../app.js';
 import { TemplateGenerator } from '../docs/generator.js';
 import { HashEmbedder } from '../etl/vectorize.js';
 import { createTicket } from '../tickets.js';
-import { makeUser } from '../testAuth.js';
-import { signSession } from '../rbac/auth.js';
+import { addMember, makeCustomUser, makeProject, makeUser, testProject } from '../testAuth.js';
 import { FIELDS, FIELD_KEYS, sanitizeTicket, validateFieldAccess, resolveFieldAccess } from './fields.js';
 
 const app = buildApp({ generator: new TemplateGenerator(), embedder: new HashEmbedder() });
 type U = Awaited<ReturnType<typeof makeUser>>;
-let admin: U, lead: U, manager: U, consultant: U, other: U, customer: U;
+let admin: U, lead: U, manager: U, consultant: U, other: U, customer: U, projAdmin: U;
 let projectId: string, ticketId: string;
 
 const call = async (u: U, method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE', path: string, payload?: unknown) => {
@@ -20,19 +19,12 @@ const call = async (u: U, method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE', p
 };
 const roleId = async (name: string) => (await pool.query('SELECT id FROM roles WHERE name=$1', [name])).rows[0].id as number;
 
-/** A user in a fresh custom role with the given permissions and field access (everything else falls to the new-role default). */
-async function customUser(perms: string[], access: Record<string, 'hidden' | 'read' | 'write'> = {}) {
-  const rid = (await pool.query('INSERT INTO roles(name) VALUES($1) RETURNING id', [`Custom ${Math.random().toString(36).slice(2, 8)}`])).rows[0].id;
-  await pool.query('INSERT INTO role_permissions(role_id, permission) SELECT $1, unnest($2::text[])', [rid, perms]);
-  for (const [f, a] of Object.entries(access)) await pool.query('INSERT INTO ticket_field_access(role_id, field, access) VALUES ($1,$2,$3)', [rid, f, a]);
-  const uid = (await pool.query("INSERT INTO users(email, display_name, role_id) VALUES($1,'Custom user',$2) RETURNING id", [`c${Math.random().toString(36).slice(2, 8)}@t.dev`, rid])).rows[0].id;
-  return { id: uid as string, email: '', cookie: `dm_session=${signSession(uid)}`, roleId: rid as number } as U & { roleId: number };
-}
+const customUser = (perms: string[], access: Record<string, 'hidden' | 'read' | 'write'> = {}) => makeCustomUser(perms, access, projectId);
 
 beforeAll(async () => {
   await app.ready();
-  [admin, lead, manager, consultant, other, customer] = await Promise.all(['Admin', 'Lead', 'Manager', 'Consultant', 'Consultant', 'Customer'].map((r) => makeUser(r)));
-  projectId = (await pool.query("INSERT INTO projects(name) VALUES('fields') RETURNING id")).rows[0].id;
+  projectId = await testProject();
+  [admin, lead, manager, consultant, other, customer, projAdmin] = await Promise.all(['Admin', 'Lead', 'Manager', 'Consultant', 'Consultant', 'Customer', 'Project Admin'].map((r) => makeUser(r)));
   const t = await createTicket(projectId, 'Field test');
   ticketId = t.id;
   await pool.query(`UPDATE tickets SET customer_id=$2, consultant_id=$3, ai_summary='SUMMARY-X', resolution_notes='RES-X', acceptance_criteria='ACC-X', legacy_id='PROJ-9', legacy_source='jira', legacy_type='Story', legacy_status='Done' WHERE id=$1`, [ticketId, customer.id, consultant.id]);
@@ -108,47 +100,79 @@ describe('what each role sees', () => {
   });
 });
 
-describe('the Admin grid', () => {
-  it('is limited to people who manage roles', async () => {
-    expect((await call(consultant, 'GET', '/api/admin/ticket-fields')).status).toBe(403);
-    expect((await call(consultant, 'PUT', `/api/admin/roles/${await roleId('Customer')}/ticket-fields`, { access: { ai_summary: 'hidden' } })).status).toBe(403);
+describe('the field-access grids', () => {
+  it('each console is limited to its own administrators', async () => {
+    expect((await call(consultant, 'GET', '/api/project/ticket-fields')).status).toBe(403);
+    expect((await call(consultant, 'PUT', `/api/project/roles/${await roleId('Customer')}/ticket-fields`, { access: { ai_summary: 'hidden' } })).status).toBe(403);
+    expect((await call(projAdmin, 'GET', '/api/platform/roles')).status).toBe(403);                     // the role templates are the Super Admin's
+    expect((await call(projAdmin, 'PUT', `/api/platform/roles/${await roleId('Customer')}/ticket-fields`, { access: { ai_summary: 'hidden' } })).status).toBe(403);
   });
 
-  it('changes apply at once, are validated, protect Admin, and are audited without values', async () => {
-    const grid = (await call(admin, 'GET', '/api/admin/ticket-fields')).body;
+  it('a Project Admin tunes a role for their project: it applies at once, only here, and can be reset', async () => {
+    const grid = (await call(projAdmin, 'GET', '/api/project/ticket-fields')).body;
     expect(grid.fields.map((f: any) => f.key)).toEqual(FIELD_KEYS);
     const cust = grid.roles.find((r: any) => r.name === 'Customer');
-    expect(cust.access).toMatchObject({ title: 'read', ai_summary: 'read', legacy: 'hidden' });
-    expect(grid.roles.find((r: any) => r.name === 'Admin')).toMatchObject({ locked: true });
+    expect(cust).toMatchObject({ tuned: false, access: { title: 'read', ai_summary: 'read', legacy: 'hidden' } });
+    expect(grid.roles.find((r: any) => r.name === 'Project Admin')).toMatchObject({ locked: true });
 
-    expect((await call(admin, 'PUT', `/api/admin/roles/${cust.id}/ticket-fields`, { access: { ai_summary: 'hidden', resolution_notes: 'hidden' } })).body.changed).toBe(2);
+    expect((await call(projAdmin, 'PUT', `/api/project/roles/${cust.id}/ticket-fields`, { access: { ai_summary: 'hidden', resolution_notes: 'hidden' } })).body.changed).toBe(2);
     const seen = (await call(customer, 'GET', '/api/tickets')).body.find((t: any) => t.id === ticketId);
     expect(seen).not.toHaveProperty('ai_summary');                                 // took effect without re-login
     expect((await call(customer, 'GET', `/api/tickets/${ticketId}`)).body.ticket).not.toHaveProperty('resolution_notes');
-    expect((await call(admin, 'PUT', `/api/admin/roles/${cust.id}/ticket-fields`, { access: { ai_summary: 'read', resolution_notes: 'read' } })).status).toBe(200);
+    const after = (await call(projAdmin, 'GET', '/api/project/ticket-fields')).body.roles.find((r: any) => r.name === 'Customer');
+    expect(after).toMatchObject({ tuned: true, access: { ai_summary: 'hidden', title: 'read', customer: 'read', legacy: 'hidden' } });   // untouched fields keep their meaning
+    // the standard template (every other project) is untouched
+    expect((await call(admin, 'GET', '/api/platform/roles')).body.find((r: any) => r.name === 'Customer').fieldAccess).toMatchObject({ ai_summary: 'read', resolution_notes: 'read' });
+
+    expect((await call(projAdmin, 'DELETE', `/api/project/roles/${cust.id}/ticket-fields`)).status).toBe(200);        // back to the standard role
     expect((await call(customer, 'GET', `/api/tickets/${ticketId}`)).body.ticket.ai_summary).toBe('SUMMARY-X');
-    expect((await call(admin, 'PUT', `/api/admin/roles/${cust.id}/ticket-fields`, { access: { ai_summary: 'read' } })).body.changed).toBe(0);   // no-op: nothing logged
+    expect((await call(projAdmin, 'GET', '/api/project/ticket-fields')).body.roles.find((r: any) => r.name === 'Customer').tuned).toBe(false);
+  });
 
+  it('is validated, protects Project Admin, ignores no-ops, and the log records field names, never values', async () => {
+    const cust = (await call(projAdmin, 'GET', '/api/project/ticket-fields')).body.roles.find((r: any) => r.name === 'Customer');
     for (const bad of [{ title: 'hidden' }, { customer: 'write' }, { nope: 'read' }, { ai_summary: 'root' }])
-      expect((await call(admin, 'PUT', `/api/admin/roles/${cust.id}/ticket-fields`, { access: bad })).status, JSON.stringify(bad)).toBe(400);
-    expect((await call(admin, 'PUT', `/api/admin/roles/${await roleId('Admin')}/ticket-fields`, { access: { ai_summary: 'hidden' } })).status).toBe(400);
-    expect((await call(admin, 'PUT', '/api/admin/roles/999999/ticket-fields', { access: { ai_summary: 'read' } })).status).toBe(404);
-
-    const log = (await call(admin, 'GET', '/api/admin/audit')).body.filter((a: any) => a.action === 'role.ticket-fields');
-    expect(log.length).toBeGreaterThanOrEqual(2);
+      expect((await call(projAdmin, 'PUT', `/api/project/roles/${cust.id}/ticket-fields`, { access: bad })).status, JSON.stringify(bad)).toBe(400);
+    expect((await call(projAdmin, 'PUT', `/api/project/roles/${await roleId('Project Admin')}/ticket-fields`, { access: { ai_summary: 'hidden' } })).status).toBe(400);
+    expect((await call(projAdmin, 'PUT', '/api/project/roles/999999/ticket-fields', { access: { ai_summary: 'read' } })).status).toBe(404);
+    await call(projAdmin, 'PUT', `/api/project/roles/${cust.id}/ticket-fields`, { access: { ai_summary: 'hidden' } });
+    expect((await call(projAdmin, 'PUT', `/api/project/roles/${cust.id}/ticket-fields`, { access: { ai_summary: 'hidden' } })).body.changed).toBe(0);
+    await call(projAdmin, 'DELETE', `/api/project/roles/${cust.id}/ticket-fields`);
+    const log = (await call(projAdmin, 'GET', '/api/project/audit')).body.filter((a: any) => a.action === 'role.ticket-fields');
     expect(JSON.stringify(log)).toContain('ai_summary'); expect(JSON.stringify(log)).not.toContain('SUMMARY-X');
   });
 
-  it('cloning a role copies its field access', async () => {
+  it('the Super Admin edits the standard template; projects that have not tuned the role follow it, tuned ones do not', async () => {
+    const cust = await roleId('Customer');
+    const second = await makeProject('second field project');
+    const c2 = await makeUser('Customer', undefined, second);
+    const t2 = await createTicket(second, 'in second'); await pool.query('UPDATE tickets SET customer_id=$2, ai_summary=$3 WHERE id=$1', [t2.id, c2.id, 'S2']);
+    await addMember(second, projAdmin.id, 'Project Admin');
+    try {
+      expect((await call(admin, 'PUT', `/api/platform/roles/${cust}/ticket-fields`, { access: { ai_summary: 'hidden' } })).status).toBe(200);
+      expect((await call(c2, 'GET', `/api/tickets/${t2.id}`)).body.ticket).not.toHaveProperty('ai_summary');
+      expect((await call(customer, 'GET', `/api/tickets/${ticketId}`)).body.ticket).not.toHaveProperty('ai_summary');
+      // this project tunes it back on: it now ignores the template; the other project still follows it
+      await call(projAdmin, 'PUT', `/api/project/roles/${cust}/ticket-fields`, { access: { ai_summary: 'read' } });
+      expect((await call(customer, 'GET', `/api/tickets/${ticketId}`)).body.ticket.ai_summary).toBe('SUMMARY-X');
+      expect((await call(c2, 'GET', `/api/tickets/${t2.id}`)).body.ticket).not.toHaveProperty('ai_summary');
+      expect((await call(admin, 'PUT', `/api/platform/roles/${await roleId('Project Admin')}/ticket-fields`, { access: { ai_summary: 'hidden' } })).status).toBe(400);
+      expect((await call(admin, 'PUT', `/api/platform/roles/${cust}/ticket-fields`, { access: { customer: 'write' } })).status).toBe(400);
+    } finally {
+      await call(projAdmin, 'DELETE', `/api/project/roles/${cust}/ticket-fields`);
+      await call(admin, 'PUT', `/api/platform/roles/${cust}/ticket-fields`, { access: { ai_summary: 'read' } });
+    }
+  });
+
+  it('cloning a role in the catalog copies its field access; a brand-new role is closed', async () => {
     const leadId = await roleId('Lead');
-    const made = (await call(admin, 'POST', '/api/admin/roles', { name: `Lead copy ${Date.now()}`, copyFromRoleId: leadId })).body.id;
-    const grid = (await call(admin, 'GET', '/api/admin/ticket-fields')).body.roles;
-    expect(grid.find((r: any) => r.id === made).access).toEqual(grid.find((r: any) => r.id === leadId).access);
-    const fromAdmin = (await call(admin, 'POST', '/api/admin/roles', { name: `Admin copy ${Date.now()}`, copyFromRoleId: await roleId('Admin') })).body.id;
-    const a = (await call(admin, 'GET', '/api/admin/ticket-fields')).body.roles.find((r: any) => r.id === fromAdmin).access;
-    expect(a).toMatchObject({ title: 'write', ai_summary: 'write', customer: 'read', legacy: 'read' });   // every valid maximum
-    const scratch = (await call(admin, 'POST', '/api/admin/roles', { name: `Scratch ${Date.now()}` })).body.id;
-    expect((await call(admin, 'GET', '/api/admin/ticket-fields')).body.roles.find((r: any) => r.id === scratch).access).toMatchObject({ title: 'read', ai_summary: 'hidden', customer: 'hidden' });
+    const made = (await call(admin, 'POST', '/api/platform/roles', { name: `Lead copy ${Date.now()}`, copyFromRoleId: leadId })).body.id;
+    const roles = (await call(admin, 'GET', '/api/platform/roles')).body;
+    expect(roles.find((r: any) => r.id === made).fieldAccess).toEqual(roles.find((r: any) => r.id === leadId).fieldAccess);
+    const fromPA = (await call(admin, 'POST', '/api/platform/roles', { name: `PA copy ${Date.now()}`, copyFromRoleId: await roleId('Project Admin') })).body.id;
+    expect((await call(admin, 'GET', '/api/platform/roles')).body.find((r: any) => r.id === fromPA).fieldAccess).toMatchObject({ title: 'write', ai_summary: 'write', customer: 'read', legacy: 'read' });
+    const scratch = (await call(admin, 'POST', '/api/platform/roles', { name: `Scratch ${Date.now()}` })).body.id;
+    expect((await call(admin, 'GET', '/api/platform/roles')).body.find((r: any) => r.id === scratch).fieldAccess).toMatchObject({ title: 'read', ai_summary: 'hidden', customer: 'hidden' });
   });
 });
 
@@ -207,9 +231,8 @@ describe('reports, exports and dashboards cannot reveal a hidden column', () => 
     expect((await run(def({ filters: { consultantIds: ['unassigned'] } }))).status).toBe(403);
     expect((await run(def({ groupBy: 'source', chart: 'bar' }))).status).toBe(403);          // legacy hidden
     expect((await run(def({ groupBy: 'customer', chart: 'bar' }))).status).toBe(403);
-    expect((await run(def({ groupBy: 'project', chart: 'bar' }))).status).toBe(200);
     expect((await run(def({}))).status).toBe(200);
-    expect((await run({ dataset: 'approvals', measure: 'count', groupBy: 'status', filters: { projectIds: [projectId] }, chart: 'bar' })).status).toBe(200);
+    expect((await run({ dataset: 'approvals', measure: 'count', groupBy: 'status', filters: {}, chart: 'bar' })).status).toBe(200);
     // the same restriction on a SAVED, shared report and on its CSV, for a viewer who lacks the field
     const rep = (await call(admin, 'POST', '/api/reports', { name: 'Per consultant', definition: def({ groupBy: 'consultant', chart: 'bar' }), visibility: 'shared' })).body.id;
     expect((await call(admin, 'GET', `/api/reports/${rep}/data`)).status).toBe(200);
@@ -223,7 +246,8 @@ describe('reports, exports and dashboards cannot reveal a hidden column', () => 
     const meta = (await call(u, 'GET', '/api/reports/meta')).body;
     expect(meta.readableFields).toEqual(['title', 'project']);
     expect(meta.datasets.find((d: any) => d.key === 'tickets').dimensions.find((d: any) => d.key === 'consultant').field).toBe('consultant');
-    expect(meta.filterFields).toMatchObject({ consultantIds: 'consultant', projectIds: 'project', sources: 'legacy' });
+    expect(meta.filterFields).toMatchObject({ consultantIds: 'consultant', sources: 'legacy' });
+    expect(meta.filterFields).not.toHaveProperty('projectIds');                       // one project per workspace: nothing to filter by
   });
 
   it('the team dashboard, which names consultants, needs that field', async () => {

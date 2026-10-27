@@ -9,7 +9,9 @@ const BLURB: Record<string, string> = {
   Consultant: 'Answer chats, draft specifications',
   Lead: 'Assign work, see the whole team',
   Manager: 'Approve specifications, watch the portfolio',
-  Admin: 'Everything, plus roles and users',
+  'Project Admin': 'Runs one project: members, rules, workflows',
+  'Super Admin': 'Creates projects, appoints their admins, sees the platform',
+  'No project': 'Signed in, but not in any project yet',
 };
 
 export default function Login() {

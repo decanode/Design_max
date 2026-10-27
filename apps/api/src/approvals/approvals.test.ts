@@ -1,16 +1,17 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
 import { pool } from '../db.js';
 import { buildApp } from '../app.js';
 import { TemplateGenerator } from '../docs/generator.js';
 import { HashEmbedder } from '../etl/vectorize.js';
 import { createTicket } from '../tickets.js';
-import { makeUser, makeWorkflow, tokenSentTo } from '../testAuth.js';
+import { addMember, makeProject, makeUser, makeWorkflow, tokenSentTo } from '../testAuth.js';
 
 const app = buildApp({ generator: new TemplateGenerator(), embedder: new HashEmbedder() });
 type U = Awaited<ReturnType<typeof makeUser>>;
 let admin: U, requester: U, a: U, b: U, c: U, outsider: U;
+let cur = '';          // the project every call is made from; each scenario below builds its own project and moves here
 const call = async (u: U, method: 'GET' | 'POST' | 'PUT' | 'DELETE', path: string, payload?: unknown) => {
-  const r = await app.inject({ method, url: path, payload: payload as any, headers: { cookie: u.cookie } });
+  const r = await app.inject({ method, url: path, payload: payload as any, headers: { cookie: u.cookieIn(cur) } });
   let body: any; try { body = r.json(); } catch { body = r.body; }
   return { status: r.statusCode, body };
 };
@@ -18,7 +19,9 @@ const anon = async (path: string, payload?: unknown) => { const r = await app.in
 
 /** A fresh project with its own workflow and a ticket whose FS is ready for approval. */
 async function setup(levels: Parameters<typeof makeWorkflow>[0]['levels'], title = `T${Math.random().toString(36).slice(2, 7)}`) {
-  const projectId = (await pool.query("INSERT INTO projects(name) VALUES($1) RETURNING id", [`P-${title}`])).rows[0].id as string;
+  const projectId = await makeProject(`P-${title}`);
+  for (const [u, role] of [[requester, 'Consultant'], [a, 'Manager'], [b, 'Manager'], [c, 'Lead'], [outsider, 'Consultant']] as const) await addMember(projectId, u.id, role);
+  cur = projectId;
   const wf = await makeWorkflow({ projectId, levels });
   const t = await createTicket(projectId, title);
   await pool.query('UPDATE tickets SET consultant_id=$2 WHERE id=$1', [t.id, requester.id]);
@@ -166,7 +169,7 @@ describe('running requests', () => {
 
     await call(requester, 'POST', `/api/tickets/${t.id}/approvals`, { kind: 'FS' });
     expect((await call(outsider, 'POST', `/api/tickets/${t.id}/approvals/cancel`, { kind: 'FS' })).status).toBe(404);   // can't even see it
-    const lead = await makeUser('Lead');
+    const lead = await makeUser('Lead', undefined, cur);
     expect((await call(lead, 'POST', `/api/tickets/${t.id}/approvals/cancel`, { kind: 'FS' })).status).toBe(403);   // can see it, but did not request it
     expect((await call(requester, 'POST', `/api/tickets/${t.id}/approvals/cancel`, { kind: 'FS' })).status).toBe(200);
     expect((await call(requester, 'POST', `/api/tickets/${t.id}/approvals/cancel`, { kind: 'FS' })).status).toBe(404);   // nothing left to cancel
@@ -188,24 +191,30 @@ describe('running requests', () => {
 });
 
 describe('which workflow applies', () => {
-  it('a project workflow beats the global one, and a document with no workflow cannot be sent', async () => {
-    const t = await setup([{ users: [b.id] }]);                                // project-specific
+  it('each project uses only its own workflow, and a project with none cannot send a document', async () => {
+    const t = await setup([{ users: [b.id] }]);
     await call(requester, 'POST', `/api/tickets/${t.id}/approvals`, { kind: 'FS' });
-    expect((await tasks(t.id)).map((x) => x.email)).toEqual([b.email]);        // not "every Manager" from the global default
+    expect((await tasks(t.id)).map((x) => x.email)).toEqual([b.email]);        // not "every Manager in the firm"
 
     const t2 = await setup([{ users: [a.id] }]);
-    await pool.query('UPDATE approval_workflows SET kinds=ARRAY[\'TS\'] WHERE id=$1', [t2.wf]);   // covers only TS now
-    const global = (await pool.query(`SELECT id FROM approval_workflows WHERE is_system`)).rows[0].id;
-    await pool.query('UPDATE approval_workflows SET active=false WHERE id=$1', [global]);
-    try {
-      const r = await call(requester, 'POST', `/api/tickets/${t2.id}/approvals`, { kind: 'FS' });
-      expect(r.status).toBe(409); expect(r.body.error).toMatch(/No approval workflow/);
-      expect((await call(requester, 'GET', `/api/tickets/${t2.id}/approval-plan?kind=FS`)).body.workflow).toBeNull();
-    } finally { await pool.query('UPDATE approval_workflows SET active=true WHERE id=$1', [global]); }
+    await pool.query("UPDATE approval_workflows SET kinds=ARRAY['TS'] WHERE id=$1", [t2.wf]);   // this project's workflow now covers only TS
+    const r = await call(requester, 'POST', `/api/tickets/${t2.id}/approvals`, { kind: 'FS' });
+    expect(r.status).toBe(409); expect(r.body.error).toMatch(/No approval workflow/);
+    expect((await call(requester, 'GET', `/api/tickets/${t2.id}/approval-plan?kind=FS`)).body.workflow).toBeNull();
+  });
+
+  it('a template (the platform default copied into new projects) never applies by itself', async () => {
+    const t = await setup([{ users: [a.id] }]);
+    await pool.query('UPDATE approval_workflows SET active=false WHERE id=$1', [t.wf]);
+    const tpl = (await pool.query("SELECT count(*)::int n FROM approval_workflows WHERE is_template AND active")).rows[0].n;
+    expect(tpl).toBeGreaterThan(0);
+    expect((await call(requester, 'POST', `/api/tickets/${t.id}/approvals`, { kind: 'FS' })).status).toBe(409);
   });
 
   it('the specification kind picks the workflow (FS and TS can differ)', async () => {
-    const projectId = (await pool.query("INSERT INTO projects(name) VALUES('kinds') RETURNING id")).rows[0].id;
+    const projectId = await makeProject('kinds');
+    for (const [u, role] of [[requester, 'Consultant'], [a, 'Manager'], [b, 'Manager'], [c, 'Lead']] as const) await addMember(projectId, u.id, role);
+    cur = projectId;
     await makeWorkflow({ projectId, kinds: ['FS'], levels: [{ users: [a.id] }] });
     await makeWorkflow({ projectId, kinds: ['TS'], levels: [{ users: [b.id] }, { users: [c.id] }] });
     const t = await createTicket(projectId, `K${Date.now()}`);
@@ -215,49 +224,79 @@ describe('which workflow applies', () => {
   });
 });
 
-describe('administering workflows', () => {
-  const body = (o: Record<string, unknown> = {}) => ({ name: `WF ${Math.random().toString(36).slice(2, 7)}`, kinds: ['FS'], projectId: null, active: false, levels: [{ name: 'L1', rule: 'any', approvers: [{ kind: 'role', id: 1 }] }], ...o });
+describe('administering workflows (a Project Admin\'s job, inside their own project)', () => {
+  let pa: U, project: string, roles: { id: number; name: string }[];
+  const body = (o: Record<string, unknown> = {}) => ({ name: `WF ${Math.random().toString(36).slice(2, 7)}`, kinds: ['FS'], active: false, levels: [{ name: 'L1', rule: 'any', approvers: [{ kind: 'role', id: roles[0].id }] }], ...o });
 
-  it('is limited to people with admin.workflows', async () => {
-    for (const [m, p] of [['GET', '/api/admin/workflows'], ['POST', '/api/admin/workflows'], ['GET', '/api/admin/workflows/options']] as const)
+  beforeAll(async () => {
+    project = await makeProject('wf-admin');
+    pa = await makeUser('Project Admin', undefined, project);
+    for (const [u, role] of [[requester, 'Consultant'], [a, 'Manager'], [c, 'Lead']] as const) await addMember(project, u.id, role);
+    cur = project;
+    roles = (await call(pa, 'GET', '/api/project/workflows/options')).body.roles;
+  });
+  beforeEach(() => { cur = project; });
+
+  it('is limited to people with the workflow permission in that project', async () => {
+    for (const [m, p] of [['GET', '/api/project/workflows'], ['POST', '/api/project/workflows'], ['GET', '/api/project/workflows/options']] as const)
       expect((await call(requester, m, p, body())).status).toBe(403);
+    expect((await call(admin, 'GET', '/api/project/workflows')).status).toBe(200);        // a Super Admin may act in any project
+  });
+
+  it('lists only this project\'s workflows, and offers only this project\'s people as approvers', async () => {
+    const opts = (await call(pa, 'GET', '/api/project/workflows/options')).body;
+    expect(opts.users.map((u: any) => u.id)).toEqual(expect.arrayContaining([a.id, c.id, requester.id]));
+    expect(opts.users.map((u: any) => u.id)).not.toContain(b.id);                          // b is not in this project
+    const mine = await call(pa, 'POST', '/api/project/workflows', body({ name: 'Visible here' }));
+    cur = await makeProject('elsewhere');
+    expect((await call(admin, 'GET', '/api/project/workflows')).body.map((w: any) => w.name)).not.toContain('Visible here');
   });
 
   it('creates, edits and deletes with validation', async () => {
-    const roles = (await call(admin, 'GET', '/api/admin/workflows/options')).body.roles as { id: number; name: string }[];
-    const manager = roles.find((r) => r.name === 'Manager')!.id, lead = roles.find((r) => r.name === 'Lead')!.id;
-    const ok = body({ levels: [{ name: 'L1', rule: 'any', approvers: [{ kind: 'role', id: manager }] }, { name: 'L2', rule: 'all', approvers: [{ kind: 'role', id: lead }, { kind: 'user', id: a.id }] }] });
-    const made = await call(admin, 'POST', '/api/admin/workflows', ok);
+    const byName = (n: string) => roles.find((r) => r.name === n)!.id;
+    const ok = body({ levels: [{ name: 'L1', rule: 'any', approvers: [{ kind: 'role', id: byName('Manager') }] }, { name: 'L2', rule: 'all', approvers: [{ kind: 'role', id: byName('Lead') }, { kind: 'user', id: a.id }] }] });
+    const made = await call(pa, 'POST', '/api/project/workflows', ok);
     expect(made.status).toBe(201);
-    const listed = (await call(admin, 'GET', '/api/admin/workflows')).body.find((w: any) => w.id === made.body.id);
+    const listed = (await call(pa, 'GET', '/api/project/workflows')).body.find((w: any) => w.id === made.body.id);
     expect(listed.levels.map((l: any) => [l.name, l.rule, l.approvers.length, l.eligible > 0])).toEqual([['L1', 'any', 1, true], ['L2', 'all', 2, true]]);
 
-    expect((await call(admin, 'POST', '/api/admin/workflows', body({ levels: [] }))).status).toBe(400);
-    expect((await call(admin, 'POST', '/api/admin/workflows', body({ levels: Array.from({ length: 11 }, (_, i) => ({ name: `L${i}`, rule: 'any', approvers: [{ kind: 'role', id: manager }] })) }))).status).toBe(400);
-    expect((await call(admin, 'POST', '/api/admin/workflows', body({ levels: [{ name: 'L1', rule: 'any', approvers: [] }] }))).status).toBe(400);
-    expect((await call(admin, 'POST', '/api/admin/workflows', body({ levels: [{ name: 'X', rule: 'any', approvers: [{ kind: 'role', id: manager }] }, { name: 'x', rule: 'any', approvers: [{ kind: 'role', id: manager }] }] }))).status).toBe(400);
-    expect((await call(admin, 'POST', '/api/admin/workflows', body({ levels: [{ name: 'L1', rule: 'any', approvers: [{ kind: 'role', id: 99999 }] }] }))).status).toBe(400);
-    expect((await call(admin, 'POST', '/api/admin/workflows', body({ levels: [{ name: 'L1', rule: 'any', approvers: [{ kind: 'user', id: '00000000-0000-4000-8000-000000000000' }] }] }))).status).toBe(400);
-    expect((await call(admin, 'POST', '/api/admin/workflows', body({ kinds: ['XX'] }))).status).toBe(400);
+    const lvl = (o: object) => ({ name: 'L1', rule: 'any', approvers: [{ kind: 'role', id: byName('Manager') }], ...o });
+    expect((await call(pa, 'POST', '/api/project/workflows', body({ levels: [] }))).status).toBe(400);
+    expect((await call(pa, 'POST', '/api/project/workflows', body({ levels: Array.from({ length: 11 }, (_, i) => lvl({ name: `L${i}` })) }))).status).toBe(400);
+    expect((await call(pa, 'POST', '/api/project/workflows', body({ levels: [lvl({ approvers: [] })] }))).status).toBe(400);
+    expect((await call(pa, 'POST', '/api/project/workflows', body({ levels: [lvl({ name: 'X' }), lvl({ name: 'x' })] }))).status).toBe(400);
+    expect((await call(pa, 'POST', '/api/project/workflows', body({ levels: [lvl({ approvers: [{ kind: 'user', id: '00000000-0000-4000-8000-000000000000' }] })] }))).status).toBe(400);
+    expect((await call(pa, 'POST', '/api/project/workflows', body({ levels: [lvl({ approvers: [{ kind: 'user', id: b.id }] })] }))).status).toBe(400);   // not a member of this project
+    expect((await call(pa, 'POST', '/api/project/workflows', body({ kinds: ['XX'] }))).status).toBe(400);
 
-    expect((await call(admin, 'PUT', `/api/admin/workflows/${made.body.id}`, { ...ok, name: 'Renamed', levels: [ok.levels[0]] })).status).toBe(200);
-    expect((await call(admin, 'GET', '/api/admin/workflows')).body.find((w: any) => w.id === made.body.id)).toMatchObject({ name: 'Renamed', levels: [{ name: 'L1' }] });
-    expect((await call(admin, 'DELETE', `/api/admin/workflows/${made.body.id}`)).status).toBe(200);
-    const sys = (await call(admin, 'GET', '/api/admin/workflows')).body.find((w: any) => w.isSystem);
-    expect((await call(admin, 'DELETE', `/api/admin/workflows/${sys.id}`)).status).toBe(400);
-    expect((await call(admin, 'GET', '/api/admin/audit')).body.map((x: any) => x.action)).toEqual(expect.arrayContaining(['workflow.create', 'workflow.update', 'workflow.delete']));
+    expect((await call(pa, 'PUT', `/api/project/workflows/${made.body.id}`, { ...ok, name: 'Renamed', levels: [ok.levels[0]] })).status).toBe(200);
+    expect((await call(pa, 'GET', '/api/project/workflows')).body.find((w: any) => w.id === made.body.id)).toMatchObject({ name: 'Renamed', levels: [{ name: 'L1' }] });
+    expect((await call(pa, 'DELETE', `/api/project/workflows/${made.body.id}`)).status).toBe(200);
+    expect((await call(pa, 'GET', '/api/project/audit')).body.map((x: any) => x.action)).toEqual(expect.arrayContaining(['workflow.create', 'workflow.update', 'workflow.delete']));
   });
 
-  it('refuses two active workflows for the same project and document, and protects roles that are in use', async () => {
-    const pid = (await pool.query("INSERT INTO projects(name) VALUES('conflict') RETURNING id")).rows[0].id;
-    expect((await call(admin, 'POST', '/api/admin/workflows', body({ projectId: pid, active: true }))).status).toBe(201);
-    const clash = await call(admin, 'POST', '/api/admin/workflows', body({ projectId: pid, active: true, kinds: ['FS', 'TS'] }));
-    expect(clash.status).toBe(409); expect(clash.body.error).toMatch(/already covers/);
-    expect((await call(admin, 'POST', '/api/admin/workflows', body({ projectId: pid, active: true, kinds: ['TS'] }))).status).toBe(201);   // different document: fine
+  it('cannot reach another project\'s workflow, even by id', async () => {
+    const other = await makeProject('other-wf');
+    const theirs = await makeWorkflow({ projectId: other, levels: [{ users: [a.id] }] });
+    expect((await call(pa, 'PUT', `/api/project/workflows/${theirs}`, body())).status).toBe(404);
+    expect((await call(pa, 'DELETE', `/api/project/workflows/${theirs}`)).status).toBe(404);
+    expect((await pool.query('SELECT 1 FROM approval_workflows WHERE id=$1', [theirs])).rowCount).toBe(1);
+  });
 
-    const role = (await call(admin, 'POST', '/api/admin/roles', { name: `Approvers ${Date.now()}` })).body.id;
-    await call(admin, 'POST', '/api/admin/workflows', body({ levels: [{ name: 'L1', rule: 'any', approvers: [{ kind: 'role', id: role }] }] }));
-    const del = await call(admin, 'DELETE', `/api/admin/roles/${role}`);
+  it('refuses two active workflows for the same document in one project, but the same document in another project is fine', async () => {
+    expect((await call(pa, 'POST', '/api/project/workflows', body({ active: true }))).status).toBe(201);
+    const clash = await call(pa, 'POST', '/api/project/workflows', body({ active: true, kinds: ['FS', 'TS'] }));
+    expect(clash.status).toBe(409); expect(clash.body.error).toMatch(/already covers/);
+    expect((await call(pa, 'POST', '/api/project/workflows', body({ active: true, kinds: ['TS'] }))).status).toBe(201);
+    cur = await makeProject('second');
+    const roles2 = (await call(admin, 'GET', '/api/project/workflows/options')).body.roles;
+    expect((await call(admin, 'POST', '/api/project/workflows', { name: 'Same doc elsewhere', kinds: ['FS'], active: true, levels: [{ name: 'L1', rule: 'any', approvers: [{ kind: 'role', id: roles2[0].id }] }] })).status).toBe(201);
+  });
+
+  it('a role that approvers are drawn from cannot be deleted from the catalog', async () => {
+    const role = (await call(admin, 'POST', '/api/platform/roles', { name: `Approvers ${Date.now()}` })).body.id;
+    await call(pa, 'POST', '/api/project/workflows', body({ levels: [{ name: 'L1', rule: 'any', approvers: [{ kind: 'role', id: role }] }] }));
+    const del = await call(admin, 'DELETE', `/api/platform/roles/${role}`);
     expect(del.status).toBe(409); expect(del.body.error).toMatch(/approval workflow/);
   });
 });

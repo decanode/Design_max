@@ -9,7 +9,7 @@ import { TemplateGenerator } from '../docs/generator.js';
 import { HashEmbedder } from '../etl/vectorize.js';
 import { createConversation } from '../chat/service.js';
 import { createTicket } from '../tickets.js';
-import { makeUser, makeWorkflow } from '../testAuth.js';
+import { makeUser, makeWorkflow, testProject } from '../testAuth.js';
 import { signSession, verifySession } from './auth.js';
 import { ALL_KEYS, CATALOG } from './permissions.js';
 
@@ -32,7 +32,7 @@ const roleId = async (name: string) => (await pool.query('SELECT id FROM roles W
 beforeAll(async () => {
   await app.ready(); attachChat(app.server, new RuleBasedObserver()); await app.listen({ port: 0 });
   url = `http://localhost:${(app.server.address() as AddressInfo).port}`;
-  projectId = (await pool.query("INSERT INTO projects(name) VALUES('rbac') RETURNING id")).rows[0].id;
+  projectId = await testProject();
   [admin, lead, manager, consultant, consultant2, customer, customer2] = await Promise.all(
     ['Admin', 'Lead', 'Manager', 'Consultant', 'Consultant', 'Customer', 'Customer'].map((r) => makeUser(r)));
   await makeWorkflow({ projectId, levels: [{ users: [manager.id] }] });   // in this project only `manager` approves
@@ -61,12 +61,16 @@ describe('sessions', () => {
     await pool.query('UPDATE users SET active=false WHERE id=$1', [u.id]);
     expect((await call(u, 'GET', '/api/tickets')).status).toBe(401);
   });
-  it('/me reports role and permissions; Admin has the whole catalog', async () => {
-    expect((await call(admin, 'GET', '/api/auth/me')).body.permissions).toEqual([...ALL_KEYS].sort());
+  it('/me reports role, project and permissions; a Super Admin has the whole catalog', async () => {
+    const sa = (await call(admin, 'GET', '/api/auth/me')).body;
+    expect(sa.permissions).toEqual([...ALL_KEYS].sort());
+    expect(sa.user).toMatchObject({ isSuperAdmin: true, role: 'Super Admin' });
     const me = (await call(customer, 'GET', '/api/auth/me')).body;
-    expect(me.user.role).toBe('Customer');
+    expect(me.user).toMatchObject({ role: 'Customer', isSuperAdmin: false });
+    expect(me.project.id).toBe(projectId);
     expect(me.permissions).toContain('chat.as_customer');
     expect(me.permissions).not.toContain('admin.roles');
+    expect(me.permissions).not.toContain('platform.users');                 // platform permissions never reach project roles
   });
   it('seeded default permissions only use keys from the catalog', async () => {
     const keys = (await pool.query('SELECT DISTINCT permission FROM role_permissions')).rows.map((r) => r.permission);
@@ -86,7 +90,8 @@ describe('Customer', () => {
     expect((await call(customer, 'POST', '/api/tickets', { projectId, title: 'x' })).status).toBe(403);
     expect((await call(customer, 'POST', `/api/tickets/${mine}/transition`, { to: 'FS Drafted' })).status).toBe(403);
     expect((await call(customer, 'POST', `/api/tickets/${mine}/documents/generate`, { kind: 'FS' })).status).toBe(403);
-    expect((await call(customer, 'GET', '/api/admin/roles')).status).toBe(403);
+    expect((await call(customer, 'GET', '/api/project/roles')).status).toBe(403);
+    expect((await call(customer, 'GET', '/api/platform/roles')).status).toBe(403);
     expect((await call(customer, 'GET', '/api/dev/outbox')).status).toBe(403);
     expect((await call(customer, 'GET', '/api/dashboard/team')).status).toBe(403);
   });
@@ -101,13 +106,19 @@ describe('Consultant', () => {
     expect((await call(consultant, 'GET', `/api/tickets/${others}`)).status).toBe(404);
 
     expect((await call(consultant, 'POST', `/api/tickets/${unassigned}/claim`)).status).toBe(200);
-    expect((await call(consultant2, 'POST', `/api/tickets/${unassigned}/claim`)).status).toBe(409);
+    expect((await call(consultant2, 'POST', `/api/tickets/${unassigned}/claim`)).status).toBe(404);   // already someone else's: no longer visible to you
     expect((await call(consultant2, 'GET', `/api/tickets/${unassigned}`)).status).toBe(404); // now someone else's
     expect((await call(consultant, 'POST', `/api/tickets/${unassigned}/documents/generate`, { kind: 'FS' })).status).toBe(201);
     expect((await call(consultant, 'POST', `/api/tickets/${others}/documents/generate`, { kind: 'FS' })).status).toBe(404);
     expect((await call(consultant, 'POST', `/api/tickets/${unassigned}/assign`, { consultantId: consultant2.id })).status).toBe(403);
     expect((await call(consultant, 'POST', `/api/tickets/${unassigned}/transition`, { to: 'FS Approved' })).status).toBe(403);
-    expect((await call(consultant, 'PUT', '/api/admin/roles/1/permissions', { permissions: [] })).status).toBe(403);
+    expect((await call(consultant, 'PUT', '/api/project/roles/1/permissions', { permissions: [] })).status).toBe(403);
+  });
+  it('two consultants claiming the same ticket at the same instant: exactly one wins', async () => {
+    const free = await ticketFor({ title: 'claim race' });
+    const rs = await Promise.all([call(consultant, 'POST', `/api/tickets/${free}/claim`), call(consultant2, 'POST', `/api/tickets/${free}/claim`)]);
+    expect(rs.map((r) => r.status).sort()).toEqual([200, 409]);
+    expect((await pool.query('SELECT consultant_id FROM tickets WHERE id=$1', [free])).rows[0].consultant_id).toMatch(/./);
   });
   it('the author of a saved version is the signed-in user, not a client-supplied name', async () => {
     const t = await ticketFor({ consultant, title: 'author' });
@@ -127,7 +138,7 @@ describe('Lead and Manager', () => {
     expect((await call(consultant, 'GET', `/api/tickets/${t}`)).status).toBe(200);
     const team = (await call(lead, 'GET', '/api/dashboard/team')).body;
     expect(team.consultants.find((c: any) => c.id === consultant.id).open).toBeGreaterThanOrEqual(1);
-    expect((await call(lead, 'POST', '/api/admin/users', { email: 'a@b.co', name: 'x', roleId: 1 })).status).toBe(403);
+    expect((await call(lead, 'POST', '/api/project/members', { email: 'a@b.co', name: 'x', roleId: 1 })).status).toBe(403);
     expect((await call(manager, 'GET', '/api/dashboard/team')).status).toBe(403);
   });
 
@@ -148,70 +159,6 @@ describe('Lead and Manager', () => {
     expect((await pool.query('SELECT current_state s FROM tickets WHERE id=$1', [t])).rows[0].s).toBe('FS Approved');
     expect((await call(manager, 'POST', `/api/my/approvals/${a.id}/decision`, { decision: 'approved' })).status).toBe(409);
     expect((await call(manager, 'POST', `/api/tickets/${t}/documents/generate`, { kind: 'TS' })).status).toBe(403); // approves, does not author
-  });
-});
-
-describe('Admin: roles, permissions and users', () => {
-  it('exposes the permission catalog and roles with their permissions', async () => {
-    expect((await call(admin, 'GET', '/api/admin/catalog')).body.map((f: any) => f.feature)).toContain('Specifications');
-    const roles = (await call(admin, 'GET', '/api/admin/roles')).body;
-    expect(roles.map((r: any) => r.name)).toEqual(expect.arrayContaining(['Customer', 'Consultant', 'Lead', 'Manager', 'Admin']));
-    const a = roles.find((r: any) => r.name === 'Admin');
-    expect(a.locked).toBe(true); expect(a.permissions).toHaveLength(ALL_KEYS.length);
-  });
-
-  it('builds a custom role, assigns it, and permission changes apply immediately', async () => {
-    const copy = await roleId('Consultant');
-    const created = await call(admin, 'POST', '/api/admin/roles', { name: 'Solution Architect', description: 'Designs TS', copyFromRoleId: copy });
-    expect(created.status).toBe(201);
-    const rid = created.body.id;
-    expect((await call(admin, 'POST', '/api/admin/roles', { name: 'solution architect' })).status).toBe(409);
-
-    const mk = await call(admin, 'POST', '/api/admin/users', { email: `arch-${Date.now()}@test.dev`, name: 'Arch', roleId: rid });
-    expect(mk.status).toBe(201);
-    const arch = { id: mk.body.id, cookie: `dm_session=${signSession(mk.body.id)}` } as U;
-    expect((await call(arch, 'GET', '/api/tickets')).status).toBe(200);          // inherited board.view
-    expect((await call(arch, 'GET', '/api/dev/outbox')).status).toBe(403);
-
-    const perms = (await call(admin, 'GET', '/api/admin/roles')).body.find((r: any) => r.id === rid).permissions;
-    expect((await call(admin, 'PUT', `/api/admin/roles/${rid}/permissions`, { permissions: [...perms, 'mailbox.view'] })).status).toBe(200);
-    expect((await call(arch, 'GET', '/api/dev/outbox')).status).toBe(200);        // granted, no re-login needed
-    expect((await call(admin, 'PUT', `/api/admin/roles/${rid}/permissions`, { permissions: perms.filter((p: string) => p !== 'board.view') })).status).toBe(200);
-    expect((await call(arch, 'GET', '/api/tickets')).status).toBe(403);           // revoked
-
-    expect((await call(admin, 'PUT', `/api/admin/roles/${rid}/permissions`, { permissions: ['not.a.permission'] })).status).toBe(400);
-    expect((await call(admin, 'DELETE', `/api/admin/roles/${rid}`)).status).toBe(409);   // has a user
-    expect((await call(admin, 'PATCH', `/api/admin/users/${arch.id}`, { roleId: await roleId('Customer') })).status).toBe(200);
-    expect((await call(admin, 'DELETE', `/api/admin/roles/${rid}`)).status).toBe(200);
-  });
-
-  it('protects built-in roles and the Admin role', async () => {
-    const adminRole = await roleId('Admin'), cust = await roleId('Customer');
-    expect((await call(admin, 'PUT', `/api/admin/roles/${adminRole}/permissions`, { permissions: [] })).status).toBe(400);
-    expect((await call(admin, 'DELETE', `/api/admin/roles/${cust}`)).status).toBe(400);
-    expect((await call(admin, 'PATCH', `/api/admin/roles/${cust}`, { name: 'Client' })).status).toBe(400);
-    expect((await call(admin, 'PATCH', `/api/admin/roles/${cust}`, { description: 'Updated text' })).status).toBe(200);
-  });
-
-  it('a role can be given a feature it never had (e.g. Customer may view specs only after the Admin grants it)', async () => {
-    const cust = await roleId('Customer');
-    const before = (await call(admin, 'GET', '/api/admin/roles')).body.find((r: any) => r.id === cust).permissions as string[];
-    await call(admin, 'PUT', `/api/admin/roles/${cust}/permissions`, { permissions: before.filter((p) => p !== 'spec.view') });
-    const t = await ticketFor({ customer, title: 'spec-view' });
-    expect((await call(customer, 'GET', `/api/tickets/${t}`)).body.docs).toEqual({ FS: null, TS: null });
-    await call(admin, 'PUT', `/api/admin/roles/${cust}/permissions`, { permissions: before });
-  });
-
-  it('never leaves the system without an active Admin, and records changes in the audit log', async () => {
-    const others = (await pool.query(`SELECT u.id FROM users u JOIN roles r ON r.id=u.role_id WHERE r.name='Admin' AND u.active AND u.id<>$1`, [admin.id])).rows.map((r) => r.id);
-    await pool.query('UPDATE users SET active=false WHERE id = ANY($1)', [others]);
-    try {
-      expect((await call(admin, 'PATCH', `/api/admin/users/${admin.id}`, { active: false })).status).toBe(400);
-      expect((await call(admin, 'PATCH', `/api/admin/users/${admin.id}`, { roleId: await roleId('Lead') })).status).toBe(400);
-      expect((await call(admin, 'PATCH', `/api/admin/users/${admin.id}`, { name: 'Renamed Admin' })).status).toBe(200);
-    } finally { await pool.query('UPDATE users SET active=true WHERE id = ANY($1)', [others]); }
-    const log = (await call(admin, 'GET', '/api/admin/audit')).body;
-    expect(log.map((l: any) => l.action)).toEqual(expect.arrayContaining(['role.create', 'role.permissions', 'user.create']));
   });
 });
 

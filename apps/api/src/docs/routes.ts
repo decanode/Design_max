@@ -4,7 +4,7 @@ import { pool } from '../db.js';
 import type { Embedder } from '../etl/vectorize.js';
 import type { DocGenerator } from './generator.js';
 import type { Mailer } from './mailer.js';
-import { need, ticketVisible } from '../rbac/auth.js';
+import { need, needSuper, ticketVisible } from '../rbac/auth.js';
 import { DocError, diffVersions, generateDocument, saveVersion, ticketOverview, viewApproval } from './service.js';
 import { approvalPlan, cancelRequest, decideAsUser, decideByToken, requestApproval } from '../approvals/engine.js';
 
@@ -89,9 +89,9 @@ export function registerDocRoutes(app: FastifyInstance, d: DocDeps) {
   app.post('/api/my/approvals/:id/decision', async (req) => {
     const { id } = Id.parse(req.params);
     const b = z.object({ decision: z.enum(['approved', 'rejected']), comment: z.string().max(2000).optional() }).parse(req.body);
-    return decideAsUser(id, req.user!.id, b.decision, b.comment, d.mailer, d.appUrl);
+    return decideAsUser(id, req.user!.id, req.user!.projectId, b.decision, b.comment, d.mailer, d.appUrl);
   });
 
   if (process.env.NODE_ENV !== 'production')
-    app.get('/api/dev/outbox', { preHandler: need('mailbox.view') }, async () => (await pool.query('SELECT * FROM email_outbox ORDER BY id DESC LIMIT 100')).rows);
+    app.get('/api/dev/outbox', { preHandler: needSuper() }, async () => (await pool.query('SELECT * FROM email_outbox ORDER BY id DESC LIMIT 100')).rows);
 }

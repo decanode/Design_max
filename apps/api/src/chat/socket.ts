@@ -3,7 +3,7 @@ import { Server } from 'socket.io';
 import { z } from 'zod';
 import type { Observer } from './observer.js';
 import { addMessage, canAccessConversation, getConversationProject, getDraft, getMessages, refreshDraft, verifyDraft, VerifyError } from './service.js';
-import { loadUser, userFromCookie, verifySession, readCookie } from '../rbac/auth.js';
+import { userFromCookie } from '../rbac/auth.js';
 
 const Join = z.object({ conversationId: z.string().uuid() });
 const Msg = z.object({ conversationId: z.string().uuid(), role: z.enum(['customer', 'consultant']).optional(), body: z.string().min(1).max(4000) });
@@ -19,11 +19,8 @@ export function attachChat(http: HttpServer, observer: Observer) {
     return u ? next() : next(new Error('Sign in required'));
   });
 
-  /** Permissions are re-read on every event so a role change takes effect immediately. */
-  const current = async (socket: { handshake: { headers: { cookie?: string } } }) => {
-    const id = verifySession(readCookie(socket.handshake.headers.cookie));
-    return id ? loadUser(id) : null;
-  };
+  /** Permissions AND the current project are re-read on every event, so role changes and project switches apply at once. */
+  const current = (socket: { handshake: { headers: { cookie?: string } } }) => userFromCookie(socket.handshake.headers.cookie);
 
   io.on('connection', (socket) => {
     socket.on('join', async (raw, ack) => {

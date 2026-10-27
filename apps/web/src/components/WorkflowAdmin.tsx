@@ -4,11 +4,11 @@ import { j } from '../lib/auth';
 
 type Approver = { kind: 'user' | 'role'; id: string | number; name: string };
 type Level = { name: string; rule: 'any' | 'all'; approvers: Approver[]; eligible?: number };
-type Workflow = { id: string; name: string; description: string; kinds: ('FS' | 'TS')[]; projectId: string | null; project: string | null; active: boolean; isSystem: boolean; levels: Level[] };
-type Options = { roles: { id: number; name: string }[]; users: { id: string; name: string; role: string }[]; projects: { id: string; name: string }[] };
-type Draft = { id: string | null; name: string; description: string; kinds: ('FS' | 'TS')[]; projectId: string; active: boolean; levels: Level[] };
+type Workflow = { id: string; name: string; description: string; kinds: ('FS' | 'TS')[]; active: boolean; levels: Level[] };
+type Options = { roles: { id: number; name: string }[]; users: { id: string; name: string; role: string }[] };
+type Draft = { id: string | null; name: string; description: string; kinds: ('FS' | 'TS')[]; active: boolean; levels: Level[] };
 
-const blank = (): Draft => ({ id: null, name: '', description: '', kinds: ['FS', 'TS'], projectId: '', active: true, levels: [{ name: 'L1', rule: 'any', approvers: [] }] });
+const blank = (): Draft => ({ id: null, name: '', description: '', kinds: ['FS', 'TS'], active: true, levels: [{ name: 'L1', rule: 'any', approvers: [] }] });
 const KIND: Record<string, string> = { FS: 'Functional spec', TS: 'Technical spec' };
 /** Levels still carrying a default name (L1, L2…) are renumbered when levels are added, removed or moved. */
 const renumber = (ls: Level[]) => ls.map((l, i) => (/^L\d+$/.test(l.name) ? { ...l, name: `L${i + 1}` } : l));
@@ -40,10 +40,10 @@ export function WorkflowAdmin({ flash }: { flash: (kind: 'ok' | 'err', text: str
   const [draft, setDraft] = useState<Draft | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const load = useCallback(async () => { const [w, o] = await Promise.all([api('/api/admin/workflows'), api('/api/admin/workflows/options')]); setList(w); setOpts(o); }, []);
+  const load = useCallback(async () => { const [w, o] = await Promise.all([api('/api/project/workflows'), api('/api/project/workflows/options')]); setList(w); setOpts(o); }, []);
   useEffect(() => { load().catch((e) => flash('err', e.message)); }, [load, flash]);
 
-  const edit = (w: Workflow) => setDraft({ id: w.id, name: w.name, description: w.description, kinds: w.kinds, projectId: w.projectId ?? '', active: w.active, levels: w.levels.map((l) => ({ name: l.name, rule: l.rule, approvers: l.approvers })) });
+  const edit = (w: Workflow) => setDraft({ id: w.id, name: w.name, description: w.description, kinds: w.kinds, active: w.active, levels: w.levels.map((l) => ({ name: l.name, rule: l.rule, approvers: l.approvers })) });
   const setLevels = (f: (ls: Level[]) => Level[]) => setDraft((d) => d && { ...d, levels: renumber(f(d.levels)) });
   const patchLevel = (i: number, p: Partial<Level>) => setLevels((ls) => ls.map((l, k) => (k === i ? { ...l, ...p } : l)));
   const move = (i: number, d: -1 | 1) => setLevels((ls) => { const n = [...ls]; [n[i], n[i + d]] = [n[i + d], n[i]]; return n; });
@@ -60,25 +60,25 @@ export function WorkflowAdmin({ flash }: { flash: (kind: 'ok' | 'err', text: str
   async function save(e: React.FormEvent) {
     e.preventDefault(); if (!draft) return;
     setBusy(true);
-    const body = { name: draft.name, description: draft.description, kinds: draft.kinds, projectId: draft.projectId || null, active: draft.active,
+    const body = { name: draft.name, description: draft.description, kinds: draft.kinds, active: draft.active,
       levels: draft.levels.map((l) => ({ name: l.name, rule: l.rule, approvers: l.approvers.map((a) => ({ kind: a.kind, id: a.id })) })) };
     try {
-      await api(draft.id ? `/api/admin/workflows/${draft.id}` : '/api/admin/workflows', j(body, draft.id ? 'PUT' : 'POST'));
+      await api(draft.id ? `/api/project/workflows/${draft.id}` : '/api/project/workflows', j(body, draft.id ? 'PUT' : 'POST'));
       flash('ok', `Saved “${draft.name}”. New requests use it straight away; requests already under way keep their old route.`); setDraft(null); load();
     } catch (er) { flash('err', (er as Error).message); } finally { setBusy(false); }
   }
   async function del(w: Workflow) {
     if (!confirm(`Delete the workflow “${w.name}”? Requests already under way are not affected.`)) return;
-    try { await api(`/api/admin/workflows/${w.id}`, { method: 'DELETE' }); flash('ok', `Deleted “${w.name}”.`); load(); } catch (e) { flash('err', (e as Error).message); }
+    try { await api(`/api/project/workflows/${w.id}`, { method: 'DELETE' }); flash('ok', `Deleted “${w.name}”.`); load(); } catch (e) { flash('err', (e as Error).message); }
   }
   async function toggle(w: Workflow) {
-    try { await api(`/api/admin/workflows/${w.id}`, j({ name: w.name, description: w.description, kinds: w.kinds, projectId: w.projectId, active: !w.active, levels: w.levels.map((l) => ({ name: l.name, rule: l.rule, approvers: l.approvers.map((a) => ({ kind: a.kind, id: a.id })) })) }, 'PUT')); flash('ok', `“${w.name}” is now ${w.active ? 'off' : 'on'}.`); load(); }
+    try { await api(`/api/project/workflows/${w.id}`, j({ name: w.name, description: w.description, kinds: w.kinds, active: !w.active, levels: w.levels.map((l) => ({ name: l.name, rule: l.rule, approvers: l.approvers.map((a) => ({ kind: a.kind, id: a.id })) })) }, 'PUT')); flash('ok', `“${w.name}” is now ${w.active ? 'off' : 'on'}.`); load(); }
     catch (e) { flash('err', (e as Error).message); }
   }
 
   return (
     <>
-      <p className="note" style={{ marginTop: 0 }}>Define who approves a specification, and in what order. Level 1 is asked first; level 2 only after level 1 is complete, and so on. A project-specific workflow takes priority over the one for all projects.</p>
+      <p className="note" style={{ marginTop: 0 }}>Define who approves a specification, and in what order. Level 1 is asked first; level 2 only after level 1 is complete, and so on. Each project has its own workflows, so nothing here affects another project. Approvers named by role mean the people in this project who hold that role.</p>
       {!draft && <div className="row"><button className="btn" onClick={() => setDraft(blank())}>New workflow</button></div>}
 
       {draft && opts && (
@@ -86,9 +86,6 @@ export function WorkflowAdmin({ flash }: { flash: (kind: 'ok' | 'err', text: str
           <h3>{draft.id ? 'Edit workflow' : 'New workflow'}</h3>
           <div className="wf-grid">
             <div className="field"><label htmlFor="wn">Name</label><input id="wn" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} required minLength={2} placeholder="e.g. Regulated change approval" /></div>
-            <div className="field"><label htmlFor="wp">Applies to</label>
-              <select id="wp" value={draft.projectId} onChange={(e) => setDraft({ ...draft, projectId: e.target.value })}>
-                <option value="">All projects</option>{opts.projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div>
             <fieldset className="field"><legend>Documents</legend>
               <div className="checks">{(['FS', 'TS'] as const).map((k) => (
                 <label key={k} className="check"><input type="checkbox" checked={draft.kinds.includes(k)} onChange={(e) => setDraft({ ...draft, kinds: e.target.checked ? [...draft.kinds, k] : draft.kinds.filter((x) => x !== k) })} /> {KIND[k]}</label>))}</div></fieldset>
@@ -142,13 +139,13 @@ export function WorkflowAdmin({ flash }: { flash: (kind: 'ok' | 'err', text: str
         {list.map((w) => (
           <article key={w.id} className={`wf ${w.active ? '' : 'off'}`} aria-label={`Workflow ${w.name}`}>
             <header>
-              <div><h3>{w.name} {w.isSystem && <span className="note">· built-in</span>}</h3>
-                <p className="note" style={{ margin: 0 }}>{w.kinds.map((k) => KIND[k]).join(' and ')} · {w.project ? `Project: ${w.project}` : 'All projects'}{w.description ? ` · ${w.description}` : ''}</p></div>
+              <div><h3>{w.name}</h3>
+                <p className="note" style={{ margin: 0 }}>{w.kinds.map((k) => KIND[k]).join(' and ')}{w.description ? ` · ${w.description}` : ''}</p></div>
               <div className="row" style={{ margin: 0 }}>
                 <span className="role-badge" data-role={w.active ? 'Manager' : 'Custom'}>{w.active ? 'Active' : 'Off'}</span>
                 <button className="btn ghost sm" onClick={() => toggle(w)}>{w.active ? 'Turn off' : 'Turn on'}</button>
                 <button className="btn ghost sm" onClick={() => edit(w)}>Edit</button>
-                {!w.isSystem && <button className="link-btn" onClick={() => del(w)}>Delete</button>}
+                <button className="link-btn" onClick={() => del(w)}>Delete</button>
               </div>
             </header>
             <Chain levels={w.levels} />

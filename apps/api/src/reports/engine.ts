@@ -29,11 +29,10 @@ const AGE = 'extract(epoch from (now() - t.created_at)) / 86400';
 export const DATASETS: Record<string, Dataset> = {
   tickets: {
     label: 'Tickets',
-    from: `tickets t JOIN projects pr ON pr.id = t.project_id LEFT JOIN users co ON co.id = t.consultant_id LEFT JOIN users cu ON cu.id = t.customer_id`,
+    from: `tickets t LEFT JOIN users co ON co.id = t.consultant_id LEFT JOIN users cu ON cu.id = t.customer_id`,
     dateCol: 't.created_at',
     dims: {
       state: { label: 'Phase', sql: 't.current_state::text', domain: STATES },
-      project: { label: 'Project', sql: 'pr.name' },
       consultant: { label: 'Consultant', sql: `COALESCE(co.display_name, 'Unassigned')` },
       customer: { label: 'Customer', sql: `COALESCE(cu.display_name, 'Not recorded')` },
       source: { label: 'Source', sql: `CASE t.legacy_source WHEN 'jira' THEN 'Jira' WHEN 'servicenow' THEN 'ServiceNow' ELSE 'Design Max' END` },
@@ -45,7 +44,7 @@ export const DATASETS: Record<string, Dataset> = {
       avg_age_days: { label: 'Average age (days)', unit: 'days', sql: `round(avg(${AGE})::numeric, 1)` },
       max_age_days: { label: 'Oldest ticket (days)', unit: 'days', sql: `round(max(${AGE})::numeric, 1)` },
     },
-    filters: ['states', 'projectIds', 'consultantIds', 'sources', 'openOnly', 'range'],
+    filters: ['states', 'consultantIds', 'sources', 'openOnly', 'range'],
   },
   approvals: {
     label: 'Approvals',
@@ -62,7 +61,7 @@ export const DATASETS: Record<string, Dataset> = {
       count: COUNT('approvals'),
       avg_decision_hours: { label: 'Average time to decision (hours)', unit: 'hours', sql: `round((avg(extract(epoch from (a.decided_at - a.requested_at)) / 3600) FILTER (WHERE a.decided_at IS NOT NULL))::numeric, 1)` },
     },
-    filters: ['statuses', 'kinds', 'projectIds', 'range'],
+    filters: ['statuses', 'kinds', 'range'],
   },
   transitions: {
     label: 'Phase changes',
@@ -75,7 +74,7 @@ export const DATASETS: Record<string, Dataset> = {
       ...timeDims('x.created_at', '', 'When'),
     },
     measures: { count: COUNT('phase changes') },
-    filters: ['states', 'projectIds', 'range'],
+    filters: ['states', 'range'],
   },
 };
 
@@ -84,9 +83,9 @@ export const DATASETS: Record<string, Dataset> = {
  * otherwise a chart would reveal the hidden values (e.g. "tickets per consultant" for someone who cannot see consultants).
  */
 export const DIM_FIELD: Record<string, Record<string, string>> = {
-  tickets: { project: 'project', consultant: 'consultant', customer: 'customer', source: 'legacy' }, approvals: {}, transitions: {},
+  tickets: { consultant: 'consultant', customer: 'customer', source: 'legacy' }, approvals: {}, transitions: {},
 };
-export const FILTER_FIELD: Record<string, string> = { projectIds: 'project', consultantIds: 'consultant', sources: 'legacy' };
+export const FILTER_FIELD: Record<string, string> = { consultantIds: 'consultant', sources: 'legacy' };
 
 export function fieldsNeeded(def: { dataset: string; groupBy: string | null; filters: Record<string, unknown> }): string[] {
   const need = new Set<string>();
@@ -100,7 +99,6 @@ const uuid = z.string().uuid();
 
 export const Filters = z.object({
   states: z.array(z.enum(STATES)).max(9).optional(),
-  projectIds: z.array(uuid).max(50).optional(),
   consultantIds: z.array(z.union([uuid, z.literal('unassigned')])).max(50).optional(),
   sources: z.array(z.enum(['jira', 'servicenow', 'native'])).max(3).optional(),
   openOnly: z.boolean().optional(),
@@ -178,7 +176,6 @@ export async function runReport(def: ReportDef, user: SessionUser): Promise<Repo
 
   const f = def.filters;
   if (f.states?.length) where.push(`${def.dataset === 'transitions' ? 'x.to_state' : 't.current_state'} = ANY(${p(f.states)}::ticket_state[])`);
-  if (f.projectIds?.length) where.push(`t.project_id = ANY(${p(f.projectIds)}::uuid[])`);
   if (f.consultantIds?.length) {
     const ids = f.consultantIds.filter((x) => x !== 'unassigned');
     const un = f.consultantIds.includes('unassigned');

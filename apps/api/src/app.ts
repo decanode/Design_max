@@ -12,13 +12,14 @@ import { OutboxMailer } from './docs/mailer.js';
 import { defaultLlm } from './chat/observer.js';
 import { defaultEmbedder } from './etl/vectorize.js';
 import { createTicket, transitionTicket, TransitionError } from './tickets.js';
-import { need, needAny, registerAuth, ticketScope } from './rbac/auth.js';
+import { inProject, need, needAny, registerAuth, ticketScope } from './rbac/auth.js';
+import { membersWithPermission } from './rbac/effective.js';
 import { registerAuthRoutes } from './rbac/authRoutes.js';
-import { registerAdminRoutes, AdminError } from './rbac/adminRoutes.js';
+import { registerPlatformRoutes } from './platform/routes.js';
+import { registerProjectRoutes } from './project/routes.js';
 import { registerDashboardRoutes } from './rbac/dashboardRoutes.js';
 import { registerReportRoutes } from './reports/routes.js';
 import { registerWorkflowRoutes } from './approvals/adminRoutes.js';
-import { registerFieldAdminRoutes } from './tickets/fieldRoutes.js';
 import { canWrite, sanitizeTicket } from './tickets/fields.js';
 import { ticketVisible } from './rbac/auth.js';
 
@@ -28,9 +29,8 @@ export function buildApp(deps: Partial<DocDeps> = {}) {
   registerAuth(app);
   registerAuthRoutes(app);
 
-  app.setErrorHandler((err, _req, reply) => {
+  app.setErrorHandler((err: any, _req, reply) => {
     if (err instanceof DocError) return reply.code(err.status).send({ error: err.message, ...err.extra });
-    if (err instanceof AdminError) return reply.code(err.status).send({ error: err.message });
     if (err instanceof z.ZodError) return reply.code(400).send({ error: 'Invalid request', details: err.issues });
     if (isDatabaseDown(err)) return reply.code(503).send({ error: 'The database is unavailable', code: 'DATABASE_DOWN' });
     app.log.error(err);
@@ -41,14 +41,10 @@ export function buildApp(deps: Partial<DocDeps> = {}) {
   app.get('/health/db', async (_req, reply) => { await pool.query('SELECT 1'); return reply.send({ ok: true }); });   // 503 via the error handler when the database is down
   app.get('/api/states', async () => STATES);
 
-  app.get('/api/projects', { preHandler: needAny('ticket.create', 'chat.as_customer', 'chat.as_consultant') }, async () => (await pool.query(
+  /** Projects the person can work in (Super Admins: every active project), with the technology each allows. */
+  app.get('/api/projects', async (req) => (await pool.query(
     `SELECT p.id, p.name, COALESCE((SELECT array_agg(s.name ORDER BY s.name) FROM project_stacks ps JOIN tech_stacks s ON s.id = ps.stack_id WHERE ps.project_id = p.id), '{}') AS stacks
-     FROM projects p ORDER BY p.created_at`)).rows);
-  app.post('/api/projects', { preHandler: need('ticket.create') }, async (req, reply) => {
-    const b = z.object({ name: z.string().min(1) }).parse(req.body);
-    const { rows } = await pool.query('INSERT INTO projects (name) VALUES ($1) RETURNING *', [b.name]);
-    return reply.code(201).send(rows[0]);
-  });
+     FROM projects p WHERE p.status = 'active' AND ($1 OR EXISTS (SELECT 1 FROM project_members m WHERE m.project_id = p.id AND m.user_id = $2)) ORDER BY p.name`, [req.user!.isSuper, req.user!.id])).rows);
 
   app.get('/api/tickets', { preHandler: need('board.view') }, async (req) => {
     const s = ticketScope(req.user!, 1);
@@ -61,12 +57,13 @@ export function buildApp(deps: Partial<DocDeps> = {}) {
     return rows.map((r) => sanitizeTicket(r, req.user!.fields));      // column-level security: hidden fields never leave the server
   });
   app.post('/api/tickets', { preHandler: need('ticket.create') }, async (req, reply) => {
-    const b = z.object({ projectId: z.string().uuid(), title: z.string().min(1), aiSummary: z.string().optional() }).parse(req.body);
-    return reply.code(201).send(sanitizeTicket(await createTicket(b.projectId, b.title, b.aiSummary), req.user!.fields));
+    const b = z.object({ title: z.string().min(1), aiSummary: z.string().optional() }).parse(req.body);   // the project is the one you are working in, never taken from the request
+    return reply.code(201).send(sanitizeTicket(await createTicket(req.user!.projectId!, b.title, b.aiSummary), req.user!.fields));
   });
   app.post('/api/tickets/:id/transition', { preHandler: need('ticket.advance') }, async (req, reply) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
     const b = z.object({ to: z.enum(STATES) }).parse(req.body);
+    if (!(await ticketVisible(req.user!, id))) return reply.code(404).send({ error: 'Ticket not found' });
     try { return sanitizeTicket(await transitionTicket(id, b.to, req.user!.id), req.user!.fields); }
     catch (e) {
       if (e instanceof TransitionError) return reply.code(409).send({ error: e.message });
@@ -101,33 +98,31 @@ export function buildApp(deps: Partial<DocDeps> = {}) {
   app.post('/api/tickets/:id/claim', { preHandler: need('ticket.claim') }, async (req, reply) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
     if (!canWrite(req.user!.fields, 'consultant')) return reply.code(403).send({ error: 'Your role cannot change the assigned consultant' });
-    const r = await pool.query('UPDATE tickets SET consultant_id=$2 WHERE id=$1 AND (consultant_id IS NULL OR consultant_id=$2) RETURNING id', [id, req.user!.id]);
+    if (!(await ticketVisible(req.user!, id))) return reply.code(404).send({ error: 'Ticket not found' });
+    const r = await pool.query('UPDATE tickets SET consultant_id=$2 WHERE id=$1 AND project_id=$3 AND (consultant_id IS NULL OR consultant_id=$2) RETURNING id', [id, req.user!.id, req.user!.projectId]);
     if (!r.rowCount) return reply.code(409).send({ error: 'Already assigned to someone else, or not found' });
     return { ok: true };
   });
 
-  app.get('/api/users/assignable', { preHandler: need('ticket.assign') }, async () =>
-    (await pool.query(
-      `SELECT u.id, u.display_name AS name, r.name AS role FROM users u JOIN roles r ON r.id=u.role_id
-       WHERE u.active AND (r.name='Admin' OR EXISTS (SELECT 1 FROM role_permissions p WHERE p.role_id=r.id AND p.permission='ticket.claim')) ORDER BY u.display_name`)).rows);
+  /** People in this project who could own a ticket (their role can claim). */
+  app.get('/api/users/assignable', { preHandler: need('ticket.assign') }, async (req) => membersWithPermission(pool, req.user!.projectId!, 'ticket.claim'));
 
   app.post('/api/tickets/:id/assign', { preHandler: need('ticket.assign') }, async (req, reply) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
     const { consultantId } = z.object({ consultantId: z.string().uuid().nullable() }).parse(req.body);
     if (!canWrite(req.user!.fields, 'consultant')) return reply.code(403).send({ error: 'Your role cannot change the assigned consultant' });
-    if (consultantId && !(await pool.query('SELECT 1 FROM users WHERE id=$1 AND active', [consultantId])).rowCount) return reply.code(404).send({ error: 'No such user' });
-    const r = await pool.query('UPDATE tickets SET consultant_id=$2 WHERE id=$1 RETURNING id', [id, consultantId]);
-    return r.rowCount ? { ok: true } : reply.code(404).send({ error: 'Ticket not found' });
+    if (!(await ticketVisible(req.user!, id))) return reply.code(404).send({ error: 'Ticket not found' });
+    if (consultantId && !(await membersWithPermission(pool, req.user!.projectId!, 'ticket.claim')).some((m) => m.id === consultantId))
+      return reply.code(400).send({ error: 'That person is not on this project, or their role cannot own tickets' });
+    await pool.query('UPDATE tickets SET consultant_id=$2 WHERE id=$1 AND project_id=$3', [id, consultantId, req.user!.projectId]);
+    return { ok: true };
   });
 
   app.get('/api/conversations', { preHandler: needAny('chat.as_customer', 'chat.as_consultant', 'chat.view_all') }, async (req) => listConversations(req.user!));
   app.post('/api/conversations', { preHandler: needAny('chat.as_customer', 'chat.as_consultant') }, async (req, reply) => {
-    const b = z.object({ projectId: z.string().uuid().optional(), title: z.string().optional() }).parse(req.body ?? {});
-    let pid = b.projectId ?? (await pool.query('SELECT id FROM projects ORDER BY created_at LIMIT 1')).rows[0]?.id;
-    pid ??= (await pool.query("INSERT INTO projects (name) VALUES ('Default') RETURNING id")).rows[0].id;
-    if (!(await pool.query('SELECT 1 FROM projects WHERE id=$1', [pid])).rowCount) return reply.code(404).send({ error: 'Project not found' });
+    const b = z.object({ title: z.string().optional() }).parse(req.body ?? {});
     const owner = req.user!.perms.has('chat.as_customer') ? req.user!.id : null;
-    return reply.code(201).send(await createConversation(pid, b.title, owner));
+    return reply.code(201).send(await createConversation(req.user!.projectId!, b.title, owner));
   });
   app.get('/api/conversations/:id', async (req, reply) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
@@ -142,10 +137,10 @@ export function buildApp(deps: Partial<DocDeps> = {}) {
     embedder: deps.embedder ?? defaultEmbedder(),
     appUrl: deps.appUrl ?? process.env.APP_URL ?? 'http://localhost:3000',
   });
-  registerAdminRoutes(app);
+  registerPlatformRoutes(app);
+  registerProjectRoutes(app);
   registerDashboardRoutes(app);
   registerReportRoutes(app);
   registerWorkflowRoutes(app);
-  registerFieldAdminRoutes(app);
   return app;
 }

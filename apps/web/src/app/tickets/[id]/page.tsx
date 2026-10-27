@@ -5,7 +5,7 @@ import { Nav } from '../../../components/Nav';
 import { Markdown } from '../../../components/Markdown';
 import { ApprovalPanel, type ApprovalRequest } from '../../../components/ApprovalPanel';
 import { TicketDetails, type DetailTicket } from '../../../components/TicketDetails';
-import { NoAccess, useAuth } from '../../../lib/auth';
+import { NoAccess, NoProject, useAuth } from '../../../lib/auth';
 
 const API = '';
 const STATES = ['Requirement Verified', 'FS Drafted', 'FS Approved', 'TS Drafted', 'TS Approved', 'Development', 'QA', 'UAT', 'Deployed'];
@@ -90,6 +90,7 @@ export default function TicketPage() {
   const idx = STATES.indexOf(state);
 
   if (authLoading || !me) return <><Nav current="none" /><main id="main"><p className="note">Loading…</p></main></>;
+  if (!me.project) return <><Nav current="none" /><main id="main"><NoProject /></main></>;
   if (!o) return <><Nav current="none" /><main id="main">{msg ? <p role="alert" className="err">{msg.text}</p> : <p className="note">Loading…</p>}</main></>;
 
   return (

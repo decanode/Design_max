@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { io, type Socket } from 'socket.io-client';
 import { Nav } from '../../components/Nav';
-import { NoAccess, useAuth, j } from '../../lib/auth';
+import { NoAccess, NoProject, useAuth, j } from '../../lib/auth';
 
 type Msg = { id: number; sender_role: 'customer' | 'consultant' | 'system'; sender_name: string; body: string };
 type Draft = { title: string; summary: string; status: 'draft' | 'verified'; ticket_id: string | null; stack_fit?: 'in_scope' | 'unclear' | 'out_of_scope'; stack_note?: string; entities: { businessObjects?: string[]; vendors?: string[]; materialTypes?: string[] } };
@@ -16,8 +16,6 @@ export default function Chat() {
   const [inbox, setInbox] = useState<Convo[]>([]);
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [draft, setDraft] = useState<Draft | null>(null);
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [projectId, setProjectId] = useState('');
   const [current, setCurrent] = useState<Project | null>(null);
   const [role, setRole] = useState<'customer' | 'consultant'>('customer');
   const [text, setText] = useState('');
@@ -38,10 +36,6 @@ export default function Chat() {
     if (r.ok) setInbox(await r.json());
   }, []);
   useEffect(() => { if (mayChat) loadInbox(); }, [mayChat, loadInbox]);
-  useEffect(() => {
-    if (!asCustomer) return;
-    fetch('/api/projects').then((r) => r.ok && r.json()).then((d: Project[] | false) => { if (d) { setProjects(d); setProjectId((p) => p || d[0]?.id || ''); } });
-  }, [asCustomer]);
 
   useEffect(() => {
     if (!cid || !mayChat) return;
@@ -63,7 +57,7 @@ export default function Chat() {
 
   function select(id: string) { history.replaceState(null, '', `?c=${id}`); setCid(id); }
   async function start() {
-    const r = await fetch('/api/conversations', j(projectId ? { projectId } : {}));
+    const r = await fetch('/api/conversations', j({}));
     if (!r.ok) return setError('Could not start a conversation.');
     const { id } = await r.json(); await loadInbox(); select(id);
   }
@@ -79,6 +73,7 @@ export default function Chat() {
   }
 
   if (loading || !me) return <><Nav current="chat" /><main id="main"><p className="note">Loading…</p></main></>;
+  if (!me.project) return <><Nav current="chat" /><main id="main"><NoProject /></main></>;
   if (!mayChat) return <><Nav current="chat" /><main id="main"><NoAccess what="chat" /></main></>;
 
   const verified = draft?.status === 'verified';
@@ -94,11 +89,6 @@ export default function Chat() {
             <h2>{can('chat.view_all') ? 'All conversations' : 'My conversations'}</h2>
             {asCustomer && (
               <div style={{ padding: 10, display: 'grid', gap: 8 }}>
-                {projects.length > 1 && (<>
-                  <label className="sr" htmlFor="project">Project</label>
-                  <select id="project" value={projectId} onChange={(e) => setProjectId(e.target.value)} style={{ padding: 8, borderRadius: 8, border: '1px solid var(--line)', background: 'var(--panel)', color: 'var(--text)' }}>
-                    {projects.map((p) => <option key={p.id} value={p.id}>{p.name}{p.stacks.length ? ` · ${p.stacks.join(', ')}` : ''}</option>)}
-                  </select></>)}
                 <button className="btn" style={{ width: '100%' }} onClick={start}>Start a conversation</button>
               </div>)}
             <ul className="convos">

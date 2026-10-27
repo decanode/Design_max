@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Nav } from '../../components/Nav';
 import { ChartView, type ChartKind, type Result } from '../../components/charts';
-import { NoAccess, useAuth, j } from '../../lib/auth';
+import { NoAccess, NoProject, useAuth, j } from '../../lib/auth';
 
 type Summary = { id: string; name: string; description: string; visibility: 'private' | 'shared'; isSystem: boolean; owner: string | null; mine: boolean; canEdit: boolean; widgets?: number };
 type Widget = { id: string; reportId: string; size: 1 | 2 | 3; report: { id: string; name: string; description: string; definition: { chart: ChartKind } } };
@@ -113,6 +113,7 @@ export default function Dashboards() {
   }
 
   if (authLoading || !me) return <><Nav current="dashboards" /><main id="main"><p className="note">Loading…</p></main></>;
+  if (!me.project) return <><Nav current="dashboards" /><main id="main"><NoProject /></main></>;
   if (!can('report.view')) return <><Nav current="dashboards" /><main id="main"><NoAccess what="dashboards" /></main></>;
   const canBuild = can('report.build');
 

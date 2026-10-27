@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { Nav } from '../components/Nav';
 import { RolePanels } from '../components/RolePanels';
-import { NoAccess, useAuth, j as jj } from '../lib/auth';
+import { NoAccess, NoProject, useAuth, j as jj } from '../lib/auth';
 
 const API = '';
 
@@ -48,7 +48,7 @@ export default function Board() {
       setTickets(await r.json()); setError('');
     } catch { setError('Cannot reach the API.'); setTickets((t) => t ?? []); }
   }, []);
-  useEffect(() => { if (can('board.view')) load(); }, [load, can]);
+  useEffect(() => { if (me?.project && can('board.view')) load(); }, [load, can, me?.project]);
 
   const shown = useMemo(() => {
     const n = q.trim().toLowerCase();
@@ -70,9 +70,7 @@ export default function Board() {
     e.preventDefault();
     if (!title.trim()) return;
     try {
-      let pid: string | undefined = (await (await fetch(`${API}/api/projects`)).json())[0]?.id;
-      if (!pid) pid = (await (await fetch(`${API}/api/projects`, jj({ name: 'Default' }))).json()).id;
-      const r = await fetch(`${API}/api/tickets`, jj({ projectId: pid, title: title.trim() }));
+      const r = await fetch(`${API}/api/tickets`, jj({ title: title.trim() }));
       if (!r.ok) throw new Error();
       setTitle(''); setError(''); load();
     } catch { setError('Could not create the ticket.'); }
@@ -86,6 +84,7 @@ export default function Board() {
   }
 
   if (loading || !me) return <><Nav current="board" /><main id="main"><p className="note">Loading…</p></main></>;
+  if (!me.project) return <><Nav current="board" /><main id="main"><NoProject /></main></>;
   if (!can('board.view')) return <><Nav current="board" /><main id="main"><NoAccess what="the board" /></main></>;
 
   return (

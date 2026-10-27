@@ -76,7 +76,8 @@ export class HashEmbedder implements Embedder {
   }
 }
 
-export interface EmbedItem { sourceType: 'ticket' | 'sap_metadata' | 'git' | 'kb_doc'; sourceRef: string; content: string; stack?: string }
+/** `projectId` omitted = shared platform knowledge (visible to every project); set = that project only. */
+export interface EmbedItem { sourceType: 'ticket' | 'sap_metadata' | 'git' | 'kb_doc'; sourceRef: string; content: string; stack?: string; projectId?: string | null }
 
 export async function storeEmbeddings(db: Pick<pg.Pool, 'query'>, embedder: Embedder, items: EmbedItem[], batch = 64) {
   for (let i = 0; i < items.length; i += batch) {
@@ -84,9 +85,10 @@ export async function storeEmbeddings(db: Pick<pg.Pool, 'query'>, embedder: Embe
     const vecs = await embedder.embed(chunk.map((c) => c.content));
     for (let j = 0; j < chunk.length; j++) {
       await db.query(
-        `INSERT INTO embeddings (source_type, source_ref, content, embedding, stack) VALUES ($1,$2,$3,$4::vector,$5)
-         ON CONFLICT (source_type, source_ref) DO UPDATE SET content=EXCLUDED.content, embedding=EXCLUDED.embedding, stack=EXCLUDED.stack`,
-        [chunk[j].sourceType, chunk[j].sourceRef, chunk[j].content, `[${vecs[j].join(',')}]`, chunk[j].stack ?? null]);
+        `INSERT INTO embeddings (source_type, source_ref, content, embedding, stack, project_id) VALUES ($1,$2,$3,$4::vector,$5,$6)
+         ON CONFLICT (source_type, source_ref, (COALESCE(project_id, '00000000-0000-0000-0000-000000000000'::uuid)))
+         DO UPDATE SET content=EXCLUDED.content, embedding=EXCLUDED.embedding, stack=EXCLUDED.stack`,
+        [chunk[j].sourceType, chunk[j].sourceRef, chunk[j].content, `[${vecs[j].join(',')}]`, chunk[j].stack ?? null, chunk[j].projectId ?? null]);
     }
   }
 }
@@ -97,12 +99,17 @@ export const ticketEmbedItem = (legacyId: string, r: { title: string; resolution
   return body ? { sourceType: 'ticket', sourceRef: legacyId, content: `${r.title}\n${body}` } : null;
 };
 
-/** `stacks` limits results to generic items (stack IS NULL) plus those tagged with an allowed stack. */
-export async function similar(db: Pick<pg.Pool, 'query'>, embedder: Embedder, query: string, k = 5, stacks?: string[]) {
+/**
+ * `stacks` limits results to generic items (stack IS NULL) plus those tagged with an allowed stack.
+ * `projectId` limits them to that project's own knowledge plus shared platform knowledge; another project's items never appear.
+ * Callers that serve a user MUST pass it. Omitting it means "platform-wide" and is for tooling and tests only.
+ */
+export async function similar(db: Pick<pg.Pool, 'query'>, embedder: Embedder, query: string, k = 5, stacks?: string[], projectId?: string | null) {
   const [v] = await embedder.embed([query]);
   const { rows } = await db.query(
     `SELECT source_type, source_ref, content, embedding <=> $1::vector AS distance
-     FROM embeddings WHERE ($3::text[] IS NULL OR stack IS NULL OR stack = ANY($3)) ORDER BY distance LIMIT $2`, [`[${v.join(',')}]`, k, stacks ?? null]);
+     FROM embeddings WHERE ($3::text[] IS NULL OR stack IS NULL OR stack = ANY($3))
+       AND ($5::boolean OR project_id IS NULL OR project_id = $4::uuid) ORDER BY distance LIMIT $2`, [`[${v.join(',')}]`, k, stacks ?? null, projectId ?? null, projectId === undefined]);
   return rows;
 }
 

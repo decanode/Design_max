@@ -13,7 +13,7 @@ export async function runMigration(db: pg.Pool, projectId: string, extractor: Ex
       await loadRecord(db, projectId, r);
       res.tickets++;
       const item = ticketEmbedItem(r.legacyId, r);
-      if (item) items.push(item);
+      if (item) items.push({ ...item, projectId });
     } catch (e) {
       res.failed.push({ legacyId: r.legacyId, error: (e as Error).message });
     }

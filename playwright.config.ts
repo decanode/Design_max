@@ -16,7 +16,7 @@ export default defineConfig({
   projects: [
     // Creates the demo accounts and saves one signed-in browser state per role in .auth/
     { name: 'setup', testMatch: /auth\.setup\.ts/ },
-    { name: 'e2e', testIgnore: /auth\.setup\.ts/, dependencies: ['setup'], use: { storageState: '.auth/Admin.json' } },
+    { name: 'e2e', testIgnore: /auth\.setup\.ts/, dependencies: ['setup'], use: { storageState: '.auth/Super Admin.json' } },
   ],
   webServer: [
     { command: 'npm run dev:api', url: `http://localhost:${API}/health`, reuseExistingServer: false, timeout: 60_000,
