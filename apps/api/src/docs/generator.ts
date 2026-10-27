@@ -2,6 +2,7 @@ import type { LlmClient } from '../chat/observer.js';
 import { stackInstruction, type StackPolicy } from '../stacks.js';
 
 import type { DocKind } from './kinds.js';
+import { CRC_CHECKS, outline, outlineInstruction, type StackKey } from './outlines.js';
 export type { DocKind };
 export interface DocContext {
   title: string;
@@ -12,6 +13,7 @@ export interface DocContext {
   ts?: string;                     // approved TS (TUT, CRC)
   knowledge?: string[];            // similar tickets / SAP / Git snippets from the vector store
   policy?: StackPolicy | null;     // the project's allowed technology stacks (null = unrestricted)
+  stackKey?: StackKey;             // which technology's outline to follow
 }
 export interface DocGenerator { generate(kind: DocKind, ctx: DocContext): Promise<string> }
 
@@ -51,25 +53,19 @@ _None recorded._
 `;
     if (kind === 'TUT') return tutTemplate(c);
     if (kind === 'CRC') return crcTemplate(c);
+    const sections = outline(c.stackKey ?? 'generic', 'TS').map((o, i) => {
+      const body = o.title === 'Reuse of Existing Assets' ? list(c.knowledge) : o.title === 'Technical Objects'
+        ? '| Object | Type | Purpose | New / changed |\n| --- | --- | --- | --- |\n| _To be completed_ | | | |' : `_To be completed by the developer._`;
+      return `## ${i + 1}. ${o.title}\n${body}\n`;
+    }).join('\n');
     return `# Technical Specification: ${c.title}
 
 > Draft generated from the approved Functional Specification (offline template). Developer to complete and review before approval.${c.policy ? `\n> Technology scope: ${c.policy.allowed.map((s) => s.name).join(', ')}` : ''}
 
-## 1. Source Functional Specification
+## Source Functional Specification
 ${c.fs ? c.fs.split('\n').map((l) => `> ${l}`).join('\n') : '_Not available._'}
 
-## 2. Related Existing Assets
-${list(c.knowledge)}
-
-## 3. Technical Design
-_To be completed by the developer._
-
-## 4. Data & Interfaces
-_To be completed by the developer._
-
-## 5. Test Approach
-_To be completed by the developer._
-`;
+${sections}`;
   }
 }
 
@@ -128,7 +124,7 @@ const GENERAL_CHECKS = [
 function crcTemplate(c: DocContext) {
   const objects = section(c.ts, /technical object|object|design/i).slice(0, 12);
   const extra = CHECKS_BY_TYPE.filter(([re]) => objects.some((o) => re.test(o)) || re.test(c.ts ?? '')).flatMap(([, items]) => items);
-  const rows = [...GENERAL_CHECKS, ...extra].map((it, i) => `| ${i + 1} | ${it} | Pending | |`);
+  const rows = [...GENERAL_CHECKS, ...CRC_CHECKS[c.stackKey ?? 'generic'], ...extra].map((it, i) => `| ${i + 1} | ${it} | Pending | |`);
   const objRows = objects.length ? objects.map((o) => `- ${o}`).join('\n') : '- _No technical objects were listed in the Technical Specification._';
   return `# Code Review Checklist: ${c.title}
 
@@ -167,7 +163,7 @@ export class LlmGenerator implements DocGenerator {
       c.ts ? `Approved Technical Specification:\n${c.ts}` : '',
       c.knowledge?.length ? `Existing assets (vector search):\n${c.knowledge.join('\n---\n')}` : '',
     ].filter(Boolean).join('\n\n');
-    const md = (await this.llm.complete([SYS[kind], stackInstruction(c.policy ?? null, 'document')].filter(Boolean).join('\n\n'), user)).trim();
+    const md = (await this.llm.complete([SYS[kind], outlineInstruction(c.stackKey ?? 'generic', kind), stackInstruction(c.policy ?? null, 'document')].filter(Boolean).join('\n\n'), user)).trim();
     if (!md) throw new Error('LLM returned an empty document');
     return md;
   }

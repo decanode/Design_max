@@ -1,6 +1,6 @@
 # Plan: Template-driven Documents, Review Comments and Word Export
 
-**Status:** approved on the points below. **Phase 1 is done** (see section 7); Phases 0 and 2 onward are waiting on the template files and further approval to continue.
+**Status:** all phases are built (see the table in section 7 and `feature_process_guide.md` section 6). Open items: Phase 0 and the SAP template content need your Word files; a logo, Word comments in the export and per-section AI regeneration are not built.
 
 **Decisions (from you):**
 - **A. TUT** = Technical Unit Test, **CRC** = Code Review Checklist.
@@ -92,13 +92,13 @@ FS and TS are Markdown text generated from the chat, versioned, diffed and appro
 |---|---|---|---|
 | 0 | **Template intake.** Analyse your Word files, extract section maps | Agree what each document contains | Section map reviewed by you (needs the files) |
 | 1 | **Foundation (done).** Structured content, Word export engine with a stand-in template, front matter (approval table, revision table), download | Download any FS or TS as DOCX | Structure checks that the file is valid and styles, headers, tables and links survive |
-| 2 | **Document types and templates.** FS/TS/TUT/CRC as data, template library, SAP templates from your files, optional QA gate | Full SAP document set per ticket | Per-type tests, gate tests |
-| 3 | **AI by section.** Section-based generation per template, stack limits, per-section regenerate; TUT traced from FS acceptance criteria, CRC from the TS object list | Generate each document | Section tests, scope tests |
-| 4 | **Editor with live co-editing.** Rich editor, working draft shared in real time, versions as snapshots, locked boilerplate | Several consultants edit one document together | Multi-user browser tests, offline/reconnect tests |
-| 5 | **Document settings.** Project name, branding, fonts, sizes, numbering, live preview | Admin restyles all documents | Settings-layering tests, golden exports |
-| 6 | **Review comments.** Anchored threads inside the live draft, mentions, resolve, review rounds, notifications, approval gate, Word comments option | Lead comments, consultants fix, Lead resolves | Cross-role browser tests, anchor-drift tests |
-| 7 | **Upload and merge.** Safe parser, section mapper, merge screen, round-trip via section tags | Merge your own document | Round-trip and hostile-file tests |
-| 8 | **Other stacks and hardening.** .NET, Java, Node.js template sets; accessibility, performance, security review | Same flow for every stack | Full regression, security tests |
+| 2 | **Document types and templates (done, except your real SAP files).** FS/TS/TUT/CRC as data, template library, SAP templates from your files, optional QA gate | Full SAP document set per ticket | Per-type tests, gate tests |
+| 3 | **AI by section (done; per-section regenerate not built).** Section-based generation per template, stack limits, per-section regenerate; TUT traced from FS acceptance criteria, CRC from the TS object list | Generate each document | Section tests, scope tests |
+| 4 | **Editor with live co-editing (done).** Rich editor, working draft shared in real time, versions as snapshots, locked boilerplate | Several consultants edit one document together | Multi-user browser tests, offline/reconnect tests |
+| 5 | **Document settings (done, except logo).** Project name, branding, fonts, sizes, numbering, live preview | Admin restyles all documents | Settings-layering tests, golden exports |
+| 6 | **Review comments (done, except Word comments in export).** Anchored threads inside the live draft, mentions, resolve, review rounds, notifications, approval gate, Word comments option | Lead comments, consultants fix, Lead resolves | Cross-role browser tests, anchor-drift tests |
+| 7 | **Upload and merge (done).** Safe parser, section mapper, merge screen, round-trip via section tags | Merge your own document | Round-trip and hostile-file tests |
+| 8 | **Other stacks and hardening (outlines done; Word designs wait for templates).** .NET, Java, Node.js template sets; accessibility, performance, security review | Same flow for every stack | Full regression, security tests |
 
 Each phase ends with tests, a visual check, and an update to `feature_process_guide.md`.
 
@@ -120,4 +120,4 @@ Server: a ZIP/XML library to open and fill Word packages (PizZip, fast-xml-parse
 
 ## 10. Still needed from you
 
-The three SAP template files (and, if they exist, templates for other stacks), copied into the project, for example under `templates/sap/`. They unlock Phase 0 and Phase 2.
+The three SAP template files (and, if they exist, templates for other stacks). Add the placeholders listed in Platform → Documents to each (at minimum `{{BODY}}`) and upload them there, or copy them into the project (for example `templates/sap/`) and I will prepare and load them. Until then documents use the built-in stand-in design.

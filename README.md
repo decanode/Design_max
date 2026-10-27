@@ -22,6 +22,8 @@ npm run dev               # database + migrations + API (:4000) + web (:3000)
   project's members, roles, workflows, technology and fields. Roles belong to a project, so one person can hold different
   roles in different projects; use the project menu in the header to switch.
 
-## Word export and its test
-Specifications download as .docx. The automated rendering check converts a generated file with LibreOffice and runs only
+## Documents, live editing and Word export
+FS, TS, Unit Test and Code Review documents are edited live by several people at once. The editor connects to the API on the
+same web address under `/collab` (the web server forwards it, so nothing extra to open in Codespaces); set
+`NEXT_PUBLIC_COLLAB_URL` only if the API is reached directly. Documents download as .docx. The automated rendering check converts a generated file with LibreOffice and runs only
 where it is installed (`apt-get install libreoffice-writer poppler-utils` on Debian/Ubuntu); without it that one test is skipped.

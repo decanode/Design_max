@@ -11,6 +11,9 @@ import { similar, type Embedder } from '../etl/vectorize.js';
 import type { DocContext, DocGenerator, DocKind } from './generator.js';
 import { diffLines } from './diff.js';
 import { supersedeOpenRequest, requestsForTicket } from '../approvals/engine.js';
+import { effectiveSettings } from './settings.js';
+import { stackKey as stackKeyOf } from '../docgen/templateLibrary.js';
+import type { StackKey } from './outlines.js';
 import { assessFit, loadStackPolicy, projectPolicyForTicket } from '../stacks.js';
 
 import { DocError } from '../errors.js';
@@ -46,7 +49,9 @@ async function buildContext(ticketId: string, kind: DocKind, embedder?: Embedder
     ? (await pool.query(`SELECT body FROM messages WHERE conversation_id=$1 AND sender_role='customer' ORDER BY id`, [conv.conversation_id])).rows.map((r) => r.body as string)
     : [];
   const policy = await loadStackPolicy(t.project_id);
-  const ctx: DocContext = { title: t.title, summary: t.ai_summary ?? t.title, transcript, entities: conv?.entities, policy };
+  const cfg = await effectiveSettings(t.project_id);
+  const stackKey = (cfg.templateStack ?? (policy?.allowed.length ? stackKeyOf(policy.allowed[0].name) : 'generic')) as StackKey;
+  const ctx: DocContext = { title: t.title, summary: t.ai_summary ?? t.title, transcript, entities: conv?.entities, policy, stackKey };
   if (kind !== 'FS') {
     const fs = (await listVersions(ticketId, 'FS'))[0];
     ctx.fs = fs && versionText(fs);

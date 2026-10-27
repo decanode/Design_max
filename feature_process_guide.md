@@ -120,37 +120,103 @@ The database itself refuses any other move, and every move is logged.
 
 ---
 
-## 6. Functional and Technical Specifications
+## 6. Documents: Functional Spec, Technical Spec, Unit Test and Code Review
 
-**What it is.** The FS and TS documents for a ticket, drafted by AI from the chat, edited by people, with full history.
+**What it is.** Four documents per ticket, each drafted by the system, edited online by the team (several people at once), reviewed with comments, approved through the L1…Ln workflow, and downloaded as Word:
+
+| Tab | Document | Created when | Edited when | Approval does |
+|---|---|---|---|---|
+| **Functional Spec** (FS) | Functional Specification | ticket is *Requirement Verified* | *FS Drafted* | moves the ticket to *FS Approved* |
+| **Technical Spec** (TS) | Technical Specification | *FS Approved* | *TS Drafted* | moves the ticket to *TS Approved* |
+| **Unit Test** (TUT) | Technical Unit Test | *Development*, *QA* or *UAT* | the same stages | locks the document (no ticket move) |
+| **Code Review** (CRC) | Code Review Checklist | *Development*, *QA* or *UAT* | the same stages | locks the document (no ticket move) |
 
 **How to use it** (Consultants, Leads and anyone with the right permissions)
-1. On a ticket at *Requirement Verified*, open **Functional Spec** and click **Generate FS draft**. The ticket moves to *FS Drafted*.
-2. Edit in the markdown editor (live preview alongside). Click **Save new version**.
-3. Open any older version from the **Versions** list. A diff shows what changed compared with the latest.
-4. Request approval (section 7). Once the FS is approved it is **locked**, and the **Technical Spec** can be generated from it.
+1. Open the ticket and choose a tab. Click **Generate … draft** when the tab says it is available.
+2. **Edit in the shared editor.** The toolbar has bold, italic, underline, headings, lists, checklists, tables and links. Everyone who has the document open edits the **same draft** and sees each other's cursors and names. Closing the page loses nothing: the draft is kept on the server.
+3. Click **Save version** to turn the draft into a numbered version (v2, v3 …). Requesting approval saves a version automatically, so approvers always see exactly what was requested.
+4. Open any older version from **Versions** (read-only, with a diff against the latest), or **Download vN as Word**.
+5. **Upload & merge a Word file**, **comments** and **approval**: see the sections below and section 7.
 
 **What to expect**
-- Every save is a new immutable version; nothing is overwritten, and the database refuses edits to history.
-- If a colleague saved first, you get a clear conflict message and must reload; you can never silently overwrite their work.
-- The author shown is the signed-in person.
-- Without an AI key the draft is a structured outline for the consultant to complete, not finished prose. With a key, the AI writes a fuller draft; always review it before approval.
-- Editing a document **withdraws** any approval request still open on it, because the text being approved no longer exists.
+- Versions are immutable; nothing is overwritten and the database refuses edits to history.
+- **Locking:** the draft is read-only while an approval is in progress (cancel the request to edit), after an FS/TS is approved, and for an approved Unit Test or Code Review. The editor says why.
+- **View-only people** (no edit permission) can still open the live draft and watch it change; they cannot type.
+- **Offline or dropped connection:** the editor shows *Offline*, keeps your changes in the page and syncs them when it reconnects.
+- **What the draft contains:**
+  - **FS** and **TS** follow an outline per technology (SAP, .NET, Java, Node.js, generic). A SAP TS has *Technical Objects, Technical Design, Data Dictionary, Authorizations, Interfaces & Enhancements, Transports & Deployment…*; a .NET one has *Solution Structure, APIs & Contracts, Migrations, Packages…* and so on.
+  - **Unit Test** lists one test case per acceptance criterion of the FS, each tracing back to it.
+  - **Code Review** is a checklist: general checks, extra checks for the technology (for example *AUTHORITY-CHECK* for SAP, *npm audit* for Node.js) and for the kinds of object named in the TS.
+  - Without an AI key the draft is a structured outline for people to complete. With a key the AI writes each section following the same outline and the project's technology limits. Always review it before approval.
+- Drafts that mention technology outside the project's allowed stack get a warning banner (section 4).
+- Optional project rule: **Unit Test and Code Review must be approved before a ticket moves to QA** (Project settings → Documents). It is **off by default**, so existing projects behave as before.
+- Editing through the older "save as new version" API still works and updates the shared draft.
 
 ### Download as Word (DOCX)
 
-**What it is.** Any version of a Functional or Technical Specification can be downloaded as a Word file with a cover page, header and footer, styled headings, lists, tables, links and checklists.
+**What it is.** Any version of any of the four documents can be downloaded as a Word file with a cover page, header and footer, styled headings, lists, tables, links and checklists.
 
-**How to use it:** open the ticket, choose the **Functional Spec** or **Technical Spec** tab, and click **Download vN as Word** above the versions list. It downloads the version you are looking at (the latest, or an older one if you opened it).
+**How to use it:** open the ticket, choose the tab, click **Download vN as Word** above the versions list. It downloads the version you are looking at (the latest, or an older one you opened).
 
 **What to expect**
-- **The file name** is `FS_<ticket title>_v2.docx` style, with only safe characters.
-- **The cover page and tables are filled in for you:** project name, ticket, version, status (*Draft*, *In approval*, *Approved* or *Superseded*), date, author, technology; an **Approvals table** taken from the real approval history (level, approver, decision, date); and a **Revision history** table from the saved versions. Nobody types these.
-- **Respects ticket-field access:** if your role cannot read the customer field, the customer's name is not in your file. You need permission to read specifications, and the ticket must be visible to you.
-- **Every download is logged** (who, which document and version).
-- **Design today:** the file uses a **stand-in template** built into the system, because the company's own Word templates (TUT, TS, CRC) have not been supplied yet. The same mechanism fills any Word template that uses the standard placeholders, so switching to the company templates changes the look and sections without a rewrite.
-- Fonts and sizes can already be applied by the engine; the admin screen for choosing them (the Document settings tab) is not built yet.
-- Checked by opening and paginating the files in LibreOffice (including page numbers and nested lists). They have not yet been opened in Microsoft Word itself.
+- **File name** like `FS_<ticket title>_v2.docx`, with only safe characters.
+- **Cover page and tables are filled in for you:** project name, client, document number, ticket, version, status (*Draft*, *In approval*, *Approved*, *Superseded*), date, author, technology; an **Approvals table** from the real approval history; a **Revision history** from the saved versions. Nobody types these.
+- **The design comes from the template library** (below). Until your company templates are uploaded, a built-in stand-in design is used.
+- **Fonts, sizes, names and numbering** come from the project's Document settings.
+- **Respects ticket-field access:** if your role cannot read the customer field, the customer's name is not in your file. Every download is logged.
+- Checked by opening and paginating the files in LibreOffice. They have **not yet been opened in Microsoft Word itself**.
+
+### Document settings (Project Admin)
+
+**What it is.** The look and rules for the project's documents.
+
+**How to use it:** **Project settings → Documents.** Set the *project name and client name shown on documents*, extra header and footer text, the confidentiality line, the *document number format* (for example `{PROJECT}-{TICKET}-{TYPE}`), the *body and heading fonts* (from a safe list) and *sizes*, the *template set* (SAP, .NET, Java, Node.js, Generic, or follow the project's technology), and the two delivery rules (QA gate; block approval while comments are open). A **preview** shows the style as you change it, and **Download a sample in this style** gives a real Word file with your unsaved changes, before they reach any real document. Click **Save settings**.
+
+**What to expect:** values the project does not set fall back to the platform's defaults, then to the built-in ones. Only listed fonts and sensible size ranges are accepted. Changes apply to new downloads, not to files already downloaded. **Not built yet:** a logo on the cover page.
+
+### Template library (Super Admin)
+
+**What it is.** The Word files that give each document its design, per technology and document type.
+
+**How to use it:** **Platform → Documents → Word templates.** Pick the technology and document, choose a `.docx` and click **Upload template**. In the Word file, put `{{BODY}}` alone on its own line where the content goes, and placeholders such as `{{PROJECT_NAME}}`, `{{TICKET_TITLE}}`, `{{VERSION}}`, `{{DOC_NUMBER}}`, `{{APPROVALS}}`, `{{REVISIONS}}` where details should appear (the screen lists all of them). Page numbers and styles in your file are kept.
+
+**What to expect**
+- The upload is checked: it must be a real `.docx`, with no macros or embedded objects, not password-protected, well-formed, and containing `{{BODY}}`. Problems are explained in plain words. Unrecognised placeholders are listed and left empty.
+- Each upload becomes the **active version** for that technology and document; earlier versions are kept and can be made active again or downloaded.
+- A project uses its technology's template; if there is none, the **Generic** one; if there is none, the built-in design.
+- **Platform defaults** for fonts, sizes and labels are set on the same screen. Projects override them.
+- **To use your company templates** (TUT, TS, CRC and the FS in the TS design): add the placeholders above to each Word file and upload them here. No code change is needed.
+
+### Review comments (Leads and anyone with comment access)
+
+**What it is.** Confluence-style review: comments on selected text or on the document as a whole, threaded replies, mentions, and a review decision.
+
+**How to use it**
+1. Open the document. In the **Review comments** panel, **select text** in the document and write the comment, or add a *General comment*. Use **@ Mention** to name someone.
+2. The author sees the comment at once (highlighted in the text, listed in the panel) and is emailed (local Mailbox for now). They **Reply**, edit the text, and click **Mark addressed**.
+3. The reviewer clicks **Resolve** (or **Reopen**). Replying to a resolved thread reopens it.
+4. A reviewer with review access records **Request changes** or **Looks good** (with an optional note). *Looks good* is refused while comments are unresolved.
+
+**What to expect**
+- Highlights **follow the text** as people keep editing. If the commented text is deleted, the comment stays, shows the text it was about, and says it was removed.
+- Anyone who can read the document can read comments; **commenting needs the "Comment on documents" permission** and does not require edit access, so a reviewer can comment without being able to change the text. **Resolving or reopening** another person's comment needs the "Review documents" permission. Editors can mark comments *addressed*.
+- The tab shows how many comments are still open.
+- Optional project rule (Document settings): **approval cannot be requested while comments are unresolved**.
+- Comments stay with the ticket across versions; a comment from an older version says which version it was written on.
+- **Not built yet:** exporting comments into the Word file as Word comments, and importing Word comments from an uploaded file.
+
+### Upload & merge your own Word file
+
+**What it is.** A consultant can write or edit offline in Word and bring the result back into the system's draft instead of retyping.
+
+**How to use it:** in the editor click **Upload & merge a Word file**, choose a `.docx`, and review the **merge screen**: each section of your file is lined up with the draft section it matches (by heading, ignoring numbering), with both texts side by side. Choose per section: *Use my file's version*, *Keep the draft*, or *Keep both*. Sections only in your file can be *added* (they go under an "Additional sections" heading) or left out. Click **Merge into the document**.
+
+**What to expect**
+- **Nothing changes until you confirm.** Before merging, the team's current draft is saved as its own version, and the merge becomes the next version, so it can always be undone by opening the earlier one.
+- Headings, paragraphs, lists, tables, bold/italic/underline and web links are carried over. **Images are not imported** (you are told how many were skipped). Links other than web and email links are dropped.
+- Files are treated as untrusted: only `.docx` up to 8 MB; macro-enabled and password-protected files are refused; nothing in them is run or fetched. The original file is kept for audit.
+- Matching is by heading text; if your file uses very different headings, its sections show as "Only in your file" and you decide where they go.
+- Not available while the document is locked.
 
 ---
 
@@ -229,7 +295,7 @@ The database itself refuses any other move, and every move is logged.
 - **Projects**: *New project* (name, optional first Project Admin's email, optional technology). The project starts with its own copy of the standard approval workflow. *Appoint* additional Project Admins; *Open project* to step into it; *Archive* to cut everyone off at once (nothing is deleted; *Restore* brings it back).
 - **Users**: everyone on the platform, the projects and roles each holds, and toggles for **Super Admin** and **Active**. A new account can reach nothing until a Project Admin adds them to a project.
 - **Role catalog**: the standard roles and what each can do. Add a custom role (optionally copying an existing one). Only project-level permissions can be given to a role.
-- **Default ticket fields**, **Technology catalog**, **Activity** (platform-wide log).
+- **Default ticket fields**, **Technology catalog**, **Documents** (Word template library and document defaults, section 6), **Activity** (platform-wide log).
 
 **What to expect:** at least one active Super Admin always remains. When a Super Admin steps into a project they do not belong to, the entry is recorded in **that project's** activity log, where its own admin can see it.
 
@@ -241,6 +307,7 @@ The database itself refuses any other move, and every move is logged.
 - **Members**: add people by email with a role (a new email creates an account that can reach nothing else), change someone's role, or remove them. A project always keeps at least one Project Admin.
 - **Roles & permissions**: what each role can do **in this project**. Roles you have not touched follow the standard; changing one affects only this project, and **Reset** undoes it. Platform powers cannot be given to a project role.
 - **Ticket fields**, **Technology**, **Approval workflows**: as in sections 9, 4 and 7.
+- **Documents**: fonts, names, numbering, template set and the delivery rules for the project's documents (section 6).
 - **Activity**: a log of changes made in this project.
 
 ---
@@ -278,8 +345,8 @@ The database itself refuses any other move, and every move is logged.
 - **Company single sign-on** (Entra ID / SAML / OIDC), Sprint 4. Until then sign-in is the development account picker.
 - **Real email** (Microsoft 365). Approval emails go to the local Mailbox.
 - **Live connections** to Jira, ServiceNow, SAP (RFC), SharePoint and company Git; Confluence; PDF/Word text extraction; S3/Azure file storage.
-- **The document-template programme** (plan: `document_generation_plan.md`): the company's own SAP templates (TUT, TS, CRC, and the FS in the TS design), equivalent templates for other technologies, the **Document settings** tab (project name, fonts, sizes, logo, numbering), the **rich online editor with live co-editing**, **Confluence-style review comments**, **upload and merge of your own Word document**, and the **TUT and CRC** document types with the optional QA gate. Only "Download as Word" is built so far.
-- **Real-time co-editing** of specifications (today: save with conflict detection). Planned within the document-template programme.
+- **The company's own SAP templates** (TUT, TS, CRC, FS): the mechanism is built (Platform → Documents); the files themselves still need to be supplied and uploaded. Equivalent .NET, Java and Node.js *content outlines* are built; their Word *designs* are the built-in stand-in until templates are uploaded.
+- **Documents still to come:** a logo on the cover page, Word comments in the exported file (and imported on upload), regenerating a single section with the AI, images in the editor, and checking the exported files in Microsoft Word itself.
 - **Approval escalation**, reminders, delegation and conditional levels.
 - **Call-transcript upload** (Teams/Zoom) as a chat source.
 - **Dashboard-wide filters**, click-through to tickets, scheduled/emailed/PDF reports.

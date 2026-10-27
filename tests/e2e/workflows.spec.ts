@@ -108,7 +108,7 @@ test('a rejection stops the chain and the reason shows to the requester', async 
 
   const mp = await miaCtx.newPage();
   await mp.goto(`/tickets/${t.id}`);
-  await mp.getByLabel('Comment').fill('Scope is unclear');
+  await mp.getByPlaceholder('Comment (required to reject)').fill('Scope is unclear');
   await mp.getByRole('button', { name: 'Reject' }).click();
   await expect(mp.getByRole('status')).toContainText('Rejected');
 
