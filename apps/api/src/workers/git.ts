@@ -37,3 +37,17 @@ export async function extractGitRepo(repoDir: string, repoName: string): Promise
   }
   return items;
 }
+
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+
+/** Shallow-clones a repo, extracts it, and cleans up. `url` may embed a token for private repos. */
+export async function extractGitUrl(url: string, repoName: string): Promise<EmbedItem[]> {
+  const dir = await mkdtemp(join(tmpdir(), 'git-ingest-'));
+  try {
+    await promisify(execFile)('git', ['clone', '--depth', '1', '--quiet', url, dir]);
+    return await extractGitRepo(dir, repoName);
+  } finally { await rm(dir, { recursive: true, force: true }); }
+}

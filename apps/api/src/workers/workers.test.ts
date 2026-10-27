@@ -3,7 +3,9 @@ import { mkdtemp, mkdir, writeFile, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pool } from '../db.js';
-import { extractGitRepo } from './git.js';
+import { extractGitRepo, extractGitUrl } from './git.js';
+import { RecordedEmbedder } from '../etl/recorded.js';
+import { execFileSync } from 'node:child_process';
 import { extractSapMetadata, type RfcClient } from './sap.js';
 import { extractSharePoint } from './sharepoint.js';
 import { migrateAttachments, LocalBlobStore } from '../etl/attachments.js';
@@ -57,5 +59,26 @@ describe('workers', () => {
     expect(r.migrated).toBeGreaterThanOrEqual(1);
     const key = (await pool.query('SELECT storage_key FROM attachments WHERE id=$1', [a])).rows[0].storage_key;
     expect(await readFile(join(root, key), 'utf8')).toBe('hello');
+  });
+
+  it('Git worker clones from a URL', async () => {
+    const d = await mkdtemp(join(tmpdir(), 'src-'));
+    await writeFile(join(d, 'README.md'), '# cloned');
+    const g = (...a: string[]) => execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', ...a], { cwd: d });
+    g('init', '-q'); g('add', '.'); g('commit', '-qm', 'x');
+    const items = await extractGitUrl(`file://${d}`, 'cl');
+    expect(items.map((i) => i.sourceRef)).toEqual(['cl:README.md']);
+  });
+
+  it('RecordedEmbedder records once, replays offline, and errors on unknown text', async () => {
+    const f = join(await mkdtemp(join(tmpdir(), 'rec-')), 'e.json');
+    let calls = 0;
+    const live = { embed: async (t: string[]) => { calls++; return t.map(() => [1, 2, 3]); } };
+    expect(await RecordedEmbedder.record(f, live, ['a', 'a', 'b'])).toBe(2);
+    expect(await RecordedEmbedder.record(f, live, ['a'])).toBe(0);
+    expect(calls).toBe(1);
+    const r = new RecordedEmbedder(f);
+    expect(await r.embed(['a'])).toEqual([[1, 2, 3]]);
+    await expect(r.embed(['zzz'])).rejects.toThrow(/No recorded embedding/);
   });
 });

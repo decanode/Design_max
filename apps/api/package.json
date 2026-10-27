@@ -7,7 +7,9 @@
     "build": "tsc -p .",
     "migrate": "tsx src/migrate.ts",
     "test": "vitest run",
-    "etl": "tsx src/etl/cli.ts"
+    "etl": "tsx src/etl/cli.ts",
+    "ingest": "tsx src/workers/cli.ts",
+    "embeddings:record": "tsx src/etl/record.ts"
   },
   "dependencies": {
     "@fastify/cors": "^11.3.1",

@@ -19,7 +19,10 @@ Sprint 0: **complete**. Sprint 1 (ETL & ingestion workers): **core ETL complete;
 - Vectorization: `Embedder` interface; `OpenAIEmbedder` (text-embedding-3-small) and offline `HashEmbedder`; pgvector cosine similarity search.
 - Attachment migration to a `BlobStore` (LocalBlobStore implemented; S3/Azure implementation still TODO).
 - `apps/api/src/workers/`: Git worker (README, OpenAPI JSON, function-header regex), SAP worker (TRDIR/TSTC via injected RFC client + optional usage provider), SharePoint worker (Graph API, text files).
-- Tests: 14 Vitest tests pass (fake HTTP fixtures, real Postgres), repeatable; vitest runs files serially (shared DB).
+- Tests: 16 Vitest tests pass (fake HTTP fixtures, real Postgres), repeatable; vitest runs files serially (shared DB).
+
+- Approved proposal (recorded real embeddings for tests): built `RecordedEmbedder` + `npm run embeddings:record -w apps/api` + text list `etl/fixtures/embeddingTexts.ts`. **PENDING: needs OPENAI_API_KEY once**; until recorded, tests still use HashEmbedder. After recording, switch etl.test/workers.test to RecordedEmbedder and drop HashEmbedder from tests.
+- Git worker can now clone from a URL (system `git`, no new deps). Added `npm run ingest -w apps/api -- git|sharepoint ...` entry point (embeds results).
 
 ## Decisions
 - **Ground rule 8 added (user-approved)**: Claude may propose design changes in short plain terms; proceed only after approval, then update the design doc and log here.
@@ -39,7 +42,7 @@ Sprint 0: **complete**. Sprint 1 (ETL & ingestion workers): **core ETL complete;
 ## Open Items / Notes
 - UNTESTED against real systems: field names (e.g. Jira acceptance-criteria custom field id, SNOW state codes for problem/change), Jira `/rest/api/3/search` (Atlassian is migrating to `/search/jql`; verify on target instance), RFC_READ_TABLE field-width limits, Graph auth/token acquisition.
 - SAP: node-rfc + NW RFC SDK integration and ST03N usage FM not implemented (RfcClient is an interface). SAP selection screens / ALV field catalogs not yet extracted.
-- Git worker: clone step not implemented (operates on a checked-out directory); function headers are regex-based, not a true AST (tree-sitter later).
+- Git worker: function headers are regex-based; OpenAPI YAML unsupported, not a true AST (tree-sitter later).
 - SharePoint worker: PDF/DOCX text extraction missing; Confluence connector and Project_Admin manual upload dashboard not built.
 - S3/Azure BlobStore not implemented; no scheduler/queue for workers yet.
 - Attachment/comment loading has no batching; fine for fixtures, review for large migrations.
