@@ -10,3 +10,7 @@ config({ path: resolve(dirname(fileURLToPath(import.meta.url)), '../../../.env')
 export const pool = new pg.Pool({
   connectionString: process.env.DATABASE_URL ?? 'postgres://antigravity:antigravity@localhost:5432/antigravity',
 });
+
+// The database may restart while the API runs. Without a listener, Node treats a dropped idle connection as a
+// fatal unhandled error; with one, the pool simply discards it and reconnects on the next query.
+pool.on('error', (e) => console.error('[db] idle connection dropped:', (e as Error).message));

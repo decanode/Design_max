@@ -84,6 +84,11 @@ Sprint 0: **complete**. Sprint 1 (ETL & ingestion workers): **core ETL complete;
 - Tests: 94 Vitest (16 new approvals tests: ordering, any/all, concurrency, role resolution, separation of duties, auto-pass, in-app vs link expiry, supersede/cancel, frozen workflow, selection by project/kind, admin validation/conflicts) + 22 Playwright (new workflows spec: Admin builds a 2-level workflow in the UI then Sam/Mia/Leo walk it; rejection journey). Browser test found that Lead couldn't approve at L2 because of the separate permission → permission removed.
 - Known limits: no escalation/timeouts/reminders/delegation/conditional levels; emailed tokens expire after 7 days (in-app decisions don't); a role-based level with no eligible people at request time blocks the request with a clear message.
 
+## Dev-environment resilience (sign-in page showed "database may be stopped" again)
+- Cause (twice): the Codespace paused, Docker stopped the Postgres container (exit 255); data volume was fine. Fix: `docker compose up -d db`.
+- Hardening: compose `restart: unless-stopped` + healthcheck; `npm run dev:up` (starts DB, repairs a stuck container, waits for readiness, migrates) and `npm run dev` (that + API + web); README documents it; API maps unreachable-database errors to **503 `DATABASE_DOWN`** (`isDatabaseDown` in `errors.ts`, unit-tested) and has `/health/db`; `pool.on('error')` so a dropped idle connection can't crash the API; login page now says "database is not running — npm run dev:up" with a Try-again button. Verified live: DB stopped → 503 with the API staying up → `dev:up` → recovered with no API/web restart. The "container already exists" stuck-container repair branch in `dev-up.sh` was NOT re-exercised (cannot be provoked safely).
+- A `.devcontainer` postStart hook was considered and skipped: it would change the Codespace base image.
+
 ## Decisions
 - **Authority comes from the workflow, not a permission**: avoids an Admin naming a role as approver and the approvers being unable to act.
 - **Frozen workflow per request**: auditability — what was approved is exactly the route that was followed.

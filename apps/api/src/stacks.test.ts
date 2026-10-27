@@ -165,3 +165,16 @@ describe('administration of stacks and projects', () => {
     expect((await call(pmo, 'GET', '/api/admin/users')).status).toBe(403);
   });
 });
+
+describe('database-down detection', () => {
+  it('recognises unreachable-database errors (including pg\'s multi-address AggregateError) and nothing else', async () => {
+    const { isDatabaseDown } = await import('./errors.js');
+    expect(isDatabaseDown(Object.assign(new Error('x'), { code: 'ECONNREFUSED' }))).toBe(true);
+    expect(isDatabaseDown(Object.assign(new AggregateError([Object.assign(new Error('a'), { code: 'ECONNREFUSED' })]), {}))).toBe(true);
+    expect(isDatabaseDown(Object.assign(new Error('x'), { code: '57P01' }))).toBe(true);
+    expect(isDatabaseDown(Object.assign(new Error('x'), { cause: { code: 'ETIMEDOUT' } }))).toBe(true);
+    expect(isDatabaseDown(new Error('syntax error'))).toBe(false);
+    expect(isDatabaseDown(Object.assign(new Error('dup'), { code: '23505' }))).toBe(false);
+    expect(isDatabaseDown(null)).toBe(false);
+  });
+});

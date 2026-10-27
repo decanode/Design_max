@@ -6,6 +6,7 @@ import { STATES } from './stateMachine.js';
 import { createConversation, getConversationProject, getDraft, getMessages, canAccessConversation, listConversations } from './chat/service.js';
 import { registerDocRoutes, type DocDeps } from './docs/routes.js';
 import { DocError } from './docs/service.js';
+import { isDatabaseDown } from './errors.js';
 import { LlmGenerator, TemplateGenerator } from './docs/generator.js';
 import { OutboxMailer } from './docs/mailer.js';
 import { defaultLlm } from './chat/observer.js';
@@ -28,11 +29,13 @@ export function buildApp(deps: Partial<DocDeps> = {}) {
     if (err instanceof DocError) return reply.code(err.status).send({ error: err.message, ...err.extra });
     if (err instanceof AdminError) return reply.code(err.status).send({ error: err.message });
     if (err instanceof z.ZodError) return reply.code(400).send({ error: 'Invalid request', details: err.issues });
+    if (isDatabaseDown(err)) return reply.code(503).send({ error: 'The database is unavailable', code: 'DATABASE_DOWN' });
     app.log.error(err);
     return reply.code(500).send({ error: 'Something went wrong' });
   });
 
   app.get('/health', async () => ({ ok: true }));
+  app.get('/health/db', async (_req, reply) => { await pool.query('SELECT 1'); return reply.send({ ok: true }); });   // 503 via the error handler when the database is down
   app.get('/api/states', async () => STATES);
 
   app.get('/api/projects', { preHandler: needAny('ticket.create', 'chat.as_customer', 'chat.as_consultant') }, async () => (await pool.query(

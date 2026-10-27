@@ -5,6 +5,12 @@ services:
       POSTGRES_USER: antigravity
       POSTGRES_PASSWORD: antigravity
       POSTGRES_DB: antigravity
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U antigravity -d antigravity"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
     ports: ["5432:5432"]
     volumes: [pgdata:/var/lib/postgresql/data]
 volumes:

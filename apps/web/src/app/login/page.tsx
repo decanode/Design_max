@@ -27,7 +27,9 @@ export default function Login() {
         setUsers([]);
         setError(r.status === 404
           ? 'Development sign-in is turned off on this server.'
-          : 'The server could not load accounts. The database may be stopped — check it is running, then reload.');
+          : r.status === 503
+            ? 'The database is not running. Start it with “npm run dev:up”, then try again.'
+            : 'The server could not load accounts. Try again, and check the API log if it keeps happening.');
       }
     } catch { setUsers([]); setError('Cannot reach the server. Check the API is running, then reload.'); }
   }, []);
@@ -55,7 +57,7 @@ export default function Login() {
         <p>Choose an account to continue.</p>
         <p className="note">Development sign-in. Company single sign-on replaces this later.</p>
       </div>
-      {error && <p role="alert" className="err">{error}</p>}
+      {error && <div role="alert" className="err" style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}><span>{error}</span>{users?.length === 0 && <button className="btn ghost sm" onClick={() => { setError(''); setUsers(null); load(); }}>Try again</button>}</div>}
       {users === null && <p className="note">Loading…</p>}
       {users?.length === 0 && !error && (
         <div className="pane" style={{ padding: 20, textAlign: 'center' }}>
