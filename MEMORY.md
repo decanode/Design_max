@@ -1,7 +1,7 @@
 # MEMORY.md — Project Antigravity State Log
 
 ## Status
-Sprint 0: **complete**. Sprint 1 (ETL & ingestion workers): **core ETL complete; ingestion workers partial (see Open Items); validated against fixtures only** — no live Jira/SNOW/SAP/SharePoint/Git/OpenAI connection has been tested. Next: Sprint 2 (chat + AI Observer).
+Sprint 0: **complete**. Sprint 1 (ETL & ingestion workers): **core ETL complete; ingestion workers partial (see Open Items); validated against fixtures only** — no live Jira/SNOW/SAP/SharePoint/Git/OpenAI connection has been tested. Sprint 2 (Intelligent Intake & Chat): **built, verified with offline observer only**. Next: Sprint 3 (docs engine & approvals).
 
 ## Completed Actions
 - Read directives. NOTE: files are named `architecture_and_design_document.md` and `system_ground_rules.md` (not DESIGN_DOCUMENT.md / GROUND_RULES.md); treated as the same documents.
@@ -24,7 +24,18 @@ Sprint 0: **complete**. Sprint 1 (ETL & ingestion workers): **core ETL complete;
 - Approved proposal (recorded real embeddings for tests): built `RecordedEmbedder` + `npm run embeddings:record -w apps/api` + text list `etl/fixtures/embeddingTexts.ts`. **PENDING: needs OPENAI_API_KEY once**; until recorded, tests still use HashEmbedder. After recording, switch etl.test/workers.test to RecordedEmbedder and drop HashEmbedder from tests.
 - Git worker can now clone from a URL (system `git`, no new deps). Added `npm run ingest -w apps/api -- git|sharepoint ...` entry point (embeds results).
 
+## Sprint 2 Actions
+- Migration `003_chat.sql`: conversations, messages, requirement_drafts (one running AI draft per conversation, frozen once verified).
+- Socket.io backend (`chat/socket.ts`): join / message / verify; per-conversation serialized observer runs; zod validation on all inputs.
+- `Observer` interface: `RuleBasedObserver` (deterministic, offline default) and `ClaudeObserver` (Messages API, JSON reply validated by zod; model `claude-sonnet-5-5`; used automatically when `ANTHROPIC_API_KEY` is set). ClaudeObserver tested with mocked HTTP only.
+- "Verify & Approve" creates exactly one ticket at `Requirement Verified` (row lock; double-click safe); later customer messages cannot change a verified draft.
+- Web: `/chat` page (conversation + live AI summary pane + Verify & Approve, entity chips, reconnect/error states, ARIA live regions, responsive), shared Nav.
+- Tests: 22 Vitest (incl. real-socket integration) + 3 Playwright E2E, all passing.
+
 ## Decisions
+- **USER DIRECTIVE: connectors/integrations are parked** (Jira, ServiceNow, SAP, SharePoint, Git, OpenAI keys) until the user obtains approvals/keys/system access. Do not work on them or the embedding-recording step until told.
+- **Observer behind an interface with an offline stand-in**: build and test the intake flow with no API key.
+- **Observer failures never block chat**: messages persist first; draft errors surface as a non-blocking notice.
 - **Ground rule 8 added (user-approved)**: Claude may propose design changes in short plain terms; proceed only after approval, then update the design doc and log here.
 - **Fastify over Express**: schema-friendly, fast, good TS support; Socket.io attaches to its HTTP server in Sprint 2.
 - **Docker for Postgres**: no local Postgres in Codespace; pgvector image is the simplest provisioning path.
@@ -40,6 +51,8 @@ Sprint 0: **complete**. Sprint 1 (ETL & ingestion workers): **core ETL complete;
 - **No new dependencies** added in Sprint 1 (native fetch, no node-rfc/AWS SDK yet — ground rule 5).
 
 ## Open Items / Notes
+- Sprint 2 gaps: uploaded call-transcript (Teams/Zoom) intake not built; chat has no auth (sender is a self-selected role until Sprint 4 SSO); the "silent" observer is not rate-limited/debounced (one LLM call per customer message); observer is not told about similar historical tickets (vector search) yet.
+- Observer quality with the real Claude model is unevaluated.
 - UNTESTED against real systems: field names (e.g. Jira acceptance-criteria custom field id, SNOW state codes for problem/change), Jira `/rest/api/3/search` (Atlassian is migrating to `/search/jql`; verify on target instance), RFC_READ_TABLE field-width limits, Graph auth/token acquisition.
 - SAP: node-rfc + NW RFC SDK integration and ST03N usage FM not implemented (RfcClient is an interface). SAP selection screens / ALV field catalogs not yet extracted.
 - Git worker: function headers are regex-based; OpenAPI YAML unsupported, not a true AST (tree-sitter later).

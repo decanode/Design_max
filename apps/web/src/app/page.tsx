@@ -1,5 +1,6 @@
 'use client';
 import { useCallback, useEffect, useState } from 'react';
+import { Nav } from '../components/Nav';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 type Ticket = { id: string; title: string; current_state: string };
@@ -35,7 +36,7 @@ export default function Board() {
 
   return (
     <>
-      <header className="top"><h1>Antigravity</h1><p>Ticket lifecycle board</p></header>
+      <Nav current="board" />
       <main id="main">
         <form className="new" onSubmit={create}>
           <input aria-label="New ticket title" placeholder="New ticket title" value={title} onChange={(e) => setTitle(e.target.value)} />

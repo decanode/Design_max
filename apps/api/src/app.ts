@@ -3,6 +3,7 @@ import cors from '@fastify/cors';
 import { z } from 'zod';
 import { pool } from './db.js';
 import { STATES } from './stateMachine.js';
+import { createConversation, getDraft, getMessages } from './chat/service.js';
 import { createTicket, transitionTicket, TransitionError } from './tickets.js';
 
 export function buildApp() {
@@ -32,6 +33,17 @@ export function buildApp() {
       if (e instanceof TransitionError) return reply.code(409).send({ error: e.message });
       throw e;
     }
+  });
+
+  app.post('/api/conversations', async (req, reply) => {
+    const b = z.object({ projectId: z.string().uuid().optional(), title: z.string().optional() }).parse(req.body ?? {});
+    let pid = b.projectId ?? (await pool.query('SELECT id FROM projects ORDER BY created_at LIMIT 1')).rows[0]?.id;
+    pid ??= (await pool.query("INSERT INTO projects (name) VALUES ('Default') RETURNING id")).rows[0].id;
+    return reply.code(201).send(await createConversation(pid, b.title));
+  });
+  app.get('/api/conversations/:id', async (req) => {
+    const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
+    return { messages: await getMessages(id), draft: await getDraft(id) };
   });
   return app;
 }

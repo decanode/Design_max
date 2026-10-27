@@ -1,0 +1,79 @@
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { io as client, type Socket } from 'socket.io-client';
+import type { AddressInfo } from 'node:net';
+import { pool } from '../db.js';
+import { buildApp } from '../app.js';
+import { attachChat } from './socket.js';
+import { RuleBasedObserver, ClaudeObserver } from './observer.js';
+import { createConversation } from './service.js';
+
+const app = buildApp();
+let url: string, sock: Socket, cid: string;
+const once = <T = any>(s: Socket, ev: string) => new Promise<T>((r) => s.once(ev, r));
+const emit = <T = any>(s: Socket, ev: string, data: unknown) => new Promise<T>((r) => s.emit(ev, data, r));
+
+beforeAll(async () => {
+  await app.ready();
+  attachChat(app.server, new RuleBasedObserver());
+  await app.listen({ port: 0 });
+  url = `http://localhost:${(app.server.address() as AddressInfo).port}`;
+  const pid = (await pool.query("INSERT INTO projects(name) VALUES('chat') RETURNING id")).rows[0].id;
+  cid = (await createConversation(pid)).id;
+  sock = client(url);
+  await once(sock, 'connect');
+  await emit(sock, 'join', { conversationId: cid });
+});
+afterAll(async () => { sock.close(); await app.close(); await pool.end(); });
+
+describe('chat + observer + verify', () => {
+  it('rejects invalid input', async () => {
+    expect(await emit(sock, 'message', { conversationId: cid, role: 'customer', name: 'x', body: '' })).toHaveProperty('error');
+    expect(await emit(sock, 'verify', { conversationId: 'nope' })).toHaveProperty('error');
+  });
+
+  it('cannot verify before there is a draft', async () => {
+    expect(await emit(sock, 'verify', { conversationId: cid })).toEqual({ error: 'Nothing to verify yet' });
+  });
+
+  it('broadcasts messages and drafts a requirement with entities', async () => {
+    const draft = once(sock, 'draft');
+    await emit(sock, 'message', { conversationId: cid, role: 'customer', name: 'Alice', body: 'We need to block vendor Acme from every purchase order. Raw material only.' });
+    const d = await draft;
+    expect(d.title).toBe('We need to block vendor Acme from every purchase order');
+    expect(d.entities).toMatchObject({ vendors: ['Acme'], businessObjects: ['purchase order'], materialTypes: ['raw material'] });
+    expect(d.status).toBe('draft');
+  });
+
+  it('consultant messages do not alter the draft', async () => {
+    await emit(sock, 'message', { conversationId: cid, role: 'consultant', name: 'Bob', body: 'Understood.' });
+    const r = await (await fetch(`${url}/api/conversations/${cid}`)).json() as any;
+    expect(r.messages).toHaveLength(2);
+    expect(r.draft.summary).not.toContain('Understood');
+  });
+
+  it('verify logs exactly one ticket, even when double-clicked, and freezes the draft', async () => {
+    const [a, b] = await Promise.all([emit(sock, 'verify', { conversationId: cid }), emit(sock, 'verify', { conversationId: cid })]);
+    expect(a.ticketId).toBe(b.ticketId);
+    const t = await pool.query("SELECT current_state, ai_summary FROM tickets WHERE id=$1", [a.ticketId]);
+    expect(t.rows[0].current_state).toBe('Requirement Verified');
+    expect(t.rows[0].ai_summary).toContain('vendor Acme');
+    expect((await pool.query('SELECT count(*)::int c FROM requirement_drafts d JOIN tickets t ON t.id=d.ticket_id WHERE d.conversation_id=$1', [cid])).rows[0].c).toBe(1);
+
+    await emit(sock, 'message', { conversationId: cid, role: 'customer', name: 'Alice', body: 'Also something else' });
+    await new Promise((r) => setTimeout(r, 150));
+    const after = await (await fetch(`${url}/api/conversations/${cid}`)).json() as any;
+    expect(after.draft.status).toBe('verified');
+    expect(after.draft.summary).not.toContain('something else');
+  });
+});
+
+describe('ClaudeObserver (mocked HTTP)', () => {
+  it('parses JSON replies and rejects bad ones', async () => {
+    const reply = (text: string): typeof fetch => async () => Response.json({ content: [{ text }] });
+    const msgs = [{ role: 'customer' as const, name: 'A', body: 'hi' }];
+    const ok = await new ClaudeObserver('k', undefined, reply('Sure: {"title":"T","summary":"S","entities":{"vendors":["V"]}}')).draft(msgs);
+    expect(ok).toMatchObject({ title: 'T', entities: { vendors: ['V'], businessObjects: [] } });
+    await expect(new ClaudeObserver('k', undefined, reply('{"title":""}')).draft(msgs)).rejects.toThrow();
+    await expect(new ClaudeObserver('k', undefined, async () => new Response('', { status: 500 })).draft(msgs)).rejects.toThrow(/500/);
+  });
+});
