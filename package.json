@@ -1,0 +1,19 @@
+{
+  "name": "antigravity",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev:api": "npm run dev -w apps/api",
+    "dev:web": "npm run dev -w apps/web",
+    "db:up": "docker compose up -d db",
+    "db:migrate": "npm run migrate -w apps/api",
+    "test:unit": "npm run test -w apps/api",
+    "test:e2e": "playwright test",
+    "build": "npm run build -w apps/api && npm run build -w apps/web"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.1"
+  }
+}
