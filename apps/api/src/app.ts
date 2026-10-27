@@ -25,7 +25,10 @@ export function buildApp(deps: Partial<DocDeps> = {}) {
     return reply.code(201).send(rows[0]);
   });
 
-  app.get('/api/tickets', async () => (await pool.query('SELECT * FROM tickets ORDER BY created_at DESC')).rows);
+  app.get('/api/tickets', async () => (await pool.query(
+    `SELECT t.id, t.title, t.current_state, t.ai_summary, t.legacy_id, t.legacy_source, t.created_at, t.updated_at,
+            EXISTS (SELECT 1 FROM approvals a WHERE a.ticket_id = t.id AND a.status = 'pending') AS awaiting_approval
+     FROM tickets t ORDER BY t.updated_at DESC LIMIT 500`)).rows);
   app.post('/api/tickets', async (req, reply) => {
     const b = z.object({ projectId: z.string().uuid(), title: z.string().min(1), aiSummary: z.string().optional() }).parse(req.body);
     return reply.code(201).send(await createTicket(b.projectId, b.title, b.aiSummary));

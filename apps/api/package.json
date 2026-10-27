@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "tsc -p .",
-    "migrate": "tsx src/migrate.ts",
+    "migrate": "tsx src/migrate-cli.ts",
     "test": "vitest run",
     "etl": "tsx src/etl/cli.ts",
     "ingest": "tsx src/workers/cli.ts",

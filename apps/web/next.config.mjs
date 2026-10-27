@@ -5,6 +5,7 @@ const api = process.env.API_INTERNAL_URL ?? 'http://localhost:4000';
 export default {
   distDir: process.env.NEXT_DIST_DIR ?? '.next', // lets e2e run a second dev server beside yours
   reactStrictMode: true,
+  devIndicators: false, // hides the dev-only badge that overlapped the logo
   skipTrailingSlashRedirect: true, // Socket.io requests end in "/"
   async rewrites() {
     return [
