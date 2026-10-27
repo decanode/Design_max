@@ -4,6 +4,13 @@ import { pool } from '../db.js';
 import { need, needAny } from './auth.js';
 import { ADMIN_ROLE, ALL_KEYS, CATALOG, isKnownKey } from './permissions.js';
 
+async function setStacks(c: import('pg').PoolClient, projectId: string, stackIds: number[]) {
+  const ids = [...new Set(stackIds)];
+  if (ids.length && (await c.query('SELECT count(*)::int n FROM tech_stacks WHERE id = ANY($1)', [ids])).rows[0].n !== ids.length) throw new AdminError('Unknown technology stack');
+  await c.query('DELETE FROM project_stacks WHERE project_id=$1', [projectId]);
+  if (ids.length) await c.query('INSERT INTO project_stacks (project_id, stack_id) SELECT $1, unnest($2::int[])', [projectId, ids]);
+}
+
 class AdminError extends Error { constructor(m: string, public status = 400) { super(m); } }
 
 const audit = (req: FastifyRequest, action: string, detail: Record<string, unknown>) =>
@@ -23,10 +30,76 @@ async function assertAdminRemains(exceptUserId?: string, willStayAdmin = false) 
   if (n < 1) throw new AdminError('At least one active Admin must remain');
 }
 
-export function registerAdminRoutes(app: FastifyInstance) {
-  app.get('/api/admin/catalog', { preHandler: needAny('admin.roles', 'admin.users') }, async () => CATALOG);
+const KEYWORDS = z.array(z.string().trim().min(1).max(40)).max(60);
+const projectRows = async () => (await pool.query(
+  `SELECT p.id, p.name, p.created_at,
+          COALESCE((SELECT json_agg(json_build_object('id', s.id, 'name', s.name) ORDER BY s.name) FROM project_stacks ps JOIN tech_stacks s ON s.id = ps.stack_id WHERE ps.project_id = p.id), '[]') AS stacks,
+          (SELECT count(*)::int FROM tickets t WHERE t.project_id = p.id) AS tickets
+   FROM projects p ORDER BY p.created_at`)).rows;
 
-  app.get('/api/admin/roles', { preHandler: needAny('admin.roles', 'admin.users') }, async () => {
+export function registerAdminRoutes(app: FastifyInstance) {
+  // ---- technology stacks: what the AI is allowed to talk about, per project
+  app.get('/api/admin/stacks', { preHandler: need('admin.projects') }, async () =>
+    (await pool.query(`SELECT s.*, (SELECT count(*)::int FROM project_stacks ps WHERE ps.stack_id = s.id) AS projects FROM tech_stacks s ORDER BY s.name`)).rows);
+
+  app.post('/api/admin/stacks', { preHandler: need('admin.projects') }, async (req, reply) => {
+    const b = z.object({ name: z.string().trim().min(1).max(40), description: z.string().max(400).default(''), keywords: KEYWORDS.default([]) }).parse(req.body);
+    if ((await pool.query('SELECT 1 FROM tech_stacks WHERE lower(name)=lower($1)', [b.name])).rowCount) throw new AdminError('A stack with that name already exists', 409);
+    const id = (await pool.query('INSERT INTO tech_stacks (name, description, keywords) VALUES ($1,$2,$3) RETURNING id', [b.name, b.description, b.keywords])).rows[0].id;
+    await audit(req, 'stack.create', { id, name: b.name });
+    return reply.code(201).send({ id });
+  });
+
+  app.patch('/api/admin/stacks/:id', { preHandler: need('admin.projects') }, async (req) => {
+    const { id } = z.object({ id: z.coerce.number().int() }).parse(req.params);
+    const b = z.object({ description: z.string().max(400).optional(), keywords: KEYWORDS.optional() }).parse(req.body);
+    const r = await pool.query('UPDATE tech_stacks SET description=COALESCE($2,description), keywords=COALESCE($3,keywords) WHERE id=$1 RETURNING name', [id, b.description ?? null, b.keywords ?? null]);
+    if (!r.rowCount) throw new AdminError('Stack not found', 404);
+    await audit(req, 'stack.update', { id, name: r.rows[0].name });
+    return { ok: true };
+  });
+
+  app.delete('/api/admin/stacks/:id', { preHandler: need('admin.projects') }, async (req) => {
+    const { id } = z.object({ id: z.coerce.number().int() }).parse(req.params);
+    if ((await pool.query('SELECT 1 FROM project_stacks WHERE stack_id=$1', [id])).rowCount) throw new AdminError('Remove this stack from its projects first', 409);
+    const r = await pool.query('DELETE FROM tech_stacks WHERE id=$1 RETURNING name', [id]);
+    if (!r.rowCount) throw new AdminError('Stack not found', 404);
+    await audit(req, 'stack.delete', { id, name: r.rows[0].name });
+    return { ok: true };
+  });
+
+  // ---- projects and their allowed stacks
+  app.get('/api/admin/projects', { preHandler: need('admin.projects') }, async () => projectRows());
+
+  app.post('/api/admin/projects', { preHandler: need('admin.projects') }, async (req, reply) => {
+    const b = z.object({ name: z.string().trim().min(2).max(80), stackIds: z.array(z.number().int()).default([]) }).parse(req.body);
+    if ((await pool.query('SELECT 1 FROM projects WHERE lower(name)=lower($1)', [b.name])).rowCount) throw new AdminError('A project with that name already exists', 409);
+    const c = await pool.connect();
+    try {
+      await c.query('BEGIN');
+      const id = (await c.query('INSERT INTO projects (name) VALUES ($1) RETURNING id', [b.name])).rows[0].id as string;
+      await setStacks(c, id, b.stackIds);
+      await c.query('COMMIT');
+      await audit(req, 'project.create', { id, name: b.name, stackIds: b.stackIds });
+      return reply.code(201).send({ id });
+    } catch (e) { await c.query('ROLLBACK'); throw e; } finally { c.release(); }
+  });
+
+  app.put('/api/admin/projects/:id/stacks', { preHandler: need('admin.projects') }, async (req) => {
+    const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
+    const { stackIds } = z.object({ stackIds: z.array(z.number().int()) }).parse(req.body);
+    const p = (await pool.query('SELECT name FROM projects WHERE id=$1', [id])).rows[0];
+    if (!p) throw new AdminError('Project not found', 404);
+    const c = await pool.connect();
+    try { await c.query('BEGIN'); await setStacks(c, id, stackIds); await c.query('COMMIT'); }
+    catch (e) { await c.query('ROLLBACK'); throw e; } finally { c.release(); }
+    await audit(req, 'project.stacks', { id, name: p.name, stackIds });
+    return { ok: true };
+  });
+
+  app.get('/api/admin/catalog', { preHandler: needAny('admin.roles', 'admin.users', 'admin.projects') }, async () => CATALOG);
+
+  app.get('/api/admin/roles', { preHandler: needAny('admin.roles', 'admin.users', 'admin.projects') }, async () => {
     const roles = (await pool.query(
       `SELECT r.id, r.name, r.description, r.is_system,
               (SELECT count(*)::int FROM users u WHERE u.role_id = r.id AND u.active) AS users,
@@ -121,7 +194,7 @@ export function registerAdminRoutes(app: FastifyInstance) {
     return { ok: true };
   });
 
-  app.get('/api/admin/audit', { preHandler: needAny('admin.roles', 'admin.users') }, async () =>
+  app.get('/api/admin/audit', { preHandler: needAny('admin.roles', 'admin.users', 'admin.projects') }, async () =>
     (await pool.query(`SELECT a.id, a.action, a.detail, a.created_at, u.display_name AS actor FROM audit_log a LEFT JOIN users u ON u.id=a.actor_id ORDER BY a.id DESC LIMIT 100`)).rows);
 
 }

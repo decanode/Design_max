@@ -159,3 +159,13 @@ main { padding: 24px 32px 48px; }
 .matrix tr:hover td, .matrix tr:hover .feat { background: color-mix(in srgb, var(--accent) 6%, var(--panel)); }
 .users { min-width: 640px; } .users .inactive td { opacity: .5; }
 .audit { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; } .audit li { display: flex; gap: 10px; flex-wrap: wrap; align-items: baseline; padding: 9px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); } .audit time { margin-left: auto; }
+
+/* ---------- Technology scope ---------- */
+.scope { font-weight: 500; text-transform: none; letter-spacing: 0; }
+.stack-chips { display: inline-flex; gap: 6px; flex-wrap: wrap; vertical-align: middle; } .stack-chips .chip { font-weight: 600; }
+.scope-warn { display: grid; gap: 2px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--warn); background: color-mix(in srgb, var(--warn) 12%, var(--panel)); font-size: 13.5px; }
+.scope-warn.out_of_scope { border-color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, var(--panel)); }
+.scope-warn b { font-size: 13px; }
+.stack-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; margin-bottom: 8px; } .stack-grid .build { margin-bottom: 0; }
+.stackpick { border: 0; padding: 0; margin: 8px 0 12px; display: flex; flex-wrap: wrap; gap: 6px 16px; } .stackpick legend { padding: 0; margin-bottom: 6px; float: left; width: 100%; }
+.check { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; } .check input { width: 17px; height: 17px; accent-color: var(--accent); }

@@ -2,7 +2,7 @@ import type { Server as HttpServer } from 'node:http';
 import { Server } from 'socket.io';
 import { z } from 'zod';
 import type { Observer } from './observer.js';
-import { addMessage, canAccessConversation, getDraft, getMessages, refreshDraft, verifyDraft, VerifyError } from './service.js';
+import { addMessage, canAccessConversation, getConversationProject, getDraft, getMessages, refreshDraft, verifyDraft, VerifyError } from './service.js';
 import { loadUser, userFromCookie, verifySession, readCookie } from '../rbac/auth.js';
 
 const Join = z.object({ conversationId: z.string().uuid() });
@@ -32,7 +32,7 @@ export function attachChat(http: HttpServer, observer: Observer) {
       if (!p.success || !u) return ack?.({ error: 'Invalid request' });
       if (!(await canAccessConversation(u, p.data.conversationId))) return ack?.({ error: 'Conversation not found' });
       await socket.join(p.data.conversationId);
-      ack?.({ messages: await getMessages(p.data.conversationId), draft: await getDraft(p.data.conversationId) });
+      ack?.({ messages: await getMessages(p.data.conversationId), draft: await getDraft(p.data.conversationId), project: await getConversationProject(p.data.conversationId) });
     });
 
     socket.on('message', async (raw, ack) => {

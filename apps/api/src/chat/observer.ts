@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { Fetcher } from '../etl/types.js';
+import { assessFit, stackInstruction, type StackPolicy } from '../stacks.js';
 
 export interface ChatMessage { role: 'customer' | 'consultant' | 'system'; name: string; body: string }
 
@@ -11,21 +12,24 @@ export const DraftSchema = z.object({
     vendors: z.array(z.string()).default([]),
     materialTypes: z.array(z.string()).default([]),
   }).default({ businessObjects: [], vendors: [], materialTypes: [] }),
+  stackFit: z.enum(['in_scope', 'unclear', 'out_of_scope']).default('in_scope'),
+  stackNote: z.string().default(''),
 });
 export type Draft = z.infer<typeof DraftSchema>;
 
 /** The AI Observer: silently turns a conversation into a plain-English requirement draft. */
-export interface Observer { draft(messages: ChatMessage[]): Promise<Draft | null> }
+export interface Observer { draft(messages: ChatMessage[], policy?: StackPolicy | null): Promise<Draft | null> }
 
 const OBJECTS = ['purchase order', 'sales order', 'invoice', 'material master', 'vendor master', 'delivery', 'goods receipt', 'report'];
 const MATERIALS = ['raw material', 'finished good', 'semifinished', 'trading good', 'service'];
 
 /** Deterministic offline observer for dev/tests. Not a language model. */
 export class RuleBasedObserver implements Observer {
-  async draft(messages: ChatMessage[]): Promise<Draft | null> {
+  async draft(messages: ChatMessage[], policy: StackPolicy | null = null): Promise<Draft | null> {
     const cust = messages.filter((m) => m.role === 'customer');
     if (!cust.length) return null;
     const text = cust.map((m) => m.body).join(' ');
+    const { fit, note } = assessFit(text, policy);
     const lower = text.toLowerCase();
     const vendors = [...text.matchAll(/\bvendor\s+([A-Z][\w&-]+)/g)].map((m) => m[1]);
     return {
@@ -36,6 +40,7 @@ export class RuleBasedObserver implements Observer {
         vendors: [...new Set(vendors)],
         materialTypes: MATERIALS.filter((o) => lower.includes(o)),
       },
+      stackFit: fit, stackNote: note,
     };
   }
 }
@@ -73,28 +78,39 @@ export class GitHubModelsClient implements LlmClient {
 
 /** Google Gemini via the Generative Language API (API key from Google AI Studio). */
 export class GeminiClient implements LlmClient {
-  constructor(private apiKey: string, private model = 'gemini-3.5-flash', private f: Fetcher = fetch) {}
+  constructor(private apiKey: string, private model = 'gemini-3.5-flash', private f: Fetcher = fetch, private retryDelayMs = 1000) {}
   async complete(system: string, user: string) {
-    const res = await this.f(`https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent`, {
-      method: 'POST',
-      headers: { 'x-goog-api-key': this.apiKey, 'content-type': 'application/json' },
-      body: JSON.stringify({ systemInstruction: { parts: [{ text: system }] }, contents: [{ role: 'user', parts: [{ text: user }] }] }),
-    });
+    let res!: Response;
+    // 429/503 are momentary (rate limit, overloaded model): retry a couple of times before giving up.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      res = await this.f(`https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent`, {
+        method: 'POST',
+        headers: { 'x-goog-api-key': this.apiKey, 'content-type': 'application/json' },
+        body: JSON.stringify({ systemInstruction: { parts: [{ text: system }] }, contents: [{ role: 'user', parts: [{ text: user }] }] }),
+      });
+      if (res.status !== 429 && res.status !== 503) break;
+      await new Promise((r) => setTimeout(r, this.retryDelayMs * (attempt + 1)));
+    }
     if (!res.ok) throw new Error(`Gemini ${res.status}`);
     const parts: { text?: string }[] = ((await res.json()) as any).candidates?.[0]?.content?.parts ?? [];
     return parts.map((p) => p.text ?? '').join('');
   }
 }
 
-const SYSTEM = 'You observe a customer/consultant chat and draft a plain-English requirement. Reply with ONLY JSON: {"title": string (<=120 chars), "summary": string, "entities": {"businessObjects": string[], "vendors": string[], "materialTypes": string[]}}. Do not invent facts absent from the chat.';
+const SYSTEM = 'You observe a customer/consultant chat and draft a plain-English requirement. Reply with ONLY JSON: {"title": string (<=120 chars), "summary": string, "entities": {"businessObjects": string[], "vendors": string[], "materialTypes": string[]}, "stackFit": "in_scope"|"unclear"|"out_of_scope", "stackNote": string}. Do not invent facts absent from the chat.';
 
 /** Provider-agnostic LLM observer. Output is validated, so a bad model reply never corrupts a draft. */
 export class LlmObserver implements Observer {
   constructor(private llm: LlmClient) {}
-  async draft(messages: ChatMessage[]): Promise<Draft | null> {
+  async draft(messages: ChatMessage[], policy: StackPolicy | null = null): Promise<Draft | null> {
     if (!messages.some((m) => m.role === 'customer')) return null;
-    const text = await this.llm.complete(SYSTEM, messages.map((m) => `${m.name} (${m.role}): ${m.body}`).join('\n'));
-    return DraftSchema.parse(JSON.parse(text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1)));
+    const system = [SYSTEM, stackInstruction(policy, 'observe')].filter(Boolean).join('\n\n');
+    const text = await this.llm.complete(system, messages.map((m) => `${m.name} (${m.role}): ${m.body}`).join('\n'));
+    const d = DraftSchema.parse(JSON.parse(text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1)));
+    // Server-side backstop: the model is told the scope, but off-stack terms in the customer's own words still raise a flag.
+    const check = assessFit(messages.filter((m) => m.role === 'customer').map((m) => m.body).join(' '), policy);
+    if (d.stackFit === 'in_scope' && check.fit !== 'in_scope') return { ...d, stackFit: check.fit === 'out_of_scope' ? 'unclear' : check.fit, stackNote: d.stackNote || check.note };
+    return d;
   }
 }
 

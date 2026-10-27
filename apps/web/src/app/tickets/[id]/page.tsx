@@ -12,6 +12,7 @@ type Ver = { version: number; author: string | null; note: string | null; at: st
 type Overview = {
   ticket: { id: string; title: string; current_state: string; ai_summary: string | null; customer_name: string | null; consultant_name: string | null; consultant_id: string | null };
   docs: Record<Kind, { latest: { version_number: number; content_md: string }; versions: Ver[] } | null>;
+  stacks?: string[]; stackWarnings?: { kind: Kind; stack: string; terms: string[] }[];
   approvals: { id: string; approver_id: string; kind: Kind; version_number: number; status: string; comment: string | null; approver: string }[];
 };
 type DiffLine = { type: 'same' | 'add' | 'del'; text: string };
@@ -106,6 +107,12 @@ export default function TicketPage() {
               <option value="">Unassigned</option>{people.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>)}
         </div>
+        {(o.stacks?.length ?? 0) > 0 && <p className="note" style={{ marginTop: 0 }}>Project technology: <span className="stack-chips">{o.stacks!.map((t) => <span key={t} className="chip">{t}</span>)}</span></p>}
+        {(o.stackWarnings?.length ?? 0) > 0 && (
+          <div className="scope-warn unclear" role="alert" style={{ marginBottom: 14 }}>
+            <b>Possible off-stack content</b>
+            <span>{o.stackWarnings!.map((w) => `${w.kind} mentions ${w.stack} (${w.terms.join(', ')})`).join('; ')}. This project is limited to {o.stacks!.join(', ')}. Review before approving.</span>
+          </div>)}
         <ol className="stepper" aria-label="Ticket lifecycle">
           {STATES.map((s, i) => <li key={s} className={i < idx ? 'done' : i === idx ? 'cur' : ''} aria-current={i === idx ? 'step' : undefined}>{s}</li>)}
         </ol>

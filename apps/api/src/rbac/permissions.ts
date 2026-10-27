@@ -32,6 +32,7 @@ export const CATALOG: FeatureDef[] = [
     { key: 'mailbox.view', label: 'View the dev mailbox', description: 'Inspect emails the system "sent" (development only).' }] },
   { feature: 'Administration', permissions: [
     { key: 'admin.users', label: 'Manage users', description: 'Create users and assign their roles.' },
+    { key: 'admin.projects', label: 'Manage projects & stacks', description: 'Create projects and choose which technology stacks the AI may work in for each.' },
     { key: 'admin.roles', label: 'Manage roles', description: 'Create roles and choose their permissions per feature.' }] },
 ];
 

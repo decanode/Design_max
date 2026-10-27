@@ -76,7 +76,7 @@ export class HashEmbedder implements Embedder {
   }
 }
 
-export interface EmbedItem { sourceType: 'ticket' | 'sap_metadata' | 'git' | 'kb_doc'; sourceRef: string; content: string }
+export interface EmbedItem { sourceType: 'ticket' | 'sap_metadata' | 'git' | 'kb_doc'; sourceRef: string; content: string; stack?: string }
 
 export async function storeEmbeddings(db: Pick<pg.Pool, 'query'>, embedder: Embedder, items: EmbedItem[], batch = 64) {
   for (let i = 0; i < items.length; i += batch) {
@@ -84,9 +84,9 @@ export async function storeEmbeddings(db: Pick<pg.Pool, 'query'>, embedder: Embe
     const vecs = await embedder.embed(chunk.map((c) => c.content));
     for (let j = 0; j < chunk.length; j++) {
       await db.query(
-        `INSERT INTO embeddings (source_type, source_ref, content, embedding) VALUES ($1,$2,$3,$4::vector)
-         ON CONFLICT (source_type, source_ref) DO UPDATE SET content=EXCLUDED.content, embedding=EXCLUDED.embedding`,
-        [chunk[j].sourceType, chunk[j].sourceRef, chunk[j].content, `[${vecs[j].join(',')}]`]);
+        `INSERT INTO embeddings (source_type, source_ref, content, embedding, stack) VALUES ($1,$2,$3,$4::vector,$5)
+         ON CONFLICT (source_type, source_ref) DO UPDATE SET content=EXCLUDED.content, embedding=EXCLUDED.embedding, stack=EXCLUDED.stack`,
+        [chunk[j].sourceType, chunk[j].sourceRef, chunk[j].content, `[${vecs[j].join(',')}]`, chunk[j].stack ?? null]);
     }
   }
 }
@@ -97,11 +97,12 @@ export const ticketEmbedItem = (legacyId: string, r: { title: string; resolution
   return body ? { sourceType: 'ticket', sourceRef: legacyId, content: `${r.title}\n${body}` } : null;
 };
 
-export async function similar(db: Pick<pg.Pool, 'query'>, embedder: Embedder, query: string, k = 5) {
+/** `stacks` limits results to generic items (stack IS NULL) plus those tagged with an allowed stack. */
+export async function similar(db: Pick<pg.Pool, 'query'>, embedder: Embedder, query: string, k = 5, stacks?: string[]) {
   const [v] = await embedder.embed([query]);
   const { rows } = await db.query(
     `SELECT source_type, source_ref, content, embedding <=> $1::vector AS distance
-     FROM embeddings ORDER BY distance LIMIT $2`, [`[${v.join(',')}]`, k]);
+     FROM embeddings WHERE ($3::text[] IS NULL OR stack IS NULL OR stack = ANY($3)) ORDER BY distance LIMIT $2`, [`[${v.join(',')}]`, k, stacks ?? null]);
   return rows;
 }
 

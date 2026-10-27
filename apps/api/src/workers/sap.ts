@@ -26,7 +26,7 @@ export async function extractSapMetadata(rfc: RfcClient, usage?: UsageProvider, 
   const byProg = new Map<string, string[]>();
   for (const t of tcodes) byProg.set(t.PGMNA, [...(byProg.get(t.PGMNA) ?? []), t.TCODE]);
   return progs.map((p) => ({
-    sourceType: 'sap_metadata' as const, sourceRef: `program:${p.NAME}`,
+    sourceType: 'sap_metadata' as const, sourceRef: `program:${p.NAME}`, stack: 'SAP',
     content: [`ABAP program ${p.NAME} (type ${p.SUBC}, author ${p.CNAM})`,
       byProg.has(p.NAME) ? `Transactions: ${byProg.get(p.NAME)!.join(', ')}` : '',
       hits[p.NAME] != null ? `Usage count: ${hits[p.NAME]}` : ''].filter(Boolean).join('\n'),

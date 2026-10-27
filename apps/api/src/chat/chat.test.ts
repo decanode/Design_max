@@ -98,7 +98,11 @@ describe('LLM observer (mocked HTTP)', () => {
     expect(d?.title).toBe('T');
     expect(seen).toMatchObject({ url: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent', key: 'gk' });
     expect(seen!.body.systemInstruction.parts[0].text).toContain('requirement');
-    await expect(new GeminiClient('k', undefined, async () => new Response('', { status: 429 })).complete('s', 'u')).rejects.toThrow(/429/);
+    await expect(new GeminiClient('k', undefined, async () => new Response('', { status: 429 }), 0).complete('s', 'u')).rejects.toThrow(/429/);
+    let n = 0;
+    const flaky: typeof fetch = async () => (++n < 3 ? new Response('', { status: 503 }) : Response.json({ candidates: [{ content: { parts: [{ text: 'ok' }] } }] }));
+    expect(await new GeminiClient('k', undefined, flaky, 0).complete('s', 'u')).toBe('ok');
+    expect(n).toBe(3);
   });
 
   it('GeminiEmbedder: requests 1536 dims, normalizes, rejects wrong sizes', async () => {

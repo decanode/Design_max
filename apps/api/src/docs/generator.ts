@@ -1,4 +1,5 @@
 import type { LlmClient } from '../chat/observer.js';
+import { stackInstruction, type StackPolicy } from '../stacks.js';
 
 export type DocKind = 'FS' | 'TS';
 export interface DocContext {
@@ -8,6 +9,7 @@ export interface DocContext {
   entities?: { businessObjects?: string[]; vendors?: string[]; materialTypes?: string[] };
   fs?: string;                     // approved FS (TS only)
   knowledge?: string[];            // similar tickets / SAP / Git snippets from the vector store
+  policy?: StackPolicy | null;     // the project's allowed technology stacks (null = unrestricted)
 }
 export interface DocGenerator { generate(kind: DocKind, ctx: DocContext): Promise<string> }
 
@@ -18,7 +20,7 @@ export class TemplateGenerator implements DocGenerator {
   async generate(kind: DocKind, c: DocContext) {
     if (kind === 'FS') return `# Functional Specification: ${c.title}
 
-> Draft generated from the intake chat (offline template). Consultant to complete and review before approval.
+> Draft generated from the intake chat (offline template). Consultant to complete and review before approval.${c.policy ? `\n> Technology scope: ${c.policy.allowed.map((s) => s.name).join(', ')}` : ''}
 
 ## 1. Business Requirement
 ${c.summary}
@@ -47,7 +49,7 @@ _None recorded._
 `;
     return `# Technical Specification: ${c.title}
 
-> Draft generated from the approved Functional Specification (offline template). Developer to complete and review before approval.
+> Draft generated from the approved Functional Specification (offline template). Developer to complete and review before approval.${c.policy ? `\n> Technology scope: ${c.policy.allowed.map((s) => s.name).join(', ')}` : ''}
 
 ## 1. Source Functional Specification
 ${c.fs ? c.fs.split('\n').map((l) => `> ${l}`).join('\n') : '_Not available._'}
@@ -81,7 +83,7 @@ export class LlmGenerator implements DocGenerator {
       c.fs ? `Approved Functional Specification:\n${c.fs}` : '',
       c.knowledge?.length ? `Existing assets (vector search):\n${c.knowledge.join('\n---\n')}` : '',
     ].filter(Boolean).join('\n\n');
-    const md = (await this.llm.complete(SYS[kind], user)).trim();
+    const md = (await this.llm.complete([SYS[kind], stackInstruction(c.policy ?? null, 'document')].filter(Boolean).join('\n\n'), user)).trim();
     if (!md) throw new Error('LLM returned an empty document');
     return md;
   }

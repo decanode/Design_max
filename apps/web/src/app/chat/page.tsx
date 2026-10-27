@@ -6,8 +6,9 @@ import { Nav } from '../../components/Nav';
 import { NoAccess, useAuth, j } from '../../lib/auth';
 
 type Msg = { id: number; sender_role: 'customer' | 'consultant' | 'system'; sender_name: string; body: string };
-type Draft = { title: string; summary: string; status: 'draft' | 'verified'; ticket_id: string | null; entities: { businessObjects?: string[]; vendors?: string[]; materialTypes?: string[] } };
-type Convo = { id: string; customer: string | null; draft_title: string | null; draft_status: string | null; last_message: string | null; last_at: string };
+type Draft = { title: string; summary: string; status: 'draft' | 'verified'; ticket_id: string | null; stack_fit?: 'in_scope' | 'unclear' | 'out_of_scope'; stack_note?: string; entities: { businessObjects?: string[]; vendors?: string[]; materialTypes?: string[] } };
+type Project = { id: string; name: string; stacks: string[] };
+type Convo = { id: string; project: string; customer: string | null; draft_title: string | null; draft_status: string | null; last_message: string | null; last_at: string };
 
 export default function Chat() {
   const { me, can, canAny, loading } = useAuth();
@@ -15,6 +16,9 @@ export default function Chat() {
   const [inbox, setInbox] = useState<Convo[]>([]);
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [draft, setDraft] = useState<Draft | null>(null);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [projectId, setProjectId] = useState('');
+  const [current, setCurrent] = useState<Project | null>(null);
   const [role, setRole] = useState<'customer' | 'consultant'>('customer');
   const [text, setText] = useState('');
   const [error, setError] = useState('');
@@ -34,14 +38,18 @@ export default function Chat() {
     if (r.ok) setInbox(await r.json());
   }, []);
   useEffect(() => { if (mayChat) loadInbox(); }, [mayChat, loadInbox]);
+  useEffect(() => {
+    if (!asCustomer) return;
+    fetch('/api/projects').then((r) => r.ok && r.json()).then((d: Project[] | false) => { if (d) { setProjects(d); setProjectId((p) => p || d[0]?.id || ''); } });
+  }, [asCustomer]);
 
   useEffect(() => {
     if (!cid || !mayChat) return;
-    setMsgs([]); setDraft(null); setError('');
+    setMsgs([]); setDraft(null); setCurrent(null); setError('');
     const s = io({ withCredentials: true }); sock.current = s;
     s.on('connect', () => s.emit('join', { conversationId: cid }, (r: any) => {
       if (r.error) return setError(r.error);
-      setMsgs(r.messages); setDraft(r.draft); setError('');
+      setMsgs(r.messages); setDraft(r.draft); setCurrent(r.project); setError('');
     }));
     s.on('message', (m: Msg) => { setMsgs((p) => (p.some((x) => x.id === m.id) ? p : [...p, m])); loadInbox(); });
     s.on('draft', (d: Draft) => { setDraft(d); loadInbox(); });
@@ -55,7 +63,7 @@ export default function Chat() {
 
   function select(id: string) { history.replaceState(null, '', `?c=${id}`); setCid(id); }
   async function start() {
-    const r = await fetch('/api/conversations', j({}));
+    const r = await fetch('/api/conversations', j(projectId ? { projectId } : {}));
     if (!r.ok) return setError('Could not start a conversation.');
     const { id } = await r.json(); await loadInbox(); select(id);
   }
@@ -84,14 +92,22 @@ export default function Chat() {
         <div className="chat3">
           <aside className="pane inbox" aria-label="Conversations">
             <h2>{can('chat.view_all') ? 'All conversations' : 'My conversations'}</h2>
-            {asCustomer && <div style={{ padding: 10 }}><button className="btn" style={{ width: '100%' }} onClick={start}>Start a conversation</button></div>}
+            {asCustomer && (
+              <div style={{ padding: 10, display: 'grid', gap: 8 }}>
+                {projects.length > 1 && (<>
+                  <label className="sr" htmlFor="project">Project</label>
+                  <select id="project" value={projectId} onChange={(e) => setProjectId(e.target.value)} style={{ padding: 8, borderRadius: 8, border: '1px solid var(--line)', background: 'var(--panel)', color: 'var(--text)' }}>
+                    {projects.map((p) => <option key={p.id} value={p.id}>{p.name}{p.stacks.length ? ` · ${p.stacks.join(', ')}` : ''}</option>)}
+                  </select></>)}
+                <button className="btn" style={{ width: '100%' }} onClick={start}>Start a conversation</button>
+              </div>)}
             <ul className="convos">
               {inbox.length === 0 && <li className="empty">{asCustomer ? 'No conversations yet.' : 'No conversations to show.'}</li>}
               {inbox.map((c) => (
                 <li key={c.id}>
                   <button className="convo" aria-current={c.id === cid ? 'true' : undefined} onClick={() => select(c.id)}>
                     <b>{c.draft_title ?? c.last_message ?? 'New conversation'}</b>
-                    <span className="note">{c.customer ?? 'Unknown'}{c.draft_status === 'verified' ? ' · verified' : ''}</span>
+                    <span className="note">{c.project} · {c.customer ?? 'Unknown'}{c.draft_status === 'verified' ? ' · verified' : ''}</span>
                   </button>
                 </li>
               ))}
@@ -107,7 +123,7 @@ export default function Chat() {
             </section>
           ) : (<>
             <section className="pane" aria-label="Conversation">
-              <h2>Conversation</h2>
+              <h2>Conversation{current && <span className="scope"> · {current.name}{current.stacks.length > 0 && <> · <span className="stack-chips">{current.stacks.map((t) => <span key={t} className="chip">{t} only</span>)}</span></>}</span>}</h2>
               <ul className="log" role="log" aria-live="polite" aria-label="Chat history">
                 {msgs.length === 0 && <li className="empty">No messages yet. Say hello.</li>}
                 {msgs.map((m) => (
@@ -134,6 +150,11 @@ export default function Chat() {
               {!draft ? <p className="empty">Once the customer describes a need, a draft summary appears here.</p> : (
                 <div className="draft" aria-live="polite">
                   {verified && <span className="badge">✓ Verified &amp; logged</span>}
+                  {draft.stack_fit && draft.stack_fit !== 'in_scope' && !verified && (
+                    <div className={`scope-warn ${draft.stack_fit}`} role="alert">
+                      <b>{draft.stack_fit === 'out_of_scope' ? 'Outside this project’s technology' : 'Check the technology scope'}</b>
+                      <span>{draft.stack_note}</span>
+                    </div>)}
                   <h3>{draft.title}</h3>
                   <p>{draft.summary}</p>
                   {chips('Business objects', draft.entities.businessObjects)}
@@ -142,7 +163,7 @@ export default function Chat() {
                   {verified
                     ? (draft.ticket_id && can('board.view') ? <Link href={`/tickets/${draft.ticket_id}`}>View ticket →</Link> : null)
                     : can('chat.verify')
-                      ? <button className="btn verify" onClick={verify} disabled={busy}>Verify &amp; Approve</button>
+                      ? <button className="btn verify" onClick={verify} disabled={busy || draft.stack_fit === 'out_of_scope'} title={draft.stack_fit === 'out_of_scope' ? 'This request is outside the project’s technology' : undefined}>Verify &amp; Approve</button>
                       : <p className="note" style={{ margin: 0 }}>Waiting for the customer to verify this summary.</p>}
                 </div>
               )}

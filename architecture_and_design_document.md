@@ -46,6 +46,13 @@ Automated background ingestion workers populate a central Vector Database (`pgve
 *   **Enforcement:** server-side on every API route and Socket.io event (the UI hiding controls is a convenience only). Ticket visibility is scoped by permission (`view_all`, `view_own` = customer or assigned consultant, `view_unassigned`); tickets a user may not see answer 404.
 *   **Identity:** signed, expiring session cookie. Development uses an account-picker login; Sprint 4 replaces it with SAML/OIDC SSO (Entra ID) mapped onto the same users and roles. Roles are global per user for now; per-project membership is a planned refinement.
 
+### G. Technology-Stack Scoping (added by approved design change)
+*   **Allowed stacks per project:** admins maintain a catalog of technology stacks (SAP, .NET, Java, Node.js built in; more can be added, each with a description told to the AI and identifying keywords) and choose which stacks each project allows. A project with no stacks is unrestricted.
+*   **The AI works only inside them:** the AI Observer and the FS/TS generators receive the project's allowed stacks as a hard constraint in their instructions. A request that needs another technology is flagged `out_of_scope` (no solution is drafted) and cannot be verified; partly-outside requests are flagged `unclear`.
+*   **Server-side backstop:** the model is not trusted alone. Keyword checks over the customer's words and over generated specs raise flags (and downgrade an `in_scope` verdict) when terms from a non-allowed stack appear; ticket pages show a warning banner for off-stack content.
+*   **Retrieval is stack-filtered:** embeddings can carry a stack tag, and Technical Spec generation only draws on generic assets and assets tagged with an allowed stack (SAP metadata is tagged `SAP`).
+*   **Project choice:** customers pick the project when starting a conversation; the conversation shows the project and its allowed stacks.
+
 ## 2. Technology Stack
 
 | Layer | Component | Purpose |

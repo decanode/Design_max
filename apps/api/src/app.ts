@@ -3,7 +3,7 @@ import cors from '@fastify/cors';
 import { z } from 'zod';
 import { pool } from './db.js';
 import { STATES } from './stateMachine.js';
-import { createConversation, getDraft, getMessages, canAccessConversation, listConversations } from './chat/service.js';
+import { createConversation, getConversationProject, getDraft, getMessages, canAccessConversation, listConversations } from './chat/service.js';
 import { registerDocRoutes, type DocDeps } from './docs/routes.js';
 import { DocError } from './docs/service.js';
 import { LlmGenerator, TemplateGenerator } from './docs/generator.js';
@@ -33,7 +33,9 @@ export function buildApp(deps: Partial<DocDeps> = {}) {
   app.get('/health', async () => ({ ok: true }));
   app.get('/api/states', async () => STATES);
 
-  app.get('/api/projects', { preHandler: needAny('ticket.create', 'chat.as_customer', 'chat.as_consultant') }, async () => (await pool.query('SELECT * FROM projects ORDER BY created_at')).rows);
+  app.get('/api/projects', { preHandler: needAny('ticket.create', 'chat.as_customer', 'chat.as_consultant') }, async () => (await pool.query(
+    `SELECT p.id, p.name, COALESCE((SELECT array_agg(s.name ORDER BY s.name) FROM project_stacks ps JOIN tech_stacks s ON s.id = ps.stack_id WHERE ps.project_id = p.id), '{}') AS stacks
+     FROM projects p ORDER BY p.created_at`)).rows);
   app.post('/api/projects', { preHandler: need('ticket.create') }, async (req, reply) => {
     const b = z.object({ name: z.string().min(1) }).parse(req.body);
     const { rows } = await pool.query('INSERT INTO projects (name) VALUES ($1) RETURNING *', [b.name]);
@@ -89,13 +91,14 @@ export function buildApp(deps: Partial<DocDeps> = {}) {
     const b = z.object({ projectId: z.string().uuid().optional(), title: z.string().optional() }).parse(req.body ?? {});
     let pid = b.projectId ?? (await pool.query('SELECT id FROM projects ORDER BY created_at LIMIT 1')).rows[0]?.id;
     pid ??= (await pool.query("INSERT INTO projects (name) VALUES ('Default') RETURNING id")).rows[0].id;
+    if (!(await pool.query('SELECT 1 FROM projects WHERE id=$1', [pid])).rowCount) return reply.code(404).send({ error: 'Project not found' });
     const owner = req.user!.perms.has('chat.as_customer') ? req.user!.id : null;
     return reply.code(201).send(await createConversation(pid, b.title, owner));
   });
   app.get('/api/conversations/:id', async (req, reply) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
     if (!(await canAccessConversation(req.user!, id))) return reply.code(404).send({ error: 'Conversation not found' });
-    return { messages: await getMessages(id), draft: await getDraft(id) };
+    return { messages: await getMessages(id), draft: await getDraft(id), project: await getConversationProject(id) };
   });
 
   const llm = defaultLlm();

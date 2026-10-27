@@ -6,6 +6,7 @@ import { similar, type Embedder } from '../etl/vectorize.js';
 import type { DocContext, DocGenerator, DocKind } from './generator.js';
 import type { Mailer } from './mailer.js';
 import { diffLines } from './diff.js';
+import { assessFit, loadStackPolicy, projectPolicyForTicket } from '../stacks.js';
 
 /** `status` carries the HTTP code the route should answer with. */
 export class DocError extends Error {
@@ -35,12 +36,13 @@ async function buildContext(ticketId: string, kind: DocKind, embedder?: Embedder
   const transcript = conv
     ? (await pool.query(`SELECT body FROM messages WHERE conversation_id=$1 AND sender_role='customer' ORDER BY id`, [conv.conversation_id])).rows.map((r) => r.body as string)
     : [];
-  const ctx: DocContext = { title: t.title, summary: t.ai_summary ?? t.title, transcript, entities: conv?.entities };
+  const policy = await loadStackPolicy(t.project_id);
+  const ctx: DocContext = { title: t.title, summary: t.ai_summary ?? t.title, transcript, entities: conv?.entities, policy };
   if (kind === 'TS') {
     ctx.fs = (await listVersions(ticketId, 'FS'))[0]?.content_md;
     // Only meaningful with a real embedding model; the offline stand-in would return noise.
     if (embedder?.semantic) {
-      const hits = await similar(pool, embedder, `${t.title}\n${ctx.summary}`, 5);
+      const hits = await similar(pool, embedder, `${t.title}\n${ctx.summary}`, 5, policy?.allowed.map((a) => a.name));
       ctx.knowledge = hits.map((h) => `[${h.source_type}] ${h.source_ref}: ${String(h.content).slice(0, 600)}`);
     }
   }
@@ -188,5 +190,12 @@ export async function ticketOverview(id: string) {
   for (const k of ['FS', 'TS'] as const) { const v = await listVersions(id, k); docs[k] = v.length ? { latest: v[0], versions: v.map((x) => ({ version: x.version_number, author: x.author_name, note: x.change_note, at: x.created_at })) } : null; }
   const approvals = (await pool.query(
     `SELECT a.id, a.approver_id, a.kind, a.version_number, a.status, a.comment, a.requested_at, a.decided_at, u.email AS approver FROM approvals a JOIN users u ON u.id=a.approver_id WHERE a.ticket_id=$1 ORDER BY a.requested_at DESC`, [id])).rows;
-  return { ticket, docs, approvals };
+  const policy = await projectPolicyForTicket(id);
+  // Advisory: terms from stacks this project does not allow, found in the latest drafts.
+  const stackWarnings = (['FS', 'TS'] as const).flatMap((k) => {
+    const latest = (docs[k] as { latest: { content_md: string } } | null)?.latest.content_md;
+    return latest ? assessFit(latest, policy).foreign.map((f) => ({ kind: k, ...f })) : [];
+  });
+  const stacks = policy?.allowed.map((a) => a.name) ?? [];
+  return { ticket, docs, approvals, stacks, stackWarnings };
 }
