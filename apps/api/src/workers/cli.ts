@@ -1,13 +1,13 @@
 import 'dotenv/config';
 import { pool } from '../db.js';
-import { HashEmbedder, OpenAIEmbedder, storeEmbeddings, type EmbedItem } from '../etl/vectorize.js';
+import { defaultEmbedder, storeEmbeddings, type EmbedItem } from '../etl/vectorize.js';
 import { extractGitUrl } from './git.js';
 import { extractSharePoint } from './sharepoint.js';
 
 // Usage: npm run ingest -w apps/api -- git <url> <name> | sharepoint <driveId> [folder]
 // (SAP is run programmatically once an RfcClient is configured; see workers/sap.ts.)
 const [kind, a, b] = process.argv.slice(2);
-const embedder = process.env.OPENAI_API_KEY ? new OpenAIEmbedder(process.env.OPENAI_API_KEY) : new HashEmbedder();
+const embedder = defaultEmbedder();
 
 let items: EmbedItem[] = [];
 if (kind === 'git' && a && b) items = await extractGitUrl(a, b);

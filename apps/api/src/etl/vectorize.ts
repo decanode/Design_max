@@ -16,6 +16,22 @@ export class OpenAIEmbedder implements Embedder {
   }
 }
 
+/** GitHub Models embeddings (OpenAI-compatible). Model must produce 1536 dims to match the schema. */
+export class GitHubModelsEmbedder implements Embedder {
+  constructor(private token: string, private model = 'openai/text-embedding-3-small', private org?: string, private f: typeof fetch = fetch) {}
+  async embed(texts: string[]) {
+    const res = await this.f(`https://models.github.ai${this.org ? `/orgs/${this.org}` : ''}/inference/embeddings`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${this.token}`, Accept: 'application/vnd.github+json', 'content-type': 'application/json' },
+      body: JSON.stringify({ model: this.model, input: texts }),
+    });
+    if (!res.ok) throw new Error(`GitHub Models embeddings ${res.status}`);
+    const vecs: number[][] = ((await res.json()) as any).data.map((d: any) => d.embedding);
+    if (vecs.some((v) => v.length !== EMBEDDING_DIM)) throw new Error(`Embedding dimension != ${EMBEDDING_DIM}`);
+    return vecs;
+  }
+}
+
 /** Deterministic offline embedder (hashed bag-of-words) for tests and keyless dev. */
 export class HashEmbedder implements Embedder {
   async embed(texts: string[]) {
@@ -59,4 +75,11 @@ export async function similar(db: Pick<pg.Pool, 'query'>, embedder: Embedder, qu
     `SELECT source_type, source_ref, content, embedding <=> $1::vector AS distance
      FROM embeddings ORDER BY distance LIMIT $2`, [`[${v.join(',')}]`, k]);
   return rows;
+}
+
+export function defaultEmbedder(): Embedder {
+  const e = process.env;
+  if (e.GITHUB_MODELS_TOKEN) return new GitHubModelsEmbedder(e.GITHUB_MODELS_TOKEN, e.GITHUB_MODELS_EMBED_MODEL, e.GITHUB_MODELS_ORG);
+  if (e.OPENAI_API_KEY) return new OpenAIEmbedder(e.OPENAI_API_KEY);
+  return new HashEmbedder();
 }

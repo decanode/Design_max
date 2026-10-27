@@ -4,7 +4,7 @@ import type { AddressInfo } from 'node:net';
 import { pool } from '../db.js';
 import { buildApp } from '../app.js';
 import { attachChat } from './socket.js';
-import { RuleBasedObserver, ClaudeObserver } from './observer.js';
+import { RuleBasedObserver, LlmObserver, AnthropicClient, GitHubModelsClient } from './observer.js';
 import { createConversation } from './service.js';
 
 const app = buildApp();
@@ -67,13 +67,24 @@ describe('chat + observer + verify', () => {
   });
 });
 
-describe('ClaudeObserver (mocked HTTP)', () => {
-  it('parses JSON replies and rejects bad ones', async () => {
+describe('LLM observer (mocked HTTP)', () => {
+  const msgs = [{ role: 'customer' as const, name: 'A', body: 'hi' }];
+  const json = '{"title":"T","summary":"S","entities":{"vendors":["V"]}}';
+
+  it('Anthropic: parses JSON replies and rejects bad ones', async () => {
     const reply = (text: string): typeof fetch => async () => Response.json({ content: [{ text }] });
-    const msgs = [{ role: 'customer' as const, name: 'A', body: 'hi' }];
-    const ok = await new ClaudeObserver('k', undefined, reply('Sure: {"title":"T","summary":"S","entities":{"vendors":["V"]}}')).draft(msgs);
-    expect(ok).toMatchObject({ title: 'T', entities: { vendors: ['V'], businessObjects: [] } });
-    await expect(new ClaudeObserver('k', undefined, reply('{"title":""}')).draft(msgs)).rejects.toThrow();
-    await expect(new ClaudeObserver('k', undefined, async () => new Response('', { status: 500 })).draft(msgs)).rejects.toThrow(/500/);
+    const obs = (t: string) => new LlmObserver(new AnthropicClient('k', undefined, reply(t)));
+    expect(await obs(`Sure: ${json}`).draft(msgs)).toMatchObject({ title: 'T', entities: { vendors: ['V'], businessObjects: [] } });
+    await expect(obs('{"title":""}').draft(msgs)).rejects.toThrow();
+    await expect(new LlmObserver(new AnthropicClient('k', undefined, async () => new Response('', { status: 500 }))).draft(msgs)).rejects.toThrow(/500/);
+  });
+
+  it('GitHub Models: org-attributed URL, bearer auth, OpenAI-style reply', async () => {
+    let seen: { url: string; auth: string; body: any } | undefined;
+    const f: typeof fetch = async (u, init: any) => { seen = { url: String(u), auth: init.headers.Authorization, body: JSON.parse(init.body) }; return Response.json({ choices: [{ message: { content: json } }] }); };
+    const d = await new LlmObserver(new GitHubModelsClient('tok', 'openai/gpt-4.1', 'acme-corp', f)).draft(msgs);
+    expect(d?.title).toBe('T');
+    expect(seen).toMatchObject({ url: 'https://models.github.ai/orgs/acme-corp/inference/chat/completions', auth: 'Bearer tok' });
+    expect(seen!.body.messages[0].role).toBe('system');
   });
 });
