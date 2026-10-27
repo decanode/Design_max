@@ -23,7 +23,9 @@ export const CATALOG: FeatureDef[] = [
   { feature: 'Specifications', permissions: [
     { key: 'spec.view', label: 'View specifications', description: 'Read FS/TS documents and their history.' },
     { key: 'spec.generate', label: 'Generate drafts', description: 'Create the first FS or TS draft.' },
-    { key: 'spec.edit', label: 'Edit specifications', description: 'Save new document versions.' }] },
+    { key: 'spec.edit', label: 'Edit specifications', description: 'Edit the shared draft and save new document versions.' },
+    { key: 'doc.comment', label: 'Comment on documents', description: 'Add review comments and replies on a document, even without edit access.' },
+    { key: 'doc.review', label: 'Review documents', description: 'Request changes or confirm a document looks good, and resolve anyone\'s comments.' }] },
   { feature: 'Approvals', permissions: [
     { key: 'approval.request', label: 'Request approvals', description: 'Send a specification for approval through its workflow, and cancel their own requests.' }] },
   { feature: 'Dashboards', permissions: [

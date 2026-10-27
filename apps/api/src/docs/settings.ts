@@ -17,14 +17,15 @@ export const DocSettings = z.object({
   bodySize: z.number().min(8).max(14),
   h1Size: z.number().min(12).max(28), h2Size: z.number().min(11).max(24), h3Size: z.number().min(10).max(20),
   templateStack: z.enum(STACK_SETS).nullable(),    // null = follow the project's allowed technology
-  qaGate: z.boolean(),                             // TUT and CRC must be approved before Development -> QA
+  qaGate: z.boolean(),
+  blockApprovalOnOpenComments: z.boolean(),         // approval cannot be requested while review comments are unresolved                             // TUT and CRC must be approved before Development -> QA
 }).strict();
 export type DocSettings = z.infer<typeof DocSettings>;
 
 export const BUILT_IN: DocSettings = {
   displayName: '', clientName: '', headerText: '', footerText: '', confidentiality: 'Confidential',
   docNumberFormat: '{PROJECT}-{TICKET}-{TYPE}', bodyFont: 'Calibri', headingFont: 'Calibri',
-  bodySize: 11, h1Size: 18, h2Size: 14, h3Size: 12, templateStack: null, qaGate: false,
+  bodySize: 11, h1Size: 18, h2Size: 14, h3Size: 12, templateStack: null, qaGate: false, blockApprovalOnOpenComments: false,
 };
 
 export const PlatformDefaults = DocSettings.partial().omit({ qaGate: true, displayName: true, clientName: true, templateStack: true });

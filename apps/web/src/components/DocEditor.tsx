@@ -1,13 +1,20 @@
 'use client';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import * as Y from 'yjs';
 import { HocuspocusProvider } from '@hocuspocus/provider';
 import { EditorContent, useEditor, type Editor } from '@tiptap/react';
+import { Extension } from '@tiptap/core';
+import { Plugin, PluginKey } from '@tiptap/pm/state';
+import { Decoration, DecorationSet } from '@tiptap/pm/view';
+import { ySyncPluginKey, absolutePositionToRelativePosition, relativePositionToAbsolutePosition } from 'y-prosemirror';
 import Collaboration from '@tiptap/extension-collaboration';
 import CollaborationCursor from '@tiptap/extension-collaboration-cursor';
 import { docExtensions } from '@design-max/doc-schema';
 import type { Kind } from '../lib/docKinds';
 
+export interface Anchored { id: string; status: string; anchor: { from: unknown; to: unknown } | null }
+export interface SelectionAnchor { anchor: { from: unknown; to: unknown }; quote: string }
+export interface EditorApi { selection(): SelectionAnchor | null; scrollTo(id: string): void }
 type Pass = { token: string; room: string; canEdit: boolean; lock: string | null };
 type Peer = { name: string; color: string };
 const COLORS = ['#c2410c', '#0f766e', '#7c3aed', '#be123c', '#1d4ed8', '#a16207'];
@@ -58,7 +65,12 @@ function Toolbar({ editor }: { editor: Editor }) {
  * The shared, live editor. Everyone with the document open edits the same draft and sees each other's cursors; the server
  * keeps the draft, so closing the tab loses nothing. "Save version" (outside this component) turns the draft into a version.
  */
-export function DocEditor({ ticketId, kind, userName, onPass, onChange }: { ticketId: string; kind: Kind; userName: string; onPass?: (p: Pass) => void; onChange?: () => void }) {
+export function DocEditor({ ticketId, kind, userName, onPass, onChange, threads = [], activeId = null, onActivate, onOrphans, onReady, onSelection }: {
+  ticketId: string; kind: Kind; userName: string; onPass?: (p: Pass) => void; onChange?: () => void;
+  threads?: Anchored[]; activeId?: string | null; onActivate?: (id: string) => void; onOrphans?: (ids: string[]) => void; onReady?: (api: EditorApi) => void; onSelection?: (has: boolean) => void;
+}) {
+  const live = useRef({ threads, activeId, onActivate });
+  live.current = { threads, activeId, onActivate };
   const [pass, setPass] = useState<Pass | null>(null);
   const [error, setError] = useState('');
   const ydoc = useMemo(() => new Y.Doc(), []);
@@ -87,17 +99,66 @@ export function DocEditor({ ticketId, kind, userName, onPass, onChange }: { tick
     return () => { dead = true; p?.destroy(); setProvider(null); };
   }, [ticketId, kind, ydoc, onPass]);
 
+  const highlights = useMemo(() => Extension.create({
+    name: 'commentHighlights',
+    addProseMirrorPlugins() {
+      const key = new PluginKey('commentHighlights');
+      const resolve = (state: never, json: unknown) => {
+        const ys = ySyncPluginKey.getState(state) as { type: Y.XmlFragment; binding?: { mapping: Map<never, never> } } | undefined;
+        if (!ys?.binding || !json) return null;
+        try { return relativePositionToAbsolutePosition(ydoc, ys.type, Y.createRelativePositionFromJSON(json), ys.binding.mapping as never); } catch { return null; }
+      };
+      return [new Plugin({
+        key,
+        props: {
+          decorations(state) {
+            const out: Decoration[] = []; const lost: string[] = [];
+            for (const t of live.current.threads) {
+              if (!t.anchor) continue;
+              const a = resolve(state as never, t.anchor.from), b = resolve(state as never, t.anchor.to);
+              if (a == null || b == null || b <= a || b > state.doc.content.size) { lost.push(t.id); continue; }
+              out.push(Decoration.inline(a, b, { class: `cmt ${t.status} ${t.id === live.current.activeId ? 'active' : ''}`, 'data-cid': t.id }));
+            }
+            queueMicrotask(() => onOrphans?.(lost));
+            return DecorationSet.create(state.doc, out);
+          },
+          handleClick(_v, _pos, ev) { const id = (ev.target as HTMLElement).closest?.('[data-cid]')?.getAttribute('data-cid'); if (id) live.current.onActivate?.(id); return false; },
+        },
+      })];
+    },
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [ydoc]);
+
   const editor = useEditor({
     immediatelyRender: false,
     editable: !!pass?.canEdit,
     extensions: provider ? [
-      ...docExtensions(),
+      ...docExtensions(), highlights,
       Collaboration.configure({ document: ydoc, field: 'default' }),
       CollaborationCursor.configure({ provider, user: { name: userName, color: colorFor(userName) } }),
     ] : docExtensions(),
     editorProps: { attributes: { class: 'rte-body', 'aria-label': `${kind} document`, role: 'textbox', 'aria-multiline': 'true' } },
     onUpdate: () => onChange?.(),
+    onSelectionUpdate: ({ editor: e }) => onSelection?.(!e.state.selection.empty),
   }, [provider, pass?.canEdit]);
+
+  // Repaint highlights when the thread list or the active thread changes.
+  useEffect(() => { if (editor && !editor.isDestroyed) editor.view.dispatch(editor.state.tr.setMeta('commentHighlights', Date.now())); }, [editor, threads, activeId]);
+
+  useEffect(() => {
+    if (!editor) return;
+    onReady?.({
+      selection() {
+        const { from, to, empty } = editor.state.selection;
+        const ys = ySyncPluginKey.getState(editor.state) as { type: Y.XmlFragment; binding?: { mapping: unknown } } | undefined;
+        if (empty || !ys?.binding) return null;
+        const rel = (pos: number) => Y.relativePositionToJSON(absolutePositionToRelativePosition(pos, ys.type, ys.binding!.mapping as never));
+        return { anchor: { from: rel(from), to: rel(to) }, quote: editor.state.doc.textBetween(from, to, ' ').slice(0, 500) };
+      },
+      scrollTo(id) { editor.view.dom.querySelector(`[data-cid="${id}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' }); },
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editor]);
 
   if (error) return <p role="alert" className="err">{error}</p>;
   if (!pass || !provider || !editor) return <p className="note">Opening the shared draft…</p>;

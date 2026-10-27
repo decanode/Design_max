@@ -9,6 +9,7 @@ import { DocError, diffVersions, draftLock, draftStatus, generateDocument, saveV
 import { signCollab } from '../collab/token.js';
 import { docName } from '../collab/token.js';
 import { KINDS } from './kinds.js';
+import { assertCommentsResolved, registerCommentRoutes } from './comments.js';
 import { versionPm, versionText } from './content.js';
 import { exportDocument } from '../docgen/exportDocument.js';
 import { approvalPlan, cancelRequest, decideAsUser, decideByToken, requestApproval } from '../approvals/engine.js';
@@ -19,6 +20,7 @@ const Kind = z.enum(KINDS);
 export interface DocDeps { generator: DocGenerator; mailer: Mailer; embedder?: Embedder; appUrl: string }
 
 export function registerDocRoutes(app: FastifyInstance, d: DocDeps) {
+  registerCommentRoutes(app, d);
 
   const visible = async (req: import('fastify').FastifyRequest, id: string) => {
     if (!(await ticketVisible(req.user!, id))) throw new DocError('Ticket not found', 404); // 404, not 403: do not reveal it exists
@@ -116,6 +118,7 @@ export function registerDocRoutes(app: FastifyInstance, d: DocDeps) {
     const { id } = Id.parse(req.params);
     const { kind } = z.object({ kind: Kind }).parse(req.body);
     await visible(req, id);
+    await assertCommentsResolved(req.user!.projectId!, id, kind);
     if (!(await draftLock(id, kind))) await snapshotDraft(req.user!.projectId!, id, kind, req.user!.name, 'Snapshot for approval');   // approvers review exactly this text
     return reply.code(201).send(await requestApproval(id, kind, req.user!, d.mailer, d.appUrl));
   });

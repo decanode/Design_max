@@ -2,7 +2,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { Nav } from '../../../components/Nav';
-import { DocEditor, DocView } from '../../../components/DocEditor';
+import { DocEditor, DocView, type EditorApi } from '../../../components/DocEditor';
+import { CommentsPanel, useThreads } from '../../../components/CommentsPanel';
 import { KINDS, LABEL, FULL, GENERATE_IN, EDIT_IN, HINT, type Kind } from '../../../lib/docKinds';
 import { ApprovalPanel, type ApprovalRequest } from '../../../components/ApprovalPanel';
 import { TicketDetails, type DetailTicket } from '../../../components/TicketDetails';
@@ -33,6 +34,10 @@ export default function TicketPage() {
   const [viewJson, setViewJson] = useState<unknown>(null);   // a saved version being viewed
   const [changed, setChanged] = useState(false);               // the shared draft is ahead of the latest version
   const [lock, setLock] = useState<string | null>(null);
+  const [api, setApi] = useState<EditorApi | null>(null);
+  const [hasSel, setHasSel] = useState(false);
+  const [active, setActive] = useState<string | null>(null);
+  const [orphans, setOrphans] = useState<string[]>([]);
   const [viewing, setViewing] = useState<number | null>(null);   // historical version being viewed (read-only)
   const [diff, setDiff] = useState<DiffLine[] | null>(null);
   const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
@@ -58,6 +63,7 @@ export default function TicketPage() {
   const editable = can('spec.edit') && EDIT_IN[kind].includes(state) && viewing === null && !lock;
   const dirty = editable && changed;
   const canGenerate = can('spec.generate') && GENERATE_IN[kind].includes(state);
+  const { threads, unresolved, reload: reloadThreads } = useThreads(id, kind, !!doc && can('spec.view'));
   const onPass = useCallback((p: { lock: string | null }) => setLock(p.lock), []);
   const refreshStatus = useCallback(async () => {
     if (!doc) return;
@@ -131,7 +137,7 @@ export default function TicketPage() {
         <div className="tabs" role="tablist" aria-label="Specification">
           {KINDS.map((k) => (
             <button key={k} role="tab" className="tab" aria-selected={kind === k} onClick={() => pick(k)}>
-              {LABEL[k]}{o.docs[k] ? ` · v${o.docs[k]!.latest.version_number}` : ''}
+              {LABEL[k]}{o.docs[k] ? ` · v${o.docs[k]!.latest.version_number}` : ''}{k === kind && unresolved > 0 ? ` · ${unresolved} open` : ''}
             </button>
           ))}
         </div>
@@ -149,7 +155,7 @@ export default function TicketPage() {
           <div className="doc">
             <section aria-label={`${kind} document`}>
               {viewing !== null && <p className="note">Viewing version {viewing} (read-only). <button className="btn ghost" onClick={() => open(latest)}>Back to latest</button></p>}
-              {viewing !== null ? <DocView json={viewJson} /> : <DocEditor key={`${kind}-${editable}`} ticketId={id} kind={kind} userName={me.user.name} onPass={onPass} />}
+              {viewing !== null ? <DocView json={viewJson} /> : <DocEditor key={`${kind}-${editable}`} ticketId={id} kind={kind} userName={me.user.name} onPass={onPass} threads={threads} activeId={active} onActivate={setActive} onOrphans={setOrphans} onReady={setApi} onSelection={setHasSel} />}
               {diff && <><h3>Changes in the latest version</h3><div className="diff" role="region" aria-label="Diff">{diff.map((l, i) => <div key={i} className={l.type}>{l.type === 'add' ? '+ ' : l.type === 'del' ? '− ' : '  '}{l.text}</div>)}</div></>}
               {editable && (
                 <div className="row">
@@ -172,6 +178,11 @@ export default function TicketPage() {
                 </div>)}
             </section>
             <aside className="side" aria-label="History">
+              {can('doc.comment') || threads.length ? (
+                <div className="cm-wrap" style={{ marginBottom: 16 }}>
+                  <CommentsPanel ticketId={id} kind={kind} meId={me.user.id} threads={threads} reload={reloadThreads} api={api} hasSelection={hasSel} activeId={active} setActive={setActive} orphans={orphans}
+                    canComment={can('doc.comment')} canEdit={can('spec.edit')} canReview={can('doc.review')} latest={latest} />
+                </div>) : null}
               <div>
                 <h3>Versions</h3>
                 {can('spec.view') && (
