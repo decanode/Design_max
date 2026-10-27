@@ -1,7 +1,7 @@
 # MEMORY.md — Project Antigravity State Log
 
 ## Status
-Sprint 0: **complete**. Sprint 1 (ETL & ingestion workers): **code complete, validated against fixtures only** — no live Jira/SNOW/SAP/SharePoint/Git/OpenAI connection has been tested. Next: Sprint 2 (chat + AI Observer).
+Sprint 0: **complete**. Sprint 1 (ETL & ingestion workers): **core ETL complete; ingestion workers partial (see Open Items); validated against fixtures only** — no live Jira/SNOW/SAP/SharePoint/Git/OpenAI connection has been tested. Next: Sprint 2 (chat + AI Observer).
 
 ## Completed Actions
 - Read directives. NOTE: files are named `architecture_and_design_document.md` and `system_ground_rules.md` (not DESIGN_DOCUMENT.md / GROUND_RULES.md); treated as the same documents.
@@ -22,6 +22,7 @@ Sprint 0: **complete**. Sprint 1 (ETL & ingestion workers): **code complete, val
 - Tests: 14 Vitest tests pass (fake HTTP fixtures, real Postgres), repeatable; vitest runs files serially (shared DB).
 
 ## Decisions
+- **Ground rule 8 added (user-approved)**: Claude may propose design changes in short plain terms; proceed only after approval, then update the design doc and log here.
 - **Fastify over Express**: schema-friendly, fast, good TS support; Socket.io attaches to its HTTP server in Sprint 2.
 - **Docker for Postgres**: no local Postgres in Codespace; pgvector image is the simplest provisioning path.
 - **Trigger-enforced transitions**: design doc demands DB-level enforcement; app layer also pre-checks for clean 409 errors.

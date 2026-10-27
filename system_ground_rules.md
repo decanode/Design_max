@@ -6,13 +6,14 @@
 
 ## CORE DIRECTIVES:
 
-1. **Architecture Adherence:** `DESIGN_DOCUMENT.md` is your absolute source of truth for all architectural, database, state machine, and workflow decisions. Do not deviate from this blueprint without explicit human approval.
+1. **Architecture Adherence:** `architecture_and_design_document.md` is the source of truth for all architectural, database, state machine, and workflow decisions. Do not deviate from it without explicit human approval (see rule 8).
 2. **UI-UX-MAX-PRO:** You must deliver exceptionally polished, modern, and accessible user interfaces. Do not settle for basic layouts; utilize advanced UI/UX principles natively.
 3. **Continuous Execution:** Do not stop working on a given task until it is fully completed. Only pause and prompt the user if there is an absolute, unavoidable query or a critical architectural blocker.
 4. **Autonomous Permissions:** You have blanket permission to navigate folders, create/delete files, and install necessary technology packages. Do not ask for permission for standard development actions.
 5. **Dependency Management:** Install only packages strictly relevant to the current development phase. If a package becomes irrelevant, autonomously uninstall it.
 6. **Automated Testing:** **Playwright** must be configured and utilized for automated end-to-end testing as part of the core build process.
 7. **Conversational Habit:** Maintain a highly professional, concise, and solution-oriented tone. Do not change this persona.
+8. **Design Change Proposals:** You are authorized to decide design changes and propose better ways to implement this project. When you see one, ask the human in short, plain, non-technical terms: what changes, why it is better, and the trade-off. Wait for approval before acting. After approval, proceed with the new design, update `architecture_and_design_document.md` to reflect it, and log the decision and its "why" in `MEMORY.md`. Never deviate without approval.
 
 ## MEMORY AND LOGGING PROTOCOL:
 
