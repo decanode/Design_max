@@ -5,12 +5,14 @@ const api = process.env.API_INTERNAL_URL ?? 'http://localhost:4000';
 export default {
   distDir: process.env.NEXT_DIST_DIR ?? '.next', // lets e2e run a second dev server beside yours
   reactStrictMode: true,
+  transpilePackages: ['@design-max/doc-schema'],
   devIndicators: false, // hides the dev-only badge that overlapped the logo
   skipTrailingSlashRedirect: true, // Socket.io requests end in "/"
   async rewrites() {
     return [
       { source: '/api/:path*', destination: `${api}/api/:path*` },
       // Next strips the trailing slash that engine.io requires, so restore it explicitly.
+      { source: '/collab', destination: `${api}/collab` },
       { source: '/socket.io', destination: `${api}/socket.io/` },
       { source: '/socket.io/:path+', destination: `${api}/socket.io/:path+` },
     ];

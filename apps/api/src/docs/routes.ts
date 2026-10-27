@@ -5,7 +5,9 @@ import type { Embedder } from '../etl/vectorize.js';
 import type { DocGenerator } from './generator.js';
 import type { Mailer } from './mailer.js';
 import { need, needSuper, ticketVisible } from '../rbac/auth.js';
-import { DocError, diffVersions, generateDocument, saveVersion, ticketOverview, viewApproval } from './service.js';
+import { DocError, diffVersions, draftLock, draftStatus, generateDocument, saveVersion, snapshotDraft, syncDraft, ticketOverview, viewApproval } from './service.js';
+import { signCollab } from '../collab/token.js';
+import { docName } from '../collab/token.js';
 import { KINDS } from './kinds.js';
 import { versionPm, versionText } from './content.js';
 import { exportDocument } from '../docgen/exportDocument.js';
@@ -42,7 +44,36 @@ export function registerDocRoutes(app: FastifyInstance, d: DocDeps) {
     await visible(req, id);
     const b = z.object({ content: z.string().min(1).max(200_000), baseVersion: z.number().int(), author: z.string().max(80).optional(), note: z.string().max(200).optional() }).parse(req.body);
     const row = await saveVersion(id, kind, b.content, b.baseVersion, req.user!.name, b.note);
+    await syncDraft(req.user!.projectId!, id, kind, row);
     return reply.code(201).send({ ...row, content_md: versionText(row) });
+  });
+
+  /** A short-lived pass to join the live editing room for this document (read-only unless the person may edit it right now). */
+  app.post('/api/tickets/:id/documents/:kind/collab-token', { preHandler: need('spec.view') }, async (req) => {
+    const p = z.object({ id: z.string().uuid(), kind: Kind }).parse(req.params);
+    await visible(req, p.id);
+    const lock = await draftLock(p.id, p.kind);
+    const edit = req.user!.perms.has('spec.edit') && !lock;
+    const u = req.user!, pid = u.projectId!;
+    return { token: signCollab({ uid: u.id, name: u.name, pid, ticket: p.id, kind: p.kind, edit }), room: docName(pid, p.id, p.kind), canEdit: edit, lock };
+  });
+
+  /** Whether the shared draft has unsaved changes compared with the latest version. */
+  app.get('/api/tickets/:id/documents/:kind/draft-status', { preHandler: need('spec.view') }, async (req) => {
+    const p = z.object({ id: z.string().uuid(), kind: Kind }).parse(req.params);
+    await visible(req, p.id);
+    return { ...(await draftStatus(req.user!.projectId!, p.id, p.kind)), lock: await draftLock(p.id, p.kind) };
+  });
+
+  /** "Save version": the shared draft becomes a new immutable version. */
+  app.post('/api/tickets/:id/documents/:kind/snapshot', { preHandler: need('spec.edit') }, async (req, reply) => {
+    const p = z.object({ id: z.string().uuid(), kind: Kind }).parse(req.params);
+    const b = z.object({ note: z.string().max(200).optional() }).parse(req.body ?? {});
+    await visible(req, p.id);
+    const lock = await draftLock(p.id, p.kind);
+    if (lock) throw new DocError(lock, 409);
+    const row = await snapshotDraft(req.user!.projectId!, p.id, p.kind, req.user!.name, b.note);
+    return reply.code(row ? 201 : 200).send(row ? { version: row.version_number } : { unchanged: true });
   });
 
   app.get('/api/tickets/:id/documents/:kind/versions/:v', { preHandler: need('spec.view') }, async (req) => {
@@ -85,6 +116,7 @@ export function registerDocRoutes(app: FastifyInstance, d: DocDeps) {
     const { id } = Id.parse(req.params);
     const { kind } = z.object({ kind: Kind }).parse(req.body);
     await visible(req, id);
+    if (!(await draftLock(id, kind))) await snapshotDraft(req.user!.projectId!, id, kind, req.user!.name, 'Snapshot for approval');   // approvers review exactly this text
     return reply.code(201).send(await requestApproval(id, kind, req.user!, d.mailer, d.appUrl));
   });
 

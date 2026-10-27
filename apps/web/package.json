@@ -7,11 +7,19 @@
     "start": "next start -p 3000"
   },
   "dependencies": {
+    "@design-max/doc-schema": "file:../../packages/doc-schema",
+    "@hocuspocus/provider": "4.7.1",
+    "@tiptap/extension-collaboration": "2.27.3",
+    "@tiptap/extension-collaboration-cursor": "2.27.3",
+    "@tiptap/react": "2.27.3",
     "next": "^16.4.3",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "react-markdown": "^10.1.0",
-    "socket.io-client": "^4.8.4"
+    "socket.io-client": "^4.8.4",
+    "y-prosemirror": "1.3.7",
+    "y-protocols": "1.0.7",
+    "yjs": "13.6.33"
   },
   "devDependencies": {
     "@types/node": "^26.6.5",

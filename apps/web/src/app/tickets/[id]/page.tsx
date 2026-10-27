@@ -2,14 +2,14 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { Nav } from '../../../components/Nav';
-import { Markdown } from '../../../components/Markdown';
+import { DocEditor, DocView } from '../../../components/DocEditor';
+import { KINDS, LABEL, FULL, GENERATE_IN, EDIT_IN, HINT, type Kind } from '../../../lib/docKinds';
 import { ApprovalPanel, type ApprovalRequest } from '../../../components/ApprovalPanel';
 import { TicketDetails, type DetailTicket } from '../../../components/TicketDetails';
 import { NoAccess, NoProject, useAuth } from '../../../lib/auth';
 
 const API = '';
 const STATES = ['Requirement Verified', 'FS Drafted', 'FS Approved', 'TS Drafted', 'TS Approved', 'Development', 'QA', 'UAT', 'Deployed'];
-type Kind = 'FS' | 'TS';
 type Ver = { version: number; author: string | null; note: string | null; at: string };
 type Overview = {
   ticket: DetailTicket & { current_state: string; customer_name?: string | null; consultant_name?: string | null; consultant_id?: string | null; is_assigned?: boolean };
@@ -30,7 +30,9 @@ export default function TicketPage() {
   const [decision, setDecision] = useState('');
   const [o, setO] = useState<Overview | null>(null);
   const [kind, setKind] = useState<Kind>('FS');
-  const [text, setText] = useState('');
+  const [viewJson, setViewJson] = useState<unknown>(null);   // a saved version being viewed
+  const [changed, setChanged] = useState(false);               // the shared draft is ahead of the latest version
+  const [lock, setLock] = useState<string | null>(null);
   const [viewing, setViewing] = useState<number | null>(null);   // historical version being viewed (read-only)
   const [diff, setDiff] = useState<DiffLine[] | null>(null);
   const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
@@ -47,31 +49,37 @@ export default function TicketPage() {
   useEffect(() => { if (can('ticket.assign')) fetch(`${API}/api/users/assignable`).then((r) => r.ok && r.json()).then((d) => d && setPeople(d)); }, [can]);
   useEffect(() => { if (!me) return; load().then((d) => {
     if (!d) return;
-    const k: Kind = d.docs.TS ? 'TS' : 'FS';
-    setKind(k); setText(d.docs[k]?.latest.content_md ?? '');
+    setKind(([...KINDS].reverse().find((k) => d.docs[k]) ?? 'FS') as Kind);
   }); }, [load, me]);
 
   const doc = o?.docs[kind] ?? null;
   const latest = doc?.latest.version_number ?? 0;
   const state = o?.ticket.current_state ?? '';
-  const editable = can('spec.edit') && state === `${kind} Drafted` && viewing === null;
-  const dirty = editable && doc != null && text !== doc.latest.content_md;
-  const canGenerate = can('spec.generate') && ((kind === 'FS' && state === 'Requirement Verified') || (kind === 'TS' && state === 'FS Approved'));
+  const editable = can('spec.edit') && EDIT_IN[kind].includes(state) && viewing === null && !lock;
+  const dirty = editable && changed;
+  const canGenerate = can('spec.generate') && GENERATE_IN[kind].includes(state);
+  const onPass = useCallback((p: { lock: string | null }) => setLock(p.lock), []);
+  const refreshStatus = useCallback(async () => {
+    if (!doc) return;
+    const r = await fetch(`${API}/api/tickets/${id}/documents/${kind}/draft-status`);
+    if (r.ok) { const st = await r.json(); setChanged(st.changed); setLock(st.lock); }
+  }, [id, kind, doc]);
+  useEffect(() => { setChanged(false); if (!doc) return; refreshStatus(); const t = setInterval(refreshStatus, 4000); return () => clearInterval(t); }, [refreshStatus, doc]);
   const myApproval = o?.approvals.find((a) => a.kind === kind && a.status === 'pending' && a.approver_id === me?.user.id);
 
-  function pick(k: Kind) { setKind(k); setViewing(null); setDiff(null); setText(o?.docs[k]?.latest.content_md ?? ''); setMsg(null); }
+  function pick(k: Kind) { setKind(k); setViewing(null); setDiff(null); setViewJson(null); setLock(null); setMsg(null); }
 
   async function run(fn: () => Promise<Response>, okText: string) {
     setBusy(true); setMsg(null);
     try {
       const r = await fn(); const b = await r.json().catch(() => ({}));
       if (!r.ok) setMsg({ kind: 'err', text: b.error ?? 'Request failed' }); else setMsg({ kind: 'ok', text: okText });
-      const d = await load(); if (d) setText(d.docs[kind]?.latest.content_md ?? ''); setViewing(null); setDiff(null);
+      await load(); await refreshStatus(); setViewing(null); setDiff(null);
     } finally { setBusy(false); }
   }
 
   const generate = (k: Kind) => run(() => fetch(`${API}/api/tickets/${id}/documents/generate`, j({ kind: k })), 'Draft created.');
-  const save = () => run(() => fetch(`${API}/api/tickets/${id}/documents/${kind}/versions`, j({ content: text, baseVersion: latest })), 'Saved as a new version.');
+  const save = () => run(() => fetch(`${API}/api/tickets/${id}/documents/${kind}/snapshot`, j({})), 'Saved as a new version.');
   async function claim() { await run(() => fetch(`${API}/api/tickets/${id}/claim`, { method: 'POST' }), 'You now own this ticket.'); }
   async function assign(consultantId: string) { await run(() => fetch(`${API}/api/tickets/${id}/assign`, j({ consultantId: consultantId || null })), 'Assignment updated.'); }
   async function decide(approvalId: string, d: 'approved' | 'rejected') {
@@ -80,9 +88,9 @@ export default function TicketPage() {
   }
 
   async function open(v: number) {
-    if (v === latest) { setViewing(null); setDiff(null); setText(doc!.latest.content_md); return; }
+    if (v === latest) { setViewing(null); setDiff(null); setViewJson(null); return; }
     const r = await fetch(`${API}/api/tickets/${id}/documents/${kind}/versions/${v}`);
-    setText((await r.json()).content_md); setViewing(v);
+    setViewJson((await r.json()).content_json); setViewing(v);
     const d = await fetch(`${API}/api/tickets/${id}/documents/${kind}/diff?from=${v}&to=${latest}`);
     setDiff(d.ok ? await d.json() : null);
   }
@@ -121,9 +129,9 @@ export default function TicketPage() {
 
         {!can('spec.view') ? <NoAccess what="the specifications" /> : (<>
         <div className="tabs" role="tablist" aria-label="Specification">
-          {(['FS', 'TS'] as Kind[]).map((k) => (
+          {KINDS.map((k) => (
             <button key={k} role="tab" className="tab" aria-selected={kind === k} onClick={() => pick(k)}>
-              {k === 'FS' ? 'Functional Spec' : 'Technical Spec'}{o.docs[k] ? ` · v${o.docs[k]!.latest.version_number}` : ''}
+              {LABEL[k]}{o.docs[k] ? ` · v${o.docs[k]!.latest.version_number}` : ''}
             </button>
           ))}
         </div>
@@ -133,29 +141,23 @@ export default function TicketPage() {
         {!doc ? (
           <div className="pane" style={{ padding: 20 }}>
             {canGenerate ? (<>
-              <p style={{ marginTop: 0 }}>No {kind === 'FS' ? 'Functional' : 'Technical'} Specification yet. Generate a first draft from {kind === 'FS' ? 'the intake conversation' : 'the approved Functional Specification'}.</p>
+              <p style={{ marginTop: 0 }}>No {FULL[kind]} yet. Generate a first draft{kind === 'FS' ? ' from the intake conversation' : kind === 'TS' ? ' from the approved Functional Specification' : ' from the approved specifications'}.</p>
               <button className="btn" disabled={busy} onClick={() => generate(kind)}>Generate {kind} draft</button>
-            </>) : <p className="note" style={{ margin: 0 }}>{kind === 'TS' ? 'The Technical Specification can be generated once the Functional Specification is approved.' : 'Not available at this stage.'}</p>}
+            </>) : <p className="note" style={{ margin: 0 }}>The {FULL[kind]} can be generated {HINT[kind]}.</p>}
           </div>
         ) : (
           <div className="doc">
             <section aria-label={`${kind} document`}>
               {viewing !== null && <p className="note">Viewing version {viewing} (read-only). <button className="btn ghost" onClick={() => open(latest)}>Back to latest</button></p>}
-              {!editable && viewing === null && <p className="note">This document is locked ({state}).</p>}
-              <div className="editor">
-                {editable ? (<>
-                  <textarea aria-label="Markdown editor" value={text} onChange={(e) => setText(e.target.value)} spellCheck />
-                  <Markdown>{text}</Markdown>
-                </>) : <div style={{ gridColumn: '1 / -1' }}><Markdown>{text}</Markdown></div>}
-              </div>
+              {viewing !== null ? <DocView json={viewJson} /> : <DocEditor key={`${kind}-${editable}`} ticketId={id} kind={kind} userName={me.user.name} onPass={onPass} />}
               {diff && <><h3>Changes in the latest version</h3><div className="diff" role="region" aria-label="Diff">{diff.map((l, i) => <div key={i} className={l.type}>{l.type === 'add' ? '+ ' : l.type === 'del' ? '− ' : '  '}{l.text}</div>)}</div></>}
               {editable && (
                 <div className="row">
-                  <button className="btn" disabled={!dirty || busy} onClick={save}>Save new version</button>
-                  {dirty && <span className="note">Unsaved changes</span>}
+                  <button className="btn" disabled={!dirty || busy} onClick={save}>Save version</button>
+                  {dirty && <span className="note">The shared draft has changes that are not in a saved version yet</span>}
                 </div>
               )}
-              <ApprovalPanel ticketId={id} kind={kind} state={state} dirty={dirty} busy={busy} requests={o.requests ?? []} meId={me.user.id}
+              <ApprovalPanel ticketId={id} kind={kind} state={state} dirty={false} busy={busy} requests={o.requests ?? []} meId={me.user.id}
                 canRequest={can('approval.request') && viewing === null} isAdmin={can('admin.workflows')} run={run} />
               {myApproval && (
                 <div className="pane" style={{ padding: 14, marginTop: 12 }}>

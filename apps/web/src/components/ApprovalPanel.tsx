@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { Chain } from './WorkflowAdmin';
 import { j } from '../lib/auth';
 
-type Kind = 'FS' | 'TS';
+import { EDIT_IN, type Kind } from '../lib/docKinds';
 export type ApprovalRequest = {
   id: string; kind: Kind; version: number; status: 'in_progress' | 'approved' | 'rejected' | 'superseded' | 'cancelled'; workflow: string; currentLevel: number;
   requestedBy: string | null; requestedById: string | null; requestedAt: string; completedAt: string | null;
@@ -42,7 +42,7 @@ export function ApprovalPanel({ ticketId, kind, state, dirty, busy, requests, me
   const mine = requests.filter((r) => r.kind === kind);
   const active = mine.find((r) => r.status === 'in_progress');
   const last = mine[0];
-  const drafted = state === `${kind} Drafted`;
+  const drafted = EDIT_IN[kind].includes(state);
   const [plan, setPlan] = useState<Plan | null>(null);
 
   useEffect(() => {

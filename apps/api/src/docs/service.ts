@@ -4,7 +4,9 @@ import { applyTransition } from '../tickets.js';
 import type { TicketState } from '../stateMachine.js';
 import { KINDS, RULES, LABEL, generateHint, type DocKind as Kind } from './kinds.js';
 import { toStored, versionPm, versionText } from './content.js';
-import type { PmNode } from '../docgen/pm.js';
+import { pmText, type PmNode } from '../docgen/pm.js';
+import { normalise } from '../collab/draft.js';
+import { readDraft, resetDraft } from '../collab/server.js';
 import { similar, type Embedder } from '../etl/vectorize.js';
 import type { DocContext, DocGenerator, DocKind } from './generator.js';
 import { diffLines } from './diff.js';
@@ -14,6 +16,9 @@ import { assessFit, loadStackPolicy, projectPolicyForTicket } from '../stacks.js
 import { DocError } from '../errors.js';
 import { sanitizeTicket, type FieldAccess } from '../tickets/fields.js';
 export { DocError };
+
+/** Content compared the same way whatever its origin (Markdown text, or edited in the browser). */
+const canon = (pm: PmNode) => pmText(normalise(pm));
 
 /** True once an approval for this document has completed (TUT and CRC are then locked: the approved text is final). */
 async function isApproved(q: { query: (s: string, p: unknown[]) => Promise<{ rowCount: number | null }> }, ticketId: string, kind: Kind) {
@@ -96,7 +101,7 @@ export async function saveVersion(ticketId: string, kind: DocKind, content: stri
     const latest = (await c.query('SELECT max(version_number) v FROM documents WHERE ticket_id=$1 AND kind=$2', [ticketId, kind])).rows[0].v as number;
     if (latest !== baseVersion) throw new DocError('Someone saved a newer version. Reload to merge your changes.', 409, { latestVersion: latest });
     const st = toStored(content);
-    if (st.text === versionText((await c.query('SELECT content_json, content_md, content_text FROM documents WHERE ticket_id=$1 AND kind=$2 AND version_number=$3', [ticketId, kind, latest])).rows[0]))
+    if (canon(st.json) === canon(versionPm((await c.query('SELECT content_json, content_md, content_text FROM documents WHERE ticket_id=$1 AND kind=$2 AND version_number=$3', [ticketId, kind, latest])).rows[0])))
       throw new DocError('No changes to save', 400);
     const { rows } = await c.query(
       'INSERT INTO documents (ticket_id, kind, version_number, content_json, content_text, author_name, change_note) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *',
@@ -110,7 +115,7 @@ export async function saveVersion(ticketId: string, kind: DocKind, content: stri
 
 export async function diffVersions(ticketId: string, kind: DocKind, from: number, to: number) {
   const { rows } = await pool.query('SELECT version_number, content_json, content_md, content_text FROM documents WHERE ticket_id=$1 AND kind=$2 AND version_number = ANY($3)', [ticketId, kind, [from, to]]);
-  const get = (v: number) => { const r = rows.find((x) => x.version_number === v); return r ? versionText(r) : undefined; };
+  const get = (v: number) => { const r = rows.find((x) => x.version_number === v); return r ? pmText(versionPm(r)) : undefined; };
   if (get(from) == null || get(to) == null) throw new DocError('Version not found', 404);
   return diffLines(get(from)!, get(to)!);
 }
@@ -155,3 +160,33 @@ export async function ticketOverview(id: string, fields: FieldAccess) {
   const stacks = policy?.allowed.map((a) => a.name) ?? [];
   return { ticket, docs, approvals, requests: await requestsForTicket(id), stacks, stackWarnings, fields };
 }
+
+/** Why the shared draft cannot be edited right now, or null when it can. */
+export async function draftLock(ticketId: string, kind: Kind): Promise<string | null> {
+  const t = await getTicket(ticketId);
+  if (!RULES[kind].editIn.includes(t.current_state)) return `Locked: the ticket is in "${t.current_state}"`;
+  if (RULES[kind].lockedWhenApproved && await isApproved(pool, ticketId, kind)) return 'Locked: this document is approved';
+  if ((await pool.query(`SELECT 1 FROM approval_requests WHERE ticket_id=$1 AND kind=$2 AND status='in_progress'`, [ticketId, kind])).rowCount) return 'Locked while an approval is in progress. Cancel the request to edit.';
+  return null;
+}
+
+/** The latest saved version and whether the shared draft has moved on from it. */
+export async function draftStatus(projectId: string, ticketId: string, kind: Kind) {
+  const latest = (await listVersions(ticketId, kind))[0];
+  if (!latest) return { latest: 0, changed: false };
+  const draft = await readDraft(projectId, ticketId, kind);
+  return { latest: latest.version_number as number, changed: !!draft && canon(draft) !== canon(versionPm(latest)) };
+}
+
+/** Saves the shared draft as a new immutable version (the approvers' exact snapshot). Returns null when nothing changed. */
+export async function snapshotDraft(projectId: string, ticketId: string, kind: Kind, author: string, note?: string) {
+  const st = await draftStatus(projectId, ticketId, kind);
+  if (!st.latest) throw new DocError('There is no draft yet', 404);
+  if (!st.changed) return null;
+  const draft = (await readDraft(projectId, ticketId, kind))!;
+  return saveVersion(ticketId, kind, normalise(draft), st.latest, author, note);
+}
+
+/** After a version is saved through the API, the shared draft follows it. */
+export const syncDraft = (projectId: string, ticketId: string, kind: Kind, row: { content_json: PmNode | null; content_md: string | null; content_text: string | null }) =>
+  resetDraft(projectId, ticketId, kind, versionPm(row));

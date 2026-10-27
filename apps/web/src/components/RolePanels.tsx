@@ -91,7 +91,8 @@ function TeamPanel({ tickets, reload }: { tickets: PanelTicket[]; reload: () => 
 }
 
 type Portfolio = { byState: { state: string; count: number }[]; pendingApprovals: number; mine: number };
-type Mine = { id: string; ticket_id: string; title: string; kind: 'FS' | 'TS'; version_number: number; level_name: string | null; workflow_name: string | null }[];
+import { FULL, type Kind } from '../lib/docKinds';
+type Mine = { id: string; ticket_id: string; title: string; kind: Kind; version_number: number; level_name: string | null; workflow_name: string | null }[];
 
 /** Approvals waiting on this person, whatever their role: being named in a workflow is what puts them here. */
 function MyApprovalsPanel() {
@@ -102,7 +103,7 @@ function MyApprovalsPanel() {
     <Panel title="Waiting for your approval" hint={`${mine.length} document${mine.length === 1 ? '' : 's'}`}>
       <ul className="rlist">{mine.map((a) => (
         <li key={a.id}><Link href={`/tickets/${a.ticket_id}`}>{a.title}</Link>
-          <span className="note">{a.kind === 'FS' ? 'Functional' : 'Technical'} spec v{a.version_number}{a.level_name ? ` · ${a.level_name}` : ''}{a.workflow_name ? ` · ${a.workflow_name}` : ''}</span>
+          <span className="note">{FULL[a.kind]} v{a.version_number}{a.level_name ? ` · ${a.level_name}` : ''}{a.workflow_name ? ` · ${a.workflow_name}` : ''}</span>
           <Link className="btn sm" href={`/tickets/${a.ticket_id}`} style={{ textDecoration: 'none' }}>Review</Link></li>))}</ul>
     </Panel>
   );

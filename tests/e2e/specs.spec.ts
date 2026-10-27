@@ -10,12 +10,14 @@ test('FS and TS: generate, edit with history, approve by emailed link, then cont
 
   // FS draft
   await page.getByRole('button', { name: 'Generate FS draft' }).click();
-  const editor = page.getByLabel('Markdown editor');
-  await expect(editor).toHaveValue(new RegExp(`# Functional Specification: ${title}`));
+  const editor = page.getByRole('textbox', { name: 'FS document' });
+  await expect(editor).toContainText(`Functional Specification: ${title}`);
+  await expect(page.locator('.rte-status').filter({ hasText: 'Live' })).toBeVisible();
 
-  // edit -> v2, with a diff against v1
-  await editor.fill((await editor.inputValue()) + '\nBlocked vendors must not appear in the PO value help.');
-  await page.getByRole('button', { name: 'Save new version' }).click();
+  // edit in the live editor -> v2, with a diff against v1
+  await editor.click(); await page.keyboard.press('Control+End');
+  await page.keyboard.type(' Blocked vendors must not appear in the PO value help.');
+  await page.getByRole('button', { name: 'Save version' }).click();
   await expect(page.getByRole('status')).toContainText('Saved');
   await expect(page.getByRole('tab', { name: /Functional Spec · v2/ })).toBeVisible();
   const history = page.getByRole('complementary', { name: 'History' });
@@ -46,9 +48,9 @@ test('FS and TS: generate, edit with history, approve by emailed link, then cont
   // back on the ticket: FS locked, TS can now be generated
   await page.goto('/');
   await page.getByRole('region', { name: 'FS Approved' }).getByRole('link', { name: title }).click();
-  await expect(page.getByText('This document is locked')).toBeVisible();
+  await expect(page.getByText(/Locked: the ticket is in .FS Approved./)).toBeVisible();
   await page.getByRole('tab', { name: /Technical Spec/ }).click();
   await page.getByRole('button', { name: 'Generate TS draft' }).click();
-  await expect(page.getByLabel('Markdown editor')).toHaveValue(/Technical Specification/);
-  await expect(page.getByLabel('Markdown editor')).toHaveValue(/Blocked vendors must not appear/);
+  await expect(page.getByRole('textbox', { name: 'TS document' })).toContainText('Technical Specification');
+  await expect(page.getByRole('textbox', { name: 'TS document' })).toContainText('Blocked vendors must not appear');
 });

@@ -4,12 +4,12 @@ import { j } from '../lib/auth';
 
 type Approver = { kind: 'user' | 'role'; id: string | number; name: string };
 type Level = { name: string; rule: 'any' | 'all'; approvers: Approver[]; eligible?: number };
-type Workflow = { id: string; name: string; description: string; kinds: ('FS' | 'TS')[]; active: boolean; levels: Level[] };
+type Workflow = { id: string; name: string; description: string; kinds: (typeof KINDS[number])[]; active: boolean; levels: Level[] };
 type Options = { roles: { id: number; name: string }[]; users: { id: string; name: string; role: string }[] };
-type Draft = { id: string | null; name: string; description: string; kinds: ('FS' | 'TS')[]; active: boolean; levels: Level[] };
+type Draft = { id: string | null; name: string; description: string; kinds: (typeof KINDS[number])[]; active: boolean; levels: Level[] };
 
 const blank = (): Draft => ({ id: null, name: '', description: '', kinds: ['FS', 'TS'], active: true, levels: [{ name: 'L1', rule: 'any', approvers: [] }] });
-const KIND: Record<string, string> = { FS: 'Functional spec', TS: 'Technical spec' };
+import { KINDS, LABEL as KIND } from '../lib/docKinds';
 /** Levels still carrying a default name (L1, L2…) are renumbered when levels are added, removed or moved. */
 const renumber = (ls: Level[]) => ls.map((l, i) => (/^L\d+$/.test(l.name) ? { ...l, name: `L${i + 1}` } : l));
 
@@ -87,7 +87,7 @@ export function WorkflowAdmin({ flash }: { flash: (kind: 'ok' | 'err', text: str
           <div className="wf-grid">
             <div className="field"><label htmlFor="wn">Name</label><input id="wn" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} required minLength={2} placeholder="e.g. Regulated change approval" /></div>
             <fieldset className="field"><legend>Documents</legend>
-              <div className="checks">{(['FS', 'TS'] as const).map((k) => (
+              <div className="checks">{KINDS.map((k) => (
                 <label key={k} className="check"><input type="checkbox" checked={draft.kinds.includes(k)} onChange={(e) => setDraft({ ...draft, kinds: e.target.checked ? [...draft.kinds, k] : draft.kinds.filter((x) => x !== k) })} /> {KIND[k]}</label>))}</div></fieldset>
             <div className="field"><label htmlFor="wd">Description <span className="note">(optional)</span></label><input id="wd" value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} /></div>
           </div>
@@ -140,7 +140,7 @@ export function WorkflowAdmin({ flash }: { flash: (kind: 'ok' | 'err', text: str
           <article key={w.id} className={`wf ${w.active ? '' : 'off'}`} aria-label={`Workflow ${w.name}`}>
             <header>
               <div><h3>{w.name}</h3>
-                <p className="note" style={{ margin: 0 }}>{w.kinds.map((k) => KIND[k]).join(' and ')}{w.description ? ` · ${w.description}` : ''}</p></div>
+                <p className="note" style={{ margin: 0 }}>{w.kinds.map((k) => KIND[k]).join(', ')}{w.description ? ` · ${w.description}` : ''}</p></div>
               <div className="row" style={{ margin: 0 }}>
                 <span className="role-badge" data-role={w.active ? 'Manager' : 'Custom'}>{w.active ? 'Active' : 'Off'}</span>
                 <button className="btn ghost sm" onClick={() => toggle(w)}>{w.active ? 'Turn off' : 'Turn on'}</button>

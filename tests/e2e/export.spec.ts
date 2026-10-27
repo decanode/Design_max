@@ -12,9 +12,11 @@ test('a consultant downloads a specification as a Word file in the project desig
   const page = await (await browser.newContext({ storageState: '.auth/Consultant.json' })).newPage();
   await page.goto(`/tickets/${t.id}`);
   await page.getByRole('button', { name: 'Generate FS draft' }).click();
-  const editor = page.getByLabel('Markdown editor');
-  await editor.fill(`${await editor.inputValue()}\n\n## Extra rule\nBlocked vendors never appear in value help.`);
-  await page.getByRole('button', { name: 'Save new version' }).click();
+  const editor = page.getByRole('textbox', { name: 'FS document' });
+  await expect(page.locator('.rte-status').filter({ hasText: 'Live' })).toBeVisible();
+  await editor.click(); await page.keyboard.press('Control+End');
+  await page.keyboard.type(' Blocked vendors never appear in value help.');
+  await page.getByRole('button', { name: 'Save version' }).click();
   await expect(page.getByRole('status')).toContainText('Saved');
 
   const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('link', { name: 'Download v2 as Word' }).click()]);
