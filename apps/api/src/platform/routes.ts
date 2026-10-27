@@ -7,6 +7,9 @@ import { CATALOG, PROJECT_ADMIN_ROLE, PROJECT_KEYS, isKnownKey } from '../rbac/p
 import { DocError } from '../errors.js';
 import { ALL_WRITE, FIELDS, FIELD_KEYS, LEVELS, resolveFieldAccess, validateFieldAccess } from '../tickets/fields.js';
 import { setProjectStacks } from '../stacks.js';
+import { PlatformDefaults, platformDefaults, savePlatformDefaults, FONTS, STACK_SETS } from '../docs/settings.js';
+import { validateTemplate, MAX_TEMPLATE_BYTES, TOKENS } from '../docgen/templateLibrary.js';
+import { KINDS } from '../docs/kinds.js';
 
 /**
  * Super Admin console API: projects, every user, the standard role catalog (templates every project starts from),
@@ -45,6 +48,61 @@ export function registerPlatformRoutes(app: FastifyInstance) {
   const sup = needSuper();
 
   // ---------------- projects
+  // ---------------- document defaults and template library
+  app.get('/api/platform/doc-defaults', { preHandler: sup }, async () => ({ settings: await platformDefaults(), fonts: FONTS }));
+  app.put('/api/platform/doc-defaults', { preHandler: sup }, async (req) => {
+    const patch = PlatformDefaults.strict().parse(req.body);
+    const out = await savePlatformDefaults(patch, req.user!.id);
+    await audit(req, 'platform.doc_defaults', patch, null);
+    return { settings: out };
+  });
+
+  app.get('/api/platform/doc-templates', { preHandler: sup }, async () => ({
+    templates: (await pool.query(`SELECT t.id, t.stack, t.doc_type AS "docType", t.name, t.version, t.active, t.created_at AS "createdAt", u.display_name AS "createdBy", length(t.docx) AS bytes
+      FROM doc_templates t LEFT JOIN users u ON u.id=t.created_by ORDER BY t.doc_type, t.stack NULLS FIRST, t.version DESC`)).rows,
+    tokens: TOKENS, stacks: STACK_SETS,
+  }));
+  app.post('/api/platform/doc-templates', { preHandler: sup, bodyLimit: Math.ceil(MAX_TEMPLATE_BYTES * 1.4) + 4096 }, async (req, reply) => {
+    const b = z.object({ stack: z.enum(STACK_SETS).nullable(), docType: z.enum(KINDS), name: z.string().trim().min(2).max(120), docxBase64: z.string().min(100) }).parse(req.body);
+    const buf = Buffer.from(b.docxBase64, 'base64');
+    const check = validateTemplate(buf);
+    const stack = b.stack === 'generic' ? null : b.stack;
+    const c = await pool.connect();
+    try {
+      await c.query('BEGIN');
+      const v = (await c.query('SELECT coalesce(max(version),0)+1 v FROM doc_templates WHERE stack IS NOT DISTINCT FROM $1 AND doc_type=$2', [stack, b.docType])).rows[0].v as number;
+      await c.query('UPDATE doc_templates SET active=false WHERE stack IS NOT DISTINCT FROM $1 AND doc_type=$2 AND active', [stack, b.docType]);
+      const row = (await c.query('INSERT INTO doc_templates (stack, doc_type, name, version, docx, created_by) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id, version', [stack, b.docType, b.name, v, buf, req.user!.id])).rows[0];
+      await c.query('COMMIT');
+      await audit(req, 'platform.doc_template', { stack, docType: b.docType, version: row.version }, null);
+      return reply.code(201).send({ id: row.id, version: row.version, unknownTokens: check.unknownTokens });
+    } catch (e) { await c.query('ROLLBACK'); throw e; } finally { c.release(); }
+  });
+  app.get('/api/platform/doc-templates/:id/download', { preHandler: sup }, async (req, reply) => {
+    const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
+    const r = (await pool.query('SELECT docx, doc_type, stack, version FROM doc_templates WHERE id=$1', [id])).rows[0];
+    if (!r) throw new DocError('Template not found', 404);
+    return reply.header('content-type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document').header('content-disposition', `attachment; filename="${r.stack ?? 'generic'}_${r.doc_type}_template_v${r.version}.docx"`).send(r.docx);
+  });
+  app.post('/api/platform/doc-templates/:id/activate', { preHandler: sup }, async (req) => {
+    const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
+    const r = (await pool.query('SELECT stack, doc_type FROM doc_templates WHERE id=$1', [id])).rows[0];
+    if (!r) throw new DocError('Template not found', 404);
+    const c = await pool.connect();
+    try {      // one active version per stack and type: switch off the others first (the unique index checks row by row)
+      await c.query('BEGIN');
+      await c.query('UPDATE doc_templates SET active=false WHERE stack IS NOT DISTINCT FROM $1 AND doc_type=$2 AND active', [r.stack, r.doc_type]);
+      await c.query('UPDATE doc_templates SET active=true WHERE id=$1', [id]);
+      await c.query('COMMIT');
+    } catch (e) { await c.query('ROLLBACK'); throw e; } finally { c.release(); }
+    return { ok: true };
+  });
+  app.delete('/api/platform/doc-templates/:id', { preHandler: sup }, async (req) => {
+    const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
+    await pool.query('UPDATE doc_templates SET active=false WHERE id=$1', [id]);   // never lost: it can be activated again
+    return { ok: true };
+  });
+
   app.get('/api/platform/projects', { preHandler: sup }, async () =>
     (await pool.query(
       `SELECT p.id, p.name, p.status, p.created_at,

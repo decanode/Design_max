@@ -314,3 +314,7 @@ header.top nav { flex-wrap: nowrap; } header.top nav a { padding: 7px 11px; }
 .cm-chip { font-size: 11px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line); }
 .cm-chip.open { color: var(--warn); border-color: var(--warn); } .cm-chip.addressed { color: var(--accent); border-color: var(--accent); } .cm-chip.resolved { color: var(--done); border-color: var(--done); }
 .cm-form textarea { width: 100%; min-height: 64px; padding: 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--text); font: inherit; }
+
+.ds-preview { border: 1px solid var(--line); border-radius: 10px; padding: 16px 20px; background: #fff; color: #111; margin-bottom: 12px; }
+.ds-preview .ds-head { font-size: 10pt; color: #555; border-bottom: 1px solid #bbb; padding-bottom: 4px; margin-bottom: 10px; }
+.ds-preview .ds-foot { font-size: 9pt; color: #555; border-top: 1px solid #bbb; padding-top: 4px; margin-top: 10px; text-align: center; }

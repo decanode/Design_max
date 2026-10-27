@@ -1,11 +1,12 @@
 'use client';
+import { TemplateAdmin } from '../../components/TemplateAdmin';
 import { useCallback, useEffect, useState } from 'react';
 import { Nav } from '../../components/Nav';
 import { FieldAdmin } from '../../components/FieldAdmin';
 import { ActivityList, RoleMatrix, api } from '../../components/consoleBits';
 import { NoAccess, useAuth, j } from '../../lib/auth';
 
-type Tab = 'projects' | 'users' | 'roles' | 'fields' | 'stacks' | 'activity';
+type Tab = 'projects' | 'users' | 'roles' | 'fields' | 'stacks' | 'documents' | 'activity';
 type Flash = (kind: 'ok' | 'err', text: string) => void;
 type Project = { id: string; name: string; status: 'active' | 'archived'; members: number; tickets: number; admins: { id: string; name: string }[]; stacks: string[] };
 type Stack = { id: number; name: string; description: string; keywords: string[]; projects: number };
@@ -176,7 +177,7 @@ export default function Platform() {
   useEffect(() => { setStatus(null); }, [tab]);
   if (loading || !me) return <><Nav current="platform" /><main id="main"><p className="note">Loading…</p></main></>;
   if (!isSuper) return <><Nav current="platform" /><main id="main"><NoAccess what="the platform console" /></main></>;
-  const tabs: [Tab, string][] = [['projects', 'Projects'], ['users', 'Users'], ['roles', 'Role catalog'], ['fields', 'Default ticket fields'], ['stacks', 'Technology catalog'], ['activity', 'Activity']];
+  const tabs: [Tab, string][] = [['projects', 'Projects'], ['users', 'Users'], ['roles', 'Role catalog'], ['fields', 'Default ticket fields'], ['stacks', 'Technology catalog'], ['documents', 'Documents'], ['activity', 'Activity']];
   return (
     <>
       <Nav current="platform" />
@@ -191,6 +192,7 @@ export default function Platform() {
         {tab === 'roles' && <RoleMatrix mode="platform" flash={flash} />}
         {tab === 'fields' && <FieldAdmin mode="platform" flash={flash} />}
         {tab === 'stacks' && <Stacks flash={flash} />}
+        {tab === 'documents' && <TemplateAdmin flash={flash} />}
         {tab === 'activity' && <ActivityList path="/api/platform/audit" flash={flash} showProject />}
       </main>
     </>

@@ -4,10 +4,10 @@ import { requestsForTicket } from '../approvals/engine.js';
 import { loadStackPolicy } from '../stacks.js';
 import { canRead } from '../tickets/fields.js';
 import type { SessionUser } from '../rbac/auth.js';
-import { baseTemplate } from './baseTemplate.js';
 import { versionPm } from '../docs/content.js';
 import { simpleTable } from './ooxml.js';
 import { fillTemplate, type Typography } from './template.js';
+import { pickTemplate, stackKey } from './templateLibrary.js';
 import { docNumber, effectiveSettings, typographyOf } from '../docs/settings.js';
 
 export const DOC_LABEL: Record<string, string> = { FS: 'Functional Specification', TS: 'Technical Specification', TUT: 'Technical Unit Test', CRC: 'Code Review Checklist' };
@@ -46,7 +46,9 @@ export async function exportDocument(user: SessionUser, ticketId: string, kind: 
   const stacks = (await loadStackPolicy(t.project_id))?.allowed.map((s) => s.name).join(', ') ?? 'Any';
   const label = DOC_LABEL[kind] ?? kind;
 
-  const out = fillTemplate(baseTemplate(), {
+  const allowed = (await loadStackPolicy(t.project_id))?.allowed.map((a) => a.name) ?? [];
+  const tpl = await pickTemplate(cfg.templateStack ?? (allowed.length ? stackKey(allowed[0]) : null), kind);
+  const out = fillTemplate(tpl.buffer, {
     title: `${label}: ${t.title}`,
     typography: typography ?? typographyOf(cfg),
     tokens: {

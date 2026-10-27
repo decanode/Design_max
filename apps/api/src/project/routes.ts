@@ -8,6 +8,9 @@ import { effectiveFields, effectivePerms, overrideFlags } from '../rbac/effectiv
 import { DocError } from '../errors.js';
 import { FIELDS, FIELD_KEYS, LEVELS, validateFieldAccess } from '../tickets/fields.js';
 import { setProjectStacks } from '../stacks.js';
+import { pickTemplate, stackKey } from '../docgen/templateLibrary.js';
+import { sampleDocument } from '../docgen/sample.js';
+import { KINDS } from '../docs/kinds.js';
 import { DocSettings, FONTS, STACK_SETS, effectiveSettings, saveProjectSettings } from '../docs/settings.js';
 import { findOrCreateUser } from '../platform/routes.js';
 
@@ -189,6 +192,16 @@ export function registerProjectRoutes(app: FastifyInstance) {
     const out = await saveProjectSettings(pid(req), patch, req.user!.id);
     await audit(req, 'project.doc_settings', patch);
     return { settings: out };
+  });
+
+  /** A sample Word file in the look the admin has on screen (saved settings plus any unsaved changes), so nothing is guessed. */
+  app.post('/api/project/doc-settings/sample', { preHandler: settings }, async (req, reply) => {
+    const b = z.object({ kind: z.enum(KINDS).default('FS'), settings: DocSettings.partial().default({}) }).parse(req.body ?? {});
+    const cfg = { ...(await effectiveSettings(pid(req))), ...b.settings };
+    const allowed = (await pool.query('SELECT s.name FROM project_stacks ps JOIN tech_stacks s ON s.id=ps.stack_id WHERE ps.project_id=$1 ORDER BY s.name', [pid(req)])).rows.map((x) => x.name as string);
+    const tpl = await pickTemplate(cfg.templateStack ?? (allowed.length ? stackKey(allowed[0]) : null), b.kind);
+    const r = sampleDocument(b.kind, cfg, req.user!.projectName ?? '', tpl.buffer);
+    return reply.header('content-type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document').header('content-disposition', `attachment; filename="${r.filename}"`).send(r.buffer);
   });
 
   app.get('/api/project/audit', { preHandler: anyAdmin }, async (req) =>

@@ -2,11 +2,12 @@
 import { useEffect, useState } from 'react';
 import { Nav } from '../../components/Nav';
 import { FieldAdmin } from '../../components/FieldAdmin';
+import { DocSettingsAdmin } from '../../components/DocSettingsAdmin';
 import { WorkflowAdmin } from '../../components/WorkflowAdmin';
 import { ActivityList, MembersAdmin, ProjectTech, RoleMatrix } from '../../components/consoleBits';
 import { NoAccess, NoProject, useAuth } from '../../lib/auth';
 
-type Tab = 'members' | 'roles' | 'fields' | 'tech' | 'workflows' | 'activity';
+type Tab = 'members' | 'roles' | 'fields' | 'tech' | 'workflows' | 'documents' | 'activity';
 
 /** Project settings: what a Project Admin (or anyone they delegate to) controls, for the project they are working in. */
 export default function ProjectSettings() {
@@ -17,7 +18,7 @@ export default function ProjectSettings() {
 
   const tabs: [Tab, string, boolean][] = [
     ['members', 'Members', can('admin.users')], ['roles', 'Roles & permissions', can('admin.roles')], ['fields', 'Ticket fields', can('admin.roles')],
-    ['tech', 'Technology', can('admin.projects')], ['workflows', 'Approval workflows', can('admin.workflows')], ['activity', 'Activity', true],
+    ['tech', 'Technology', can('admin.projects')], ['workflows', 'Approval workflows', can('admin.workflows')], ['documents', 'Documents', can('admin.projects')], ['activity', 'Activity', true],
   ];
   const first = tabs.find((t) => t[2])?.[0] ?? 'activity';
   useEffect(() => { if (me && !tab) setTab(first); }, [me, tab, first]);
@@ -43,6 +44,7 @@ export default function ProjectSettings() {
         {t === 'fields' && can('admin.roles') && <FieldAdmin mode="project" flash={flash} />}
         {t === 'tech' && can('admin.projects') && <ProjectTech flash={flash} />}
         {t === 'workflows' && can('admin.workflows') && <WorkflowAdmin flash={flash} />}
+        {t === 'documents' && can('admin.projects') && <DocSettingsAdmin flash={flash} />}
         {t === 'activity' && <ActivityList path="/api/project/audit" flash={flash} />}
       </main>
     </>
