@@ -6,7 +6,8 @@
     "dev": "tsx watch src/server.ts",
     "build": "tsc -p .",
     "migrate": "tsx src/migrate.ts",
-    "test": "vitest run"
+    "test": "vitest run",
+    "etl": "tsx src/etl/cli.ts"
   },
   "dependencies": {
     "@fastify/cors": "^11.3.1",
