@@ -172,6 +172,9 @@ export default function TicketPage() {
             <aside className="side" aria-label="History">
               <div>
                 <h3>Versions</h3>
+                {can('spec.view') && (
+                  <a className="btn ghost sm" style={{ textDecoration: 'none', display: 'inline-block', marginBottom: 8 }} download
+                    href={`/api/tickets/${id}/documents/${kind}/export?version=${viewing ?? latest}`}>Download v{viewing ?? latest} as Word</a>)}
                 <ul>{doc.versions.map((v) => (
                   <li key={v.version}><button aria-pressed={(viewing ?? latest) === v.version} onClick={() => open(v.version)}>
                     v{v.version}{v.version === latest ? ' (latest)' : ''}<br /><span className="note">{v.author ?? '—'}{v.note ? ` · ${v.note}` : ''}</span>

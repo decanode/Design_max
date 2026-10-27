@@ -6,6 +6,7 @@ import type { DocGenerator } from './generator.js';
 import type { Mailer } from './mailer.js';
 import { need, needSuper, ticketVisible } from '../rbac/auth.js';
 import { DocError, diffVersions, generateDocument, saveVersion, ticketOverview, viewApproval } from './service.js';
+import { exportDocument } from '../docgen/exportDocument.js';
 import { approvalPlan, cancelRequest, decideAsUser, decideByToken, requestApproval } from '../approvals/engine.js';
 
 const Id = z.object({ id: z.string().uuid() });
@@ -46,6 +47,19 @@ export function registerDocRoutes(app: FastifyInstance, d: DocDeps) {
     const r = (await pool.query('SELECT version_number, content_md, author_name, change_note, created_at FROM documents WHERE ticket_id=$1 AND kind=$2 AND version_number=$3', [p.id, p.kind, p.v])).rows[0];
     if (!r) throw new DocError('Version not found', 404);
     return r;
+  });
+
+  /** Download one version (default: the latest) as a Word file in the project's document design. */
+  app.get('/api/tickets/:id/documents/:kind/export', { preHandler: need('spec.view') }, async (req, reply) => {
+    const p = z.object({ id: z.string().uuid(), kind: Kind }).parse(req.params);
+    const q = z.object({ version: z.coerce.number().int().positive().optional() }).parse(req.query);
+    await visible(req, p.id);
+    const r = await exportDocument(req.user!, p.id, p.kind, q.version);
+    return reply
+      .header('content-type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+      .header('content-disposition', `attachment; filename="${r.filename}"`)
+      .header('cache-control', 'no-store')
+      .send(r.buffer);
   });
 
   app.get('/api/tickets/:id/documents/:kind/diff', { preHandler: need('spec.view') }, async (req) => {

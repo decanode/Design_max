@@ -21,3 +21,7 @@ npm run dev               # database + migrations + API (:4000) + web (:3000)
 - **People.** *Super Admins* (the platform tier) create projects and appoint each project's *Project Admin*, who runs that
   project's members, roles, workflows, technology and fields. Roles belong to a project, so one person can hold different
   roles in different projects; use the project menu in the header to switch.
+
+## Word export and its test
+Specifications download as .docx. The automated rendering check converts a generated file with LibreOffice and runs only
+where it is installed (`apt-get install libreoffice-writer poppler-utils` on Debian/Ubuntu); without it that one test is skipped.

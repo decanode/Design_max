@@ -2,7 +2,7 @@
 
 **What this document is.** A plain-language walkthrough of everything the platform does today: what each feature is, how to use it, and what to expect from it. It is kept up to date after every new feature (see rule 9 in `system_ground_rules.md`).
 
-**Status as of this version:** Sprints 0–3 are built, plus role-based access, technology scoping, reports and dashboards, multi-level approvals, column-level security, and multi-project workspaces. Sprint 4 (company single sign-on, final polish) and the live connections to Jira, ServiceNow, SAP and company email are not done yet; they are listed at the end.
+**Status as of this version:** Sprints 0–3 are built, plus role-based access, technology scoping, reports and dashboards, multi-level approvals, column-level security, multi-project workspaces, and **download as Word (first stage of the document-template work)**. Sprint 4 (company single sign-on, final polish) and the live connections to Jira, ServiceNow, SAP and company email are not done yet; they are listed at the end.
 
 ---
 
@@ -137,6 +137,21 @@ The database itself refuses any other move, and every move is logged.
 - Without an AI key the draft is a structured outline for the consultant to complete, not finished prose. With a key, the AI writes a fuller draft; always review it before approval.
 - Editing a document **withdraws** any approval request still open on it, because the text being approved no longer exists.
 
+### Download as Word (DOCX)
+
+**What it is.** Any version of a Functional or Technical Specification can be downloaded as a Word file with a cover page, header and footer, styled headings, lists, tables, links and checklists.
+
+**How to use it:** open the ticket, choose the **Functional Spec** or **Technical Spec** tab, and click **Download vN as Word** above the versions list. It downloads the version you are looking at (the latest, or an older one if you opened it).
+
+**What to expect**
+- **The file name** is `FS_<ticket title>_v2.docx` style, with only safe characters.
+- **The cover page and tables are filled in for you:** project name, ticket, version, status (*Draft*, *In approval*, *Approved* or *Superseded*), date, author, technology; an **Approvals table** taken from the real approval history (level, approver, decision, date); and a **Revision history** table from the saved versions. Nobody types these.
+- **Respects ticket-field access:** if your role cannot read the customer field, the customer's name is not in your file. You need permission to read specifications, and the ticket must be visible to you.
+- **Every download is logged** (who, which document and version).
+- **Design today:** the file uses a **stand-in template** built into the system, because the company's own Word templates (TUT, TS, CRC) have not been supplied yet. The same mechanism fills any Word template that uses the standard placeholders, so switching to the company templates changes the look and sections without a rewrite.
+- Fonts and sizes can already be applied by the engine; the admin screen for choosing them (the Document settings tab) is not built yet.
+- Checked by opening and paginating the files in LibreOffice (including page numbers and nested lists). They have not yet been opened in Microsoft Word itself.
+
 ---
 
 ## 7. Approval workflows (L1, L2, L3…)
@@ -263,7 +278,8 @@ The database itself refuses any other move, and every move is logged.
 - **Company single sign-on** (Entra ID / SAML / OIDC), Sprint 4. Until then sign-in is the development account picker.
 - **Real email** (Microsoft 365). Approval emails go to the local Mailbox.
 - **Live connections** to Jira, ServiceNow, SAP (RFC), SharePoint and company Git; Confluence; PDF/Word text extraction; S3/Azure file storage.
-- **Real-time co-editing** of specifications (today: save with conflict detection).
+- **The document-template programme** (plan: `document_generation_plan.md`): the company's own SAP templates (TUT, TS, CRC, and the FS in the TS design), equivalent templates for other technologies, the **Document settings** tab (project name, fonts, sizes, logo, numbering), the **rich online editor with live co-editing**, **Confluence-style review comments**, **upload and merge of your own Word document**, and the **TUT and CRC** document types with the optional QA gate. Only "Download as Word" is built so far.
+- **Real-time co-editing** of specifications (today: save with conflict detection). Planned within the document-template programme.
 - **Approval escalation**, reminders, delegation and conditional levels.
 - **Call-transcript upload** (Teams/Zoom) as a chat source.
 - **Dashboard-wide filters**, click-through to tickets, scheduled/emailed/PDF reports.
