@@ -5,8 +5,9 @@ import { TemplateGenerator, LlmGenerator } from './generator.js';
 import { OutboxMailer } from './mailer.js';
 import { diffLines } from './diff.js';
 import { createTicket } from '../tickets.js';
+import { HashEmbedder } from '../etl/vectorize.js';
 
-const app = buildApp({ generator: new TemplateGenerator(), mailer: new OutboxMailer(), appUrl: 'http://app.test' });
+const app = buildApp({ generator: new TemplateGenerator(), mailer: new OutboxMailer(), embedder: new HashEmbedder(), appUrl: 'http://app.test' });
 let projectId: string;
 beforeAll(async () => { await app.ready(); projectId = (await pool.query("INSERT INTO projects(name) VALUES('docs') RETURNING id")).rows[0].id; });
 afterAll(async () => { await app.close(); await pool.end(); });

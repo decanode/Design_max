@@ -92,9 +92,9 @@ describe('LLM observer (mocked HTTP)', () => {
   it('Gemini: key header, systemInstruction, joins response parts', async () => {
     let seen: { url: string; key: string; body: any } | undefined;
     const f: typeof fetch = async (u, init: any) => { seen = { url: String(u), key: init.headers['x-goog-api-key'], body: JSON.parse(init.body) }; return Response.json({ candidates: [{ content: { parts: [{ text: '{"title":"T","summary":"S",' }, { text: '"entities":{}}' }] } }] }); };
-    const d = await new LlmObserver(new GeminiClient('gk', 'gemini-2.5-pro', f)).draft(msgs);
+    const d = await new LlmObserver(new GeminiClient('gk', 'gemini-3.5-flash', f)).draft(msgs);
     expect(d?.title).toBe('T');
-    expect(seen).toMatchObject({ url: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent', key: 'gk' });
+    expect(seen).toMatchObject({ url: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent', key: 'gk' });
     expect(seen!.body.systemInstruction.parts[0].text).toContain('requirement');
     await expect(new GeminiClient('k', undefined, async () => new Response('', { status: 429 })).complete('s', 'u')).rejects.toThrow(/429/);
   });

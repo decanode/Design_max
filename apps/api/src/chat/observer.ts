@@ -73,7 +73,7 @@ export class GitHubModelsClient implements LlmClient {
 
 /** Google Gemini via the Generative Language API (API key from Google AI Studio). */
 export class GeminiClient implements LlmClient {
-  constructor(private apiKey: string, private model = 'gemini-2.5-pro', private f: Fetcher = fetch) {}
+  constructor(private apiKey: string, private model = 'gemini-3.5-flash', private f: Fetcher = fetch) {}
   async complete(system: string, user: string) {
     const res = await this.f(`https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent`, {
       method: 'POST',
