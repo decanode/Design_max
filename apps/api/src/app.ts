@@ -3,10 +3,15 @@ import cors from '@fastify/cors';
 import { z } from 'zod';
 import { pool } from './db.js';
 import { STATES } from './stateMachine.js';
+import { registerDocRoutes, type DocDeps } from './docs/routes.js';
+import { LlmGenerator, TemplateGenerator } from './docs/generator.js';
+import { OutboxMailer } from './docs/mailer.js';
+import { defaultLlm } from './chat/observer.js';
+import { defaultEmbedder } from './etl/vectorize.js';
 import { createConversation, getDraft, getMessages } from './chat/service.js';
 import { createTicket, transitionTicket, TransitionError } from './tickets.js';
 
-export function buildApp() {
+export function buildApp(deps: Partial<DocDeps> = {}) {
   const app = Fastify();
   app.register(cors, { origin: true });
 
@@ -44,6 +49,13 @@ export function buildApp() {
   app.get('/api/conversations/:id', async (req) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
     return { messages: await getMessages(id), draft: await getDraft(id) };
+  });
+  const llm = defaultLlm();
+  registerDocRoutes(app, {
+    generator: deps.generator ?? (llm ? new LlmGenerator(llm) : new TemplateGenerator()),
+    mailer: deps.mailer ?? new OutboxMailer(),
+    embedder: deps.embedder ?? defaultEmbedder(),
+    appUrl: deps.appUrl ?? process.env.APP_URL ?? 'http://localhost:3000',
   });
   return app;
 }

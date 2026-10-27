@@ -1,7 +1,7 @@
 # MEMORY.md — Design Max State Log
 
 ## Status
-Sprint 0: **complete**. Sprint 1 (ETL & ingestion workers): **core ETL complete; ingestion workers partial (see Open Items); validated against fixtures only** — no live Jira/SNOW/SAP/SharePoint/Git/OpenAI connection has been tested. Sprint 2 (Intelligent Intake & Chat): **built, verified with offline observer only**. Next: Sprint 3 (docs engine & approvals).
+Sprint 0: **complete**. Sprint 1 (ETL & ingestion workers): **core ETL complete; ingestion workers partial (see Open Items); validated against fixtures only** — no live Jira/SNOW/SAP/SharePoint/Git/OpenAI connection has been tested. Sprint 2 (Intelligent Intake & Chat): **built, verified with offline observer only**. Sprint 3 (Documentation Engine & Approvals): **built, verified with offline generator/mailbox only**. Next: Sprint 4 (SSO, polish, handover) — but see PENDING security-foundations proposal.
 
 ## Completed Actions
 - Read directives. NOTE: files are named `architecture_and_design_document.md` and `system_ground_rules.md` (not DESIGN_DOCUMENT.md / GROUND_RULES.md); treated as the same documents.
@@ -35,7 +35,20 @@ Sprint 0: **complete**. Sprint 1 (ETL & ingestion workers): **core ETL complete;
 - Renamed project to **Design Max** (UI, package scopes `@design-max/*`, design doc title, MEMORY). Left as-is: Postgres user/db name `antigravity` (renaming means recreating the DB volume), a comment in applied migration 002, and the persona name in `system_ground_rules.md` (user-authored).
 - Bug fix: browser showed "Cannot reach the API" because the frontend called `http://localhost:4000` directly, which doesn't resolve to the Codespace from the user's browser. Web now uses same-origin and Next rewrites `/api/*` and `/socket.io` to the API (`API_INTERNAL_URL`). Only port 3000 needs forwarding.
 
+## Sprint 3 Actions
+- Migration `004_docs.sql`: immutable `documents` (DB trigger blocks UPDATE/DELETE), approvals extended (kind, version, hashed single-use token, expiry, comment, `superseded` status, one pending per ticket+kind), `email_outbox`.
+- Gates enforced: Requirement Verified→FS Drafted (needs generated FS), FS Drafted→FS Approved, FS Approved→TS Drafted (needs generated TS), TS Drafted→TS Approved can only happen via the document/approval flow; generic `/transition` returns 409 for them. Board "Advance" button now only shows from TS Approved onward.
+- `docs/` module: generator (`TemplateGenerator` offline skeleton; `LlmGenerator` via the `LlmClient` seam, so GitHub Models once a token exists), service (generate, versioned save with optimistic-concurrency `baseVersion`, LCS line diff, approval request/view/decide), routes, `OutboxMailer` (writes to `email_outbox`; M365 sender later).
+- Approvals: emailed deep link `/approve/<token>`; token stored as SHA-256 only; single-use; 7-day expiry; tied to a document version; editing the doc supersedes the pending request; rejection requires a comment and keeps the ticket in Drafted.
+- TS generation uses the approved FS plus vector-search hits, only when the embedder is semantic (the offline HashEmbedder is excluded as noise).
+- Web: `/tickets/[id]` (lifecycle stepper, FS/TS tabs, markdown editor + live preview, version history, diff, request approval), `/approve/[token]`, `/mailbox` (dev). Markdown rendered with react-markdown (no raw HTML).
+- Tests: 32 Vitest + 4 Playwright E2E passing (gated lifecycle, conflicts, reject, supersede, expiry, immutability, race on generate).
+
 ## Decisions
+- **Approvals bound to a document version and invalidated by edits**: prevents approving text that later changed.
+- **Gates enforced in the service layer, not only the UI**: the generic transition endpoint cannot bypass sign-off. (DB trigger still enforces ordering only; approval presence is not enforced in SQL.)
+- **Optimistic concurrency instead of real-time co-editing**: safe multi-user saving without CRDT/websocket complexity; true live collaboration deferred.
+- **react-markdown**: only new web dependency; chosen over raw HTML rendering for XSS safety.
 - **USER DECISION: AI calls go through the firm's GitHub license (GitHub Models API first); email via M365 later.** Researched: Copilot SDK (GA 2026-06-02) is an agent runtime; GitHub Models API (`models.github.ai`, org-attributed via `/orgs/{org}/inference/...`, token needs `models: read`) fits our chat-completion + embeddings needs. Built `LlmClient` seam (`GitHubModelsClient`, `AnthropicClient`) + `LlmObserver`, and `GitHubModelsEmbedder`; provider priority GitHub Models > Anthropic > offline. Replaces the earlier ClaudeObserver. **UNVERIFIED against the live service**: model ids (`openai/gpt-4.1`, `openai/text-embedding-3-small`), whether the firm's license covers Models API usage or bills separately, embedding availability, data-handling terms. Needs the firm's GitHub admin to confirm.
 - Firm-side hosting direction: `DATABASE_URL` points to the firm's Postgres (+pgvector); containers for web/API; deployment package + IT handover checklist still TO BUILD (user did not object). Hosting platform (Azure/AWS/on-prem) not yet answered.
 - **PENDING USER APPROVAL**: security foundations before Sprint 3 (project membership, project_id on embeddings, Postgres RLS, dev login, HNSW index).
@@ -58,6 +71,8 @@ Sprint 0: **complete**. Sprint 1 (ETL & ingestion workers): **core ETL complete;
 - **No new dependencies** added in Sprint 1 (native fetch, no node-rfc/AWS SDK yet — ground rule 5).
 
 ## Open Items / Notes
+- Sprint 3 gaps: no real-time collaborative editing (save-with-conflict-detection only); approver/author are unauthenticated names/emails (the emailed token is the only credential until SSO); real SMTP/M365 sending not built; rejection does not email the consultant; no reminder/escalation for pending approvals; documents list `approvals` visibility is not role-restricted; embeddings still lack project scoping (a TS could cite another client's assets once real embeddings exist — see PENDING security proposal).
+- LLM-generated FS/TS quality is unevaluated (only mocked).
 - Sprint 2 gaps: uploaded call-transcript (Teams/Zoom) intake not built; chat has no auth (sender is a self-selected role until Sprint 4 SSO); the "silent" observer is not rate-limited/debounced (one LLM call per customer message); observer is not told about similar historical tickets (vector search) yet.
 - Observer quality with the real Claude model is unevaluated.
 - UNTESTED against real systems: field names (e.g. Jira acceptance-criteria custom field id, SNOW state codes for problem/change), Jira `/rest/api/3/search` (Atlassian is migrating to `/search/jql`; verify on target instance), RFC_READ_TABLE field-width limits, Graph auth/token acquisition.

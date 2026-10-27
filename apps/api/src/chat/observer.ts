@@ -83,10 +83,14 @@ export class LlmObserver implements Observer {
   }
 }
 
-/** Provider choice: GitHub Models (firm license) > Anthropic > offline rule-based. */
-export function defaultObserver(): Observer {
+/** Provider choice: GitHub Models (firm license) > Anthropic > none (offline stand-ins). */
+export function defaultLlm(): LlmClient | null {
   const e = process.env;
-  if (e.GITHUB_MODELS_TOKEN) return new LlmObserver(new GitHubModelsClient(e.GITHUB_MODELS_TOKEN, e.GITHUB_MODELS_MODEL, e.GITHUB_MODELS_ORG));
-  if (e.ANTHROPIC_API_KEY) return new LlmObserver(new AnthropicClient(e.ANTHROPIC_API_KEY));
-  return new RuleBasedObserver();
+  if (e.GITHUB_MODELS_TOKEN) return new GitHubModelsClient(e.GITHUB_MODELS_TOKEN, e.GITHUB_MODELS_MODEL, e.GITHUB_MODELS_ORG);
+  if (e.ANTHROPIC_API_KEY) return new AnthropicClient(e.ANTHROPIC_API_KEY);
+  return null;
+}
+export function defaultObserver(): Observer {
+  const llm = defaultLlm();
+  return llm ? new LlmObserver(llm) : new RuleBasedObserver();
 }

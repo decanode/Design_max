@@ -1,5 +1,6 @@
 'use client';
 import { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
 import { Nav } from '../components/Nav';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? '';
@@ -51,8 +52,9 @@ export default function Board() {
                 <h2><span>{s}</span><span>{items.length}</span></h2>
                 {items.map((t) => (
                   <article className="card" key={t.id}>
-                    {t.title}
-                    {i < states.length - 1 && <div><button onClick={() => advance(t)}>Advance → {states[i + 1]}</button></div>}
+                    <Link href={`/tickets/${t.id}`}>{t.title}</Link>
+                    {/* Steps up to TS Approved need a document/approval, so they happen on the ticket page. */}
+                    {i >= states.indexOf('TS Approved') && i < states.length - 1 && <div><button onClick={() => advance(t)}>Advance → {states[i + 1]}</button></div>}
                   </article>
                 ))}
               </section>

@@ -9,7 +9,7 @@ describe('ticket lifecycle (DB-enforced)', () => {
   it('walks the full lifecycle and logs transitions', async () => {
     const p = await pool.query("INSERT INTO projects(name) VALUES('t') RETURNING id");
     const t = await createTicket(p.rows[0].id, 'lifecycle');
-    for (const s of STATES.slice(1)) await transitionTicket(t.id, s);
+    for (const s of STATES.slice(1)) await transitionTicket(t.id, s, undefined, { internal: true });
     const log = await pool.query('SELECT count(*)::int c FROM ticket_transitions WHERE ticket_id=$1', [t.id]);
     expect(log.rows[0].c).toBe(STATES.length);
   });

@@ -1,7 +1,7 @@
 import type pg from 'pg';
 
 export const EMBEDDING_DIM = 1536;
-export interface Embedder { embed(texts: string[]): Promise<number[][]> }
+export interface Embedder { embed(texts: string[]): Promise<number[][]>; /** false for the offline stand-in: its similarity is meaningless */ readonly semantic?: boolean }
 
 export class OpenAIEmbedder implements Embedder {
   constructor(private apiKey: string, private model = 'text-embedding-3-small', private f: typeof fetch = fetch) {}
@@ -34,6 +34,7 @@ export class GitHubModelsEmbedder implements Embedder {
 
 /** Deterministic offline embedder (hashed bag-of-words) for tests and keyless dev. */
 export class HashEmbedder implements Embedder {
+  readonly semantic = false;
   async embed(texts: string[]) {
     return texts.map((t) => {
       const v = new Array(EMBEDDING_DIM).fill(0);
