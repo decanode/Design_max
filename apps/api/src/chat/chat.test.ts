@@ -6,10 +6,11 @@ import { buildApp } from '../app.js';
 import { attachChat } from './socket.js';
 import { RuleBasedObserver, LlmObserver, AnthropicClient, GitHubModelsClient, GeminiClient } from './observer.js';
 import { createConversation } from './service.js';
+import { makeUser } from '../testAuth.js';
 import { GeminiEmbedder, EMBEDDING_DIM } from '../etl/vectorize.js';
 
 const app = buildApp();
-let url: string, sock: Socket, cid: string;
+let url: string, sock: Socket, cid: string, cookie: string;
 const once = <T = any>(s: Socket, ev: string) => new Promise<T>((r) => s.once(ev, r));
 const emit = <T = any>(s: Socket, ev: string, data: unknown) => new Promise<T>((r) => s.emit(ev, data, r));
 
@@ -19,8 +20,9 @@ beforeAll(async () => {
   await app.listen({ port: 0 });
   url = `http://localhost:${(app.server.address() as AddressInfo).port}`;
   const pid = (await pool.query("INSERT INTO projects(name) VALUES('chat') RETURNING id")).rows[0].id;
-  cid = (await createConversation(pid)).id;
-  sock = client(url);
+  const admin = await makeUser('Admin'); cookie = admin.cookie;
+  cid = (await createConversation(pid, undefined, admin.id)).id;
+  sock = client(url, { extraHeaders: { cookie } });
   await once(sock, 'connect');
   await emit(sock, 'join', { conversationId: cid });
 });
@@ -28,7 +30,7 @@ afterAll(async () => { sock.close(); await app.close(); await pool.end(); });
 
 describe('chat + observer + verify', () => {
   it('rejects invalid input', async () => {
-    expect(await emit(sock, 'message', { conversationId: cid, role: 'customer', name: 'x', body: '' })).toHaveProperty('error');
+    expect(await emit(sock, 'message', { conversationId: cid, role: 'customer', body: '' })).toHaveProperty('error');
     expect(await emit(sock, 'verify', { conversationId: 'nope' })).toHaveProperty('error');
   });
 
@@ -38,7 +40,7 @@ describe('chat + observer + verify', () => {
 
   it('broadcasts messages and drafts a requirement with entities', async () => {
     const draft = once(sock, 'draft');
-    await emit(sock, 'message', { conversationId: cid, role: 'customer', name: 'Alice', body: 'We need to block vendor Acme from every purchase order. Raw material only.' });
+    await emit(sock, 'message', { conversationId: cid, role: 'customer', body: 'We need to block vendor Acme from every purchase order. Raw material only.' });
     const d = await draft;
     expect(d.title).toBe('We need to block vendor Acme from every purchase order');
     expect(d.entities).toMatchObject({ vendors: ['Acme'], businessObjects: ['purchase order'], materialTypes: ['raw material'] });
@@ -46,8 +48,8 @@ describe('chat + observer + verify', () => {
   });
 
   it('consultant messages do not alter the draft', async () => {
-    await emit(sock, 'message', { conversationId: cid, role: 'consultant', name: 'Bob', body: 'Understood.' });
-    const r = await (await fetch(`${url}/api/conversations/${cid}`)).json() as any;
+    await emit(sock, 'message', { conversationId: cid, role: 'consultant', body: 'Understood.' });
+    const r = await (await fetch(`${url}/api/conversations/${cid}`, { headers: { cookie } })).json() as any;
     expect(r.messages).toHaveLength(2);
     expect(r.draft.summary).not.toContain('Understood');
   });
@@ -60,9 +62,9 @@ describe('chat + observer + verify', () => {
     expect(t.rows[0].ai_summary).toContain('vendor Acme');
     expect((await pool.query('SELECT count(*)::int c FROM requirement_drafts d JOIN tickets t ON t.id=d.ticket_id WHERE d.conversation_id=$1', [cid])).rows[0].c).toBe(1);
 
-    await emit(sock, 'message', { conversationId: cid, role: 'customer', name: 'Alice', body: 'Also something else' });
+    await emit(sock, 'message', { conversationId: cid, role: 'customer', body: 'Also something else' });
     await new Promise((r) => setTimeout(r, 150));
-    const after = await (await fetch(`${url}/api/conversations/${cid}`)).json() as any;
+    const after = await (await fetch(`${url}/api/conversations/${cid}`, { headers: { cookie } })).json() as any;
     expect(after.draft.status).toBe('verified');
     expect(after.draft.summary).not.toContain('something else');
   });

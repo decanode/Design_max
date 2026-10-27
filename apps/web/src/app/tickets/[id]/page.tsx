@@ -3,15 +3,16 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { Nav } from '../../../components/Nav';
 import { Markdown } from '../../../components/Markdown';
+import { NoAccess, useAuth } from '../../../lib/auth';
 
-const API = process.env.NEXT_PUBLIC_API_URL ?? '';
+const API = '';
 const STATES = ['Requirement Verified', 'FS Drafted', 'FS Approved', 'TS Drafted', 'TS Approved', 'Development', 'QA', 'UAT', 'Deployed'];
 type Kind = 'FS' | 'TS';
 type Ver = { version: number; author: string | null; note: string | null; at: string };
 type Overview = {
-  ticket: { id: string; title: string; current_state: string; ai_summary: string | null };
+  ticket: { id: string; title: string; current_state: string; ai_summary: string | null; customer_name: string | null; consultant_name: string | null; consultant_id: string | null };
   docs: Record<Kind, { latest: { version_number: number; content_md: string }; versions: Ver[] } | null>;
-  approvals: { kind: Kind; version_number: number; status: string; comment: string | null; approver: string }[];
+  approvals: { id: string; approver_id: string; kind: Kind; version_number: number; status: string; comment: string | null; approver: string }[];
 };
 type DiffLine = { type: 'same' | 'add' | 'del'; text: string };
 
@@ -19,13 +20,15 @@ const j = (body: unknown) => ({ method: 'POST', headers: { 'content-type': 'appl
 
 export default function TicketPage() {
   const { id } = useParams<{ id: string }>();
+  const { me, can, loading: authLoading } = useAuth();
+  const [people, setPeople] = useState<{ id: string; name: string }[]>([]);
+  const [decision, setDecision] = useState('');
   const [o, setO] = useState<Overview | null>(null);
   const [kind, setKind] = useState<Kind>('FS');
   const [text, setText] = useState('');
   const [viewing, setViewing] = useState<number | null>(null);   // historical version being viewed (read-only)
   const [diff, setDiff] = useState<DiffLine[] | null>(null);
   const [approver, setApprover] = useState('');
-  const [author, setAuthor] = useState('Consultant');
   const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -37,19 +40,21 @@ export default function TicketPage() {
     return data;
   }, [id]);
 
-  useEffect(() => { load().then((d) => {
+  useEffect(() => { if (can('ticket.assign')) fetch(`${API}/api/users/assignable`).then((r) => r.ok && r.json()).then((d) => d && setPeople(d)); }, [can]);
+  useEffect(() => { if (!me) return; load().then((d) => {
     if (!d) return;
     const k: Kind = d.docs.TS ? 'TS' : 'FS';
     setKind(k); setText(d.docs[k]?.latest.content_md ?? '');
-  }); }, [load]);
+  }); }, [load, me]);
 
   const doc = o?.docs[kind] ?? null;
   const latest = doc?.latest.version_number ?? 0;
   const state = o?.ticket.current_state ?? '';
-  const editable = state === `${kind} Drafted` && viewing === null;
+  const editable = can('spec.edit') && state === `${kind} Drafted` && viewing === null;
   const dirty = editable && doc != null && text !== doc.latest.content_md;
   const pending = o?.approvals.find((a) => a.kind === kind && a.status === 'pending');
-  const canGenerate = (kind === 'FS' && state === 'Requirement Verified') || (kind === 'TS' && state === 'FS Approved');
+  const canGenerate = can('spec.generate') && ((kind === 'FS' && state === 'Requirement Verified') || (kind === 'TS' && state === 'FS Approved'));
+  const myApproval = o?.approvals.find((a) => a.kind === kind && a.status === 'pending' && a.approver_id === me?.user.id && can('approval.decide'));
 
   function pick(k: Kind) { setKind(k); setViewing(null); setDiff(null); setText(o?.docs[k]?.latest.content_md ?? ''); setMsg(null); }
 
@@ -63,7 +68,13 @@ export default function TicketPage() {
   }
 
   const generate = (k: Kind) => run(() => fetch(`${API}/api/tickets/${id}/documents/generate`, j({ kind: k })), 'Draft created.');
-  const save = () => run(() => fetch(`${API}/api/tickets/${id}/documents/${kind}/versions`, j({ content: text, baseVersion: latest, author })), 'Saved as a new version.');
+  const save = () => run(() => fetch(`${API}/api/tickets/${id}/documents/${kind}/versions`, j({ content: text, baseVersion: latest })), 'Saved as a new version.');
+  async function claim() { await run(() => fetch(`${API}/api/tickets/${id}/claim`, { method: 'POST' }), 'You now own this ticket.'); }
+  async function assign(consultantId: string) { await run(() => fetch(`${API}/api/tickets/${id}/assign`, j({ consultantId: consultantId || null })), 'Assignment updated.'); }
+  async function decide(approvalId: string, d: 'approved' | 'rejected') {
+    await run(() => fetch(`${API}/api/my/approvals/${approvalId}/decision`, j({ decision: d, comment: decision })), d === 'approved' ? 'Approved. The ticket moved on.' : 'Rejected with your comment.');
+    setDecision('');
+  }
   const request = () => run(() => fetch(`${API}/api/tickets/${id}/approvals`, j({ kind, approverEmail: approver })), `Approval link sent to ${approver}. See the Mailbox.`);
 
   async function open(v: number) {
@@ -78,6 +89,7 @@ export default function TicketPage() {
   const approvalNote = useMemo(() => o?.approvals.filter((a) => a.kind === kind).map((a) =>
     `v${a.version_number} · ${a.approver} · ${a.status}${a.comment ? ` — “${a.comment}”` : ''}`) ?? [], [o, kind]);
 
+  if (authLoading || !me) return <><Nav current="none" /><main id="main"><p className="note">Loading…</p></main></>;
   if (!o) return <><Nav current="none" /><main id="main">{msg ? <p role="alert" className="err">{msg.text}</p> : <p className="note">Loading…</p>}</main></>;
 
   return (
@@ -85,10 +97,20 @@ export default function TicketPage() {
       <Nav current="none" />
       <main id="main">
         <h2 style={{ marginTop: 0 }}>{o.ticket.title}</h2>
+        <div className="row" style={{ marginTop: -4 }}>
+          <span className="note">Customer: {o.ticket.customer_name ?? '—'}</span>
+          <span className="note">· Consultant: {o.ticket.consultant_name ?? 'Unassigned'}</span>
+          {!o.ticket.consultant_id && can('ticket.claim') && <button className="btn sm" disabled={busy} onClick={claim}>Claim this ticket</button>}
+          {can('ticket.assign') && (
+            <select aria-label="Assign consultant" value={o.ticket.consultant_id ?? ''} onChange={(e) => assign(e.target.value)}>
+              <option value="">Unassigned</option>{people.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>)}
+        </div>
         <ol className="stepper" aria-label="Ticket lifecycle">
           {STATES.map((s, i) => <li key={s} className={i < idx ? 'done' : i === idx ? 'cur' : ''} aria-current={i === idx ? 'step' : undefined}>{s}</li>)}
         </ol>
 
+        {!can('spec.view') ? <NoAccess what="the specifications" /> : (<>
         <div className="tabs" role="tablist" aria-label="Specification">
           {(['FS', 'TS'] as Kind[]).map((k) => (
             <button key={k} role="tab" className="tab" aria-selected={kind === k} onClick={() => pick(k)}>
@@ -120,20 +142,29 @@ export default function TicketPage() {
               {diff && <><h3>Changes in the latest version</h3><div className="diff" role="region" aria-label="Diff">{diff.map((l, i) => <div key={i} className={l.type}>{l.type === 'add' ? '+ ' : l.type === 'del' ? '− ' : '  '}{l.text}</div>)}</div></>}
               {editable && (
                 <div className="row">
-                  <label className="sr" htmlFor="author">Your name</label>
-                  <input id="author" value={author} onChange={(e) => setAuthor(e.target.value)} placeholder="Your name" style={{ minWidth: 140 }} />
-                  <button className="btn" disabled={!dirty || busy || !author.trim()} onClick={save}>Save new version</button>
+                  <button className="btn" disabled={!dirty || busy} onClick={save}>Save new version</button>
                   {dirty && <span className="note">Unsaved changes</span>}
                 </div>
               )}
-              {editable && !pending && (
+              {editable && can('approval.request') && !pending && (
                 <div className="row">
                   <label className="sr" htmlFor="approver">Approver email</label>
                   <input id="approver" type="email" value={approver} onChange={(e) => setApprover(e.target.value)} placeholder="approver@company.com" />
                   <button className="btn ghost" disabled={busy || dirty || !approver} onClick={request} title={dirty ? 'Save your changes first' : undefined}>Request approval</button>
                 </div>
               )}
-              {pending && <p className="note">Waiting for approval from {pending.approver} (v{pending.version_number}). Editing will cancel the request.</p>}
+              {myApproval && (
+                <div className="pane" style={{ padding: 14, marginTop: 12 }}>
+                  <h3 style={{ margin: '0 0 8px' }}>Your decision on v{myApproval.version_number}</h3>
+                  <label className="sr" htmlFor="dec">Comment</label>
+                  <textarea id="dec" rows={2} placeholder="Comment (required to reject)" value={decision} onChange={(e) => setDecision(e.target.value)}
+                    style={{ width: '100%', padding: 10, borderRadius: 8, border: '1px solid var(--line)', background: 'var(--bg)', color: 'var(--text)' }} />
+                  <div className="row">
+                    <button className="btn verify" style={{ width: 'auto' }} disabled={busy} onClick={() => decide(myApproval.id, 'approved')}>Approve</button>
+                    <button className="btn ghost" disabled={busy || !decision.trim()} onClick={() => decide(myApproval.id, 'rejected')}>Reject</button>
+                  </div>
+                </div>)}
+              {pending && !myApproval && <p className="note">Waiting for approval from {pending.approver} (v{pending.version_number}). Editing will cancel the request.</p>}
             </section>
             <aside className="side" aria-label="History">
               <div>
@@ -147,6 +178,7 @@ export default function TicketPage() {
             </aside>
           </div>
         )}
+        </>)}
       </main>
     </>
   );

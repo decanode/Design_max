@@ -39,6 +39,13 @@ Automated background ingestion workers populate a central Vector Database (`pgve
 
 ---
 
+### F. Role-Based Access Control (added by approved design change)
+*   **Roles & views:** Customer, Consultant, Lead, Manager and Admin ship built in; each gets a different home view (customer: own requests and a "raise a request" entry; consultant: own work plus the intake queue; lead: team workload and assignment; manager: portfolio and an approvals queue; admin: everything plus the console). A sixth built-in role, `Approver`, covers external approvers who act only through emailed links.
+*   **Permissions:** a fixed catalog of permissions grouped by feature (Board, Tickets, Chat, Specifications, Approvals, Dashboards, Developer tools, Administration). A role is a set of permissions. `Admin` implicitly holds every permission and cannot be restricted.
+*   **Admin console:** admins create and delete custom roles (optionally cloning an existing role), tick permissions per role per feature, and assign roles to users. Every change is written to an audit log and takes effect immediately; the system refuses to leave zero active Admins.
+*   **Enforcement:** server-side on every API route and Socket.io event (the UI hiding controls is a convenience only). Ticket visibility is scoped by permission (`view_all`, `view_own` = customer or assigned consultant, `view_unassigned`); tickets a user may not see answer 404.
+*   **Identity:** signed, expiring session cookie. Development uses an account-picker login; Sprint 4 replaces it with SAML/OIDC SSO (Entra ID) mapped onto the same users and roles. Roles are global per user for now; per-project membership is a planned refinement.
+
 ## 2. Technology Stack
 
 | Layer | Component | Purpose |

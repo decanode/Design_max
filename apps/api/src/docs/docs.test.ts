@@ -5,15 +5,17 @@ import { TemplateGenerator, LlmGenerator } from './generator.js';
 import { OutboxMailer } from './mailer.js';
 import { diffLines } from './diff.js';
 import { createTicket } from '../tickets.js';
+import { makeUser } from '../testAuth.js';
 import { HashEmbedder } from '../etl/vectorize.js';
 
 const app = buildApp({ generator: new TemplateGenerator(), mailer: new OutboxMailer(), embedder: new HashEmbedder(), appUrl: 'http://app.test' });
 let projectId: string;
-beforeAll(async () => { await app.ready(); projectId = (await pool.query("INSERT INTO projects(name) VALUES('docs') RETURNING id")).rows[0].id; });
+let cookie: string;
+beforeAll(async () => { await app.ready(); cookie = (await makeUser('Admin')).cookie; projectId = (await pool.query("INSERT INTO projects(name) VALUES('docs') RETURNING id")).rows[0].id; });
 afterAll(async () => { await app.close(); await pool.end(); });
 
 const call = async (method: 'GET' | 'POST', url: string, payload?: unknown) => {
-  const r = await app.inject({ method, url, payload: payload as any });
+  const r = await app.inject({ method, url, payload: payload as any, headers: { cookie } });
   return { status: r.statusCode, body: r.json() as any };
 };
 const newTicket = async (title = 'Block vendor') => (await createTicket(projectId, title, 'Customer wants vendors blocked')).id as string;

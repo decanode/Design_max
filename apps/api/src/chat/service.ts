@@ -1,9 +1,26 @@
 import { pool } from '../db.js';
 import type { ChatMessage, Draft, Observer } from './observer.js';
 
-export async function createConversation(projectId: string, title?: string) {
-  const { rows } = await pool.query('INSERT INTO conversations (project_id, title) VALUES ($1,$2) RETURNING *', [projectId, title ?? null]);
+export async function createConversation(projectId: string, title?: string, customerId?: string | null) {
+  const { rows } = await pool.query('INSERT INTO conversations (project_id, title, customer_id) VALUES ($1,$2,$3) RETURNING *', [projectId, title ?? null, customerId ?? null]);
   return rows[0];
+}
+
+/** A user may open a conversation they own, or any conversation if their role can see all of them. */
+export async function canAccessConversation(u: { id: string; perms: Set<string> }, conversationId: string) {
+  const c = (await pool.query('SELECT customer_id FROM conversations WHERE id=$1', [conversationId])).rows[0];
+  if (!c) return false;
+  return u.perms.has('chat.view_all') || c.customer_id === u.id;
+}
+
+export async function listConversations(u: { id: string; perms: Set<string> }) {
+  const all = u.perms.has('chat.view_all');
+  return (await pool.query(
+    `SELECT c.id, c.created_at, c.customer_id, cu.display_name AS customer, d.title AS draft_title, d.status AS draft_status,
+            (SELECT body FROM messages m WHERE m.conversation_id = c.id ORDER BY m.id DESC LIMIT 1) AS last_message,
+            COALESCE((SELECT max(created_at) FROM messages m WHERE m.conversation_id = c.id), c.created_at) AS last_at
+     FROM conversations c LEFT JOIN users cu ON cu.id = c.customer_id LEFT JOIN requirement_drafts d ON d.conversation_id = c.id
+     WHERE ($1 OR c.customer_id = $2) ORDER BY last_at DESC LIMIT 100`, [all, u.id])).rows;
 }
 
 export async function getMessages(conversationId: string) {
@@ -47,8 +64,8 @@ export async function verifyDraft(conversationId: string) {
     const d = (await client.query('SELECT * FROM requirement_drafts WHERE conversation_id=$1 FOR UPDATE', [conversationId])).rows[0];
     if (!d) throw new VerifyError('Nothing to verify yet');
     if (d.status === 'verified') { await client.query('COMMIT'); return { draft: d, ticketId: d.ticket_id as string, created: false }; }
-    const project = (await client.query('SELECT project_id FROM conversations WHERE id=$1', [conversationId])).rows[0].project_id;
-    const t = await client.query('INSERT INTO tickets (project_id, title, ai_summary) VALUES ($1,$2,$3) RETURNING id', [project, d.title, d.summary]);
+    const conv = (await client.query('SELECT project_id, customer_id FROM conversations WHERE id=$1', [conversationId])).rows[0];
+    const t = await client.query('INSERT INTO tickets (project_id, title, ai_summary, customer_id) VALUES ($1,$2,$3,$4) RETURNING id', [conv.project_id, d.title, d.summary, conv.customer_id]);
     const upd = await client.query(`UPDATE requirement_drafts SET status='verified', ticket_id=$2, updated_at=now() WHERE conversation_id=$1 RETURNING *`, [conversationId, t.rows[0].id]);
     await client.query('COMMIT');
     return { draft: upd.rows[0], ticketId: t.rows[0].id as string, created: true };

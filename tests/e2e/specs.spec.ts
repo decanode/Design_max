@@ -7,7 +7,7 @@ test('FS and TS: generate, edit with history, approve by emailed link, then cont
   await page.goto('/');
   await page.getByLabel('New ticket title').fill(title);
   await page.getByRole('button', { name: 'Create ticket' }).click();
-  await page.getByRole('link', { name: title }).click();
+  await page.getByRole('region', { name: 'Requirement Verified' }).getByRole('link', { name: title }).click();
 
   // FS draft
   await page.getByRole('button', { name: 'Generate FS draft' }).click();

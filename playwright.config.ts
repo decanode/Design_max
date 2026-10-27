@@ -13,6 +13,11 @@ export default defineConfig({
   workers: 1,
   reporter: [['list'], ['html', { open: 'never' }]],
   use: { baseURL: `http://localhost:${WEB}`, trace: 'retain-on-failure' },
+  projects: [
+    // Creates the demo accounts and saves one signed-in browser state per role in .auth/
+    { name: 'setup', testMatch: /auth\.setup\.ts/ },
+    { name: 'e2e', testIgnore: /auth\.setup\.ts/, dependencies: ['setup'], use: { storageState: '.auth/Admin.json' } },
+  ],
   webServer: [
     { command: 'npm run dev:api', url: `http://localhost:${API}/health`, reuseExistingServer: false, timeout: 60_000,
       env: { API_PORT: String(API), AI_PROVIDER: 'offline', DATABASE_URL: testDbUrl() } },

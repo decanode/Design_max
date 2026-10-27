@@ -2,13 +2,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { Nav } from '../components/Nav';
+import { RolePanels } from '../components/RolePanels';
+import { NoAccess, useAuth, j as jj } from '../lib/auth';
 
-const API = process.env.NEXT_PUBLIC_API_URL ?? '';
+const API = '';
 
 type Ticket = {
   id: string; title: string; current_state: string; ai_summary: string | null;
   legacy_id: string | null; legacy_source: 'jira' | 'servicenow' | null;
-  created_at: string; updated_at: string; awaiting_approval: boolean;
+  created_at: string; updated_at: string; awaiting_approval: boolean; consultant_id: string | null; consultant: string | null;
 };
 
 /** Phases grouped into lanes so the lifecycle reads left-to-right at a glance. */
@@ -31,9 +33,9 @@ const ago = (iso: string) => {
   return new Date(iso).toLocaleDateString();
 };
 
-const j = (body: unknown) => ({ method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
 
 export default function Board() {
+  const { me, can, loading } = useAuth();
   const [tickets, setTickets] = useState<Ticket[] | null>(null);
   const [q, setQ] = useState('');
   const [title, setTitle] = useState('');
@@ -46,7 +48,7 @@ export default function Board() {
       setTickets(await r.json()); setError('');
     } catch { setError('Cannot reach the API.'); setTickets((t) => t ?? []); }
   }, []);
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { if (can('board.view')) load(); }, [load, can]);
 
   const shown = useMemo(() => {
     const n = q.trim().toLowerCase();
@@ -69,8 +71,8 @@ export default function Board() {
     if (!title.trim()) return;
     try {
       let pid: string | undefined = (await (await fetch(`${API}/api/projects`)).json())[0]?.id;
-      if (!pid) pid = (await (await fetch(`${API}/api/projects`, j({ name: 'Default' }))).json()).id;
-      const r = await fetch(`${API}/api/tickets`, j({ projectId: pid, title: title.trim() }));
+      if (!pid) pid = (await (await fetch(`${API}/api/projects`, jj({ name: 'Default' }))).json()).id;
+      const r = await fetch(`${API}/api/tickets`, jj({ projectId: pid, title: title.trim() }));
       if (!r.ok) throw new Error();
       setTitle(''); setError(''); load();
     } catch { setError('Could not create the ticket.'); }
@@ -78,29 +80,35 @@ export default function Board() {
 
   async function advance(t: Ticket) {
     const to = ORDER[ORDER.indexOf(t.current_state) + 1];
-    const r = await fetch(`${API}/api/tickets/${t.id}/transition`, j({ to }));
+    const r = await fetch(`${API}/api/tickets/${t.id}/transition`, jj({ to }));
     setError(r.ok ? '' : (await r.json()).error);
     load();
   }
+
+  if (loading || !me) return <><Nav current="board" /><main id="main"><p className="note">Loading…</p></main></>;
+  if (!can('board.view')) return <><Nav current="board" /><main id="main"><NoAccess what="the board" /></main></>;
 
   return (
     <>
       <Nav current="board" />
       <main id="main">
         <div className="board-head">
-          <div><h2>Board</h2><p>Every ticket, from verified requirement to deployment.</p></div>
+          <div><h2>{can('ticket.view_all') ? 'Board' : 'My work'}</h2>
+            <p>{can('ticket.view_all') ? 'Every ticket, from verified requirement to deployment.' : can('chat.as_customer') ? 'Your requests, from verified requirement to deployment.' : 'Tickets assigned to you and the intake queue.'}</p></div>
           <div className="tools">
             <label className="sr" htmlFor="search">Search tickets</label>
             <input id="search" className="search" type="search" placeholder="Search tickets…" value={q} onChange={(e) => setQ(e.target.value)} />
-            <form className="newform" onSubmit={create}>
+            {can('ticket.create') && <form className="newform" onSubmit={create}>
               <label className="sr" htmlFor="new">New ticket title</label>
               <input id="new" className="newtitle" aria-label="New ticket title" placeholder="New ticket title" value={title} onChange={(e) => setTitle(e.target.value)} />
               <button className="btn" type="submit" disabled={!title.trim()}>Create ticket</button>
-            </form>
+            </form>}
           </div>
         </div>
 
         {error && <p role="alert" className="err">{error}</p>}
+
+        {tickets && <RolePanels tickets={tickets} reload={load} />}
 
         <section className="stats" aria-label="Summary">
           <div className="stat"><b>{stats.total}</b><span>Total tickets</span></div>
@@ -129,9 +137,10 @@ export default function Board() {
                             <div className="meta">
                               {t.awaiting_approval && <span className="tag warn">Awaiting approval</span>}
                               {t.legacy_source && <span className="tag src">{t.legacy_source === 'jira' ? 'Jira' : 'ServiceNow'} · {t.legacy_id}</span>}
+                              {t.consultant && <span className="tag" title="Assigned consultant">{t.consultant}</span>}
                               <span>{ago(t.updated_at)}</span>
                             </div>
-                            {CAN_ADVANCE.has(s) && <button className="adv" onClick={() => advance(t)}>Advance → {ORDER[ORDER.indexOf(s) + 1]}</button>}
+                            {CAN_ADVANCE.has(s) && can('ticket.advance') && <button className="adv" onClick={() => advance(t)}>Advance → {ORDER[ORDER.indexOf(s) + 1]}</button>}
                           </article>
                         ))}
                       </div>

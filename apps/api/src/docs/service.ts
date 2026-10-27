@@ -150,10 +150,24 @@ export async function viewApproval(token: string) {
 }
 
 export async function decideApproval(token: string, decision: 'approved' | 'rejected', comment?: string) {
+  return decideWith((c) => findByToken(c, token, 'FOR UPDATE OF a'), decision, comment);
+}
+
+/** In-app decision by a signed-in approver; only the person the approval was addressed to may decide it. */
+export async function decideApprovalAsUser(approvalId: string, userId: string, decision: 'approved' | 'rejected', comment?: string) {
+  return decideWith(async (c) => {
+    const a = (await c.query(`SELECT a.*, t.title, t.current_state FROM approvals a JOIN tickets t ON t.id=a.ticket_id WHERE a.id=$1 FOR UPDATE OF a`, [approvalId])).rows[0];
+    if (!a) throw new DocError('Approval not found', 404);
+    if (a.approver_id !== userId) throw new DocError('This approval is addressed to someone else', 403);
+    return a;
+  }, decision, comment);
+}
+
+async function decideWith(lookup: (c: import('pg').PoolClient) => Promise<any>, decision: 'approved' | 'rejected', comment?: string) {
   const c = await pool.connect();
   try {
     await c.query('BEGIN');
-    const a = await findByToken(c, token, 'FOR UPDATE OF a');
+    const a = await lookup(c);
     const st = effectiveStatus(a);
     if (st !== 'pending') throw new DocError(`This approval is already ${st}`, st === 'expired' || st === 'superseded' ? 410 : 409);
     if (decision === 'rejected' && !comment?.trim()) throw new DocError('Please say why you are rejecting', 400);
@@ -165,10 +179,14 @@ export async function decideApproval(token: string, decision: 'approved' | 'reje
 }
 
 export async function ticketOverview(id: string) {
-  const ticket = await getTicket(id);
+  const base = await getTicket(id);
+  const names = (await pool.query(
+    `SELECT cu.display_name AS customer_name, co.display_name AS consultant_name FROM tickets t
+     LEFT JOIN users cu ON cu.id=t.customer_id LEFT JOIN users co ON co.id=t.consultant_id WHERE t.id=$1`, [id])).rows[0];
+  const ticket = { ...base, ...names };
   const docs: Record<string, unknown> = {};
   for (const k of ['FS', 'TS'] as const) { const v = await listVersions(id, k); docs[k] = v.length ? { latest: v[0], versions: v.map((x) => ({ version: x.version_number, author: x.author_name, note: x.change_note, at: x.created_at })) } : null; }
   const approvals = (await pool.query(
-    `SELECT a.kind, a.version_number, a.status, a.comment, a.requested_at, a.decided_at, u.email AS approver FROM approvals a JOIN users u ON u.id=a.approver_id WHERE a.ticket_id=$1 ORDER BY a.requested_at DESC`, [id])).rows;
+    `SELECT a.id, a.approver_id, a.kind, a.version_number, a.status, a.comment, a.requested_at, a.decided_at, u.email AS approver FROM approvals a JOIN users u ON u.id=a.approver_id WHERE a.ticket_id=$1 ORDER BY a.requested_at DESC`, [id])).rows;
   return { ticket, docs, approvals };
 }

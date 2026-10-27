@@ -17,6 +17,8 @@ test('customer chats, AI drafts the requirement, Verify & Approve logs a ticket'
   await expect(summary.getByRole('button', { name: 'Verify & Approve' })).toHaveCount(0);
 
   await summary.getByRole('link', { name: /View ticket/ }).click();
+  await expect(page.getByRole('heading', { level: 2 }).first()).toContainText(unique);
+  await page.goto('/');
   await expect(page.getByRole('region', { name: 'Requirement Verified' }).getByRole('link', { name: new RegExp(unique) })).toBeVisible();
 });
 

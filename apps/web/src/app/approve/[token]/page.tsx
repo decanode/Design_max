@@ -4,7 +4,7 @@ import { useParams } from 'next/navigation';
 import { Nav } from '../../../components/Nav';
 import { Markdown } from '../../../components/Markdown';
 
-const API = process.env.NEXT_PUBLIC_API_URL ?? '';
+const API = '';
 type View = { ticketTitle: string; kind: 'FS' | 'TS'; version: number; status: string; comment: string | null; content: string };
 
 export default function Approve() {

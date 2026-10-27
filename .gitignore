@@ -6,3 +6,4 @@ playwright-report
 test-results
 *.tsbuildinfo
 .next-e2e
+.auth
