@@ -4,6 +4,7 @@ export const EMBEDDING_DIM = 1536;
 export interface Embedder { embed(texts: string[]): Promise<number[][]>; /** false for the offline stand-in: its similarity is meaningless */ readonly semantic?: boolean }
 
 export class OpenAIEmbedder implements Embedder {
+  readonly semantic = true;
   constructor(private apiKey: string, private model = 'text-embedding-3-small', private f: typeof fetch = fetch) {}
   async embed(texts: string[]) {
     const res = await this.f('https://api.openai.com/v1/embeddings', {
@@ -18,6 +19,7 @@ export class OpenAIEmbedder implements Embedder {
 
 /** GitHub Models embeddings (OpenAI-compatible). Model must produce 1536 dims to match the schema. */
 export class GitHubModelsEmbedder implements Embedder {
+  readonly semantic = true;
   constructor(private token: string, private model = 'openai/text-embedding-3-small', private org?: string, private f: typeof fetch = fetch) {}
   async embed(texts: string[]) {
     const res = await this.f(`https://models.github.ai${this.org ? `/orgs/${this.org}` : ''}/inference/embeddings`, {
@@ -29,6 +31,31 @@ export class GitHubModelsEmbedder implements Embedder {
     const vecs: number[][] = ((await res.json()) as any).data.map((d: any) => d.embedding);
     if (vecs.some((v) => v.length !== EMBEDDING_DIM)) throw new Error(`Embedding dimension != ${EMBEDDING_DIM}`);
     return vecs;
+  }
+}
+
+/** Gemini embeddings, truncated to the schema's 1536 dims (Matryoshka) and re-normalized as Google advises. */
+export class GeminiEmbedder implements Embedder {
+  readonly semantic = true;
+  constructor(private apiKey: string, private model = 'gemini-embedding-001', private f: typeof fetch = fetch) {}
+  async embed(texts: string[]) {
+    const out: number[][] = [];
+    for (let i = 0; i < texts.length; i += 100) {           // batchEmbedContents accepts up to 100 per call
+      const res = await this.f(`https://generativelanguage.googleapis.com/v1beta/models/${this.model}:batchEmbedContents`, {
+        method: 'POST',
+        headers: { 'x-goog-api-key': this.apiKey, 'content-type': 'application/json' },
+        body: JSON.stringify({ requests: texts.slice(i, i + 100).map((t) => ({
+          model: `models/${this.model}`, content: { parts: [{ text: t }] }, outputDimensionality: EMBEDDING_DIM })) }),
+      });
+      if (!res.ok) throw new Error(`Gemini embeddings ${res.status}`);
+      for (const e of ((await res.json()) as any).embeddings) {
+        const v: number[] = e.values;
+        if (v.length !== EMBEDDING_DIM) throw new Error(`Embedding dimension ${v.length} != ${EMBEDDING_DIM}`);
+        const n = Math.hypot(...v) || 1;
+        out.push(v.map((x) => x / n));
+      }
+    }
+    return out;
   }
 }
 
@@ -78,9 +105,13 @@ export async function similar(db: Pick<pg.Pool, 'query'>, embedder: Embedder, qu
   return rows;
 }
 
+/** Same selection rule as defaultLlm (AI_PROVIDER override, else first configured). */
 export function defaultEmbedder(): Embedder {
   const e = process.env;
-  if (e.GITHUB_MODELS_TOKEN) return new GitHubModelsEmbedder(e.GITHUB_MODELS_TOKEN, e.GITHUB_MODELS_EMBED_MODEL, e.GITHUB_MODELS_ORG);
-  if (e.OPENAI_API_KEY) return new OpenAIEmbedder(e.OPENAI_API_KEY);
+  const want = e.AI_PROVIDER?.toLowerCase();
+  const ok = (name: string, key?: string) => (want ? want === name : !!key) && !!key;
+  if (ok('github', e.GITHUB_MODELS_TOKEN)) return new GitHubModelsEmbedder(e.GITHUB_MODELS_TOKEN!, e.GITHUB_MODELS_EMBED_MODEL, e.GITHUB_MODELS_ORG);
+  if (ok('gemini', e.GEMINI_API_KEY)) return new GeminiEmbedder(e.GEMINI_API_KEY!);
+  if (e.OPENAI_API_KEY && (!want || want === 'openai')) return new OpenAIEmbedder(e.OPENAI_API_KEY);
   return new HashEmbedder();
 }

@@ -71,6 +71,21 @@ export class GitHubModelsClient implements LlmClient {
   }
 }
 
+/** Google Gemini via the Generative Language API (API key from Google AI Studio). */
+export class GeminiClient implements LlmClient {
+  constructor(private apiKey: string, private model = 'gemini-2.5-pro', private f: Fetcher = fetch) {}
+  async complete(system: string, user: string) {
+    const res = await this.f(`https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent`, {
+      method: 'POST',
+      headers: { 'x-goog-api-key': this.apiKey, 'content-type': 'application/json' },
+      body: JSON.stringify({ systemInstruction: { parts: [{ text: system }] }, contents: [{ role: 'user', parts: [{ text: user }] }] }),
+    });
+    if (!res.ok) throw new Error(`Gemini ${res.status}`);
+    const parts: { text?: string }[] = ((await res.json()) as any).candidates?.[0]?.content?.parts ?? [];
+    return parts.map((p) => p.text ?? '').join('');
+  }
+}
+
 const SYSTEM = 'You observe a customer/consultant chat and draft a plain-English requirement. Reply with ONLY JSON: {"title": string (<=120 chars), "summary": string, "entities": {"businessObjects": string[], "vendors": string[], "materialTypes": string[]}}. Do not invent facts absent from the chat.';
 
 /** Provider-agnostic LLM observer. Output is validated, so a bad model reply never corrupts a draft. */
@@ -83,11 +98,17 @@ export class LlmObserver implements Observer {
   }
 }
 
-/** Provider choice: GitHub Models (firm license) > Anthropic > none (offline stand-ins). */
+/**
+ * Provider choice. `AI_PROVIDER` (github | gemini | anthropic | offline) forces one;
+ * otherwise the first configured wins: GitHub Models (firm license) > Gemini > Anthropic > offline.
+ */
 export function defaultLlm(): LlmClient | null {
   const e = process.env;
-  if (e.GITHUB_MODELS_TOKEN) return new GitHubModelsClient(e.GITHUB_MODELS_TOKEN, e.GITHUB_MODELS_MODEL, e.GITHUB_MODELS_ORG);
-  if (e.ANTHROPIC_API_KEY) return new AnthropicClient(e.ANTHROPIC_API_KEY);
+  const want = e.AI_PROVIDER?.toLowerCase();
+  const ok = (name: string, key?: string) => (want ? want === name : !!key) && !!key;
+  if (ok('github', e.GITHUB_MODELS_TOKEN)) return new GitHubModelsClient(e.GITHUB_MODELS_TOKEN!, e.GITHUB_MODELS_MODEL, e.GITHUB_MODELS_ORG);
+  if (ok('gemini', e.GEMINI_API_KEY)) return new GeminiClient(e.GEMINI_API_KEY!, e.GEMINI_MODEL);
+  if (ok('anthropic', e.ANTHROPIC_API_KEY)) return new AnthropicClient(e.ANTHROPIC_API_KEY!);
   return null;
 }
 export function defaultObserver(): Observer {

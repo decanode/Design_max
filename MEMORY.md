@@ -45,6 +45,8 @@ Sprint 0: **complete**. Sprint 1 (ETL & ingestion workers): **core ETL complete;
 - Tests: 32 Vitest + 4 Playwright E2E passing (gated lifecycle, conflicts, reject, supersede, expiry, immutability, race on generate).
 
 ## Decisions
+- **USER DECISION: use Gemini (user has a Pro plan) for testing until the build completes.** Note: the Gemini Pro *subscription* has no API access; an API key from Google AI Studio is needed. Added `GeminiClient` (default model `gemini-2.5-pro`, configurable via `GEMINI_MODEL`; model id unverified as the best current one) and `GeminiEmbedder` (`gemini-embedding-001`, 1536 dims via outputDimensionality, re-normalized). `AI_PROVIDER=github|gemini|anthropic|offline` forces a provider; otherwise first configured wins (GitHub Models > Gemini > Anthropic). Server logs the active provider at start. Mocked-HTTP tests only; not run against live Gemini.
+- **Embeddings from different models are not comparable**: if the embedder changes, clear `embeddings` (`DELETE FROM embeddings`) and re-ingest. Free-tier Gemini API terms may allow Google to use inputs for product improvement: test with synthetic data only, never client data.
 - **Approvals bound to a document version and invalidated by edits**: prevents approving text that later changed.
 - **Gates enforced in the service layer, not only the UI**: the generic transition endpoint cannot bypass sign-off. (DB trigger still enforces ordering only; approval presence is not enforced in SQL.)
 - **Optimistic concurrency instead of real-time co-editing**: safe multi-user saving without CRDT/websocket complexity; true live collaboration deferred.

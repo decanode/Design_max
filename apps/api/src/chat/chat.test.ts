@@ -4,8 +4,9 @@ import type { AddressInfo } from 'node:net';
 import { pool } from '../db.js';
 import { buildApp } from '../app.js';
 import { attachChat } from './socket.js';
-import { RuleBasedObserver, LlmObserver, AnthropicClient, GitHubModelsClient } from './observer.js';
+import { RuleBasedObserver, LlmObserver, AnthropicClient, GitHubModelsClient, GeminiClient } from './observer.js';
 import { createConversation } from './service.js';
+import { GeminiEmbedder, EMBEDDING_DIM } from '../etl/vectorize.js';
 
 const app = buildApp();
 let url: string, sock: Socket, cid: string;
@@ -86,5 +87,26 @@ describe('LLM observer (mocked HTTP)', () => {
     expect(d?.title).toBe('T');
     expect(seen).toMatchObject({ url: 'https://models.github.ai/orgs/acme-corp/inference/chat/completions', auth: 'Bearer tok' });
     expect(seen!.body.messages[0].role).toBe('system');
+  });
+
+  it('Gemini: key header, systemInstruction, joins response parts', async () => {
+    let seen: { url: string; key: string; body: any } | undefined;
+    const f: typeof fetch = async (u, init: any) => { seen = { url: String(u), key: init.headers['x-goog-api-key'], body: JSON.parse(init.body) }; return Response.json({ candidates: [{ content: { parts: [{ text: '{"title":"T","summary":"S",' }, { text: '"entities":{}}' }] } }] }); };
+    const d = await new LlmObserver(new GeminiClient('gk', 'gemini-2.5-pro', f)).draft(msgs);
+    expect(d?.title).toBe('T');
+    expect(seen).toMatchObject({ url: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent', key: 'gk' });
+    expect(seen!.body.systemInstruction.parts[0].text).toContain('requirement');
+    await expect(new GeminiClient('k', undefined, async () => new Response('', { status: 429 })).complete('s', 'u')).rejects.toThrow(/429/);
+  });
+
+  it('GeminiEmbedder: requests 1536 dims, normalizes, rejects wrong sizes', async () => {
+    let body: any;
+    const vec = (n: number) => new Array(n).fill(3);
+    const ok: typeof fetch = async (_u, init: any) => { body = JSON.parse(init.body); return Response.json({ embeddings: body.requests.map(() => ({ values: vec(EMBEDDING_DIM) })) }); };
+    const [v] = await new GeminiEmbedder('k', undefined, ok).embed(['a']);
+    expect(body.requests[0].outputDimensionality).toBe(EMBEDDING_DIM);
+    expect(Math.hypot(...v)).toBeCloseTo(1, 5);
+    const bad: typeof fetch = async () => Response.json({ embeddings: [{ values: vec(768) }] });
+    await expect(new GeminiEmbedder('k', undefined, bad).embed(['a'])).rejects.toThrow(/dimension/);
   });
 });
