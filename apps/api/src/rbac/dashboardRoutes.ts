@@ -27,9 +27,10 @@ export function registerDashboardRoutes(app: FastifyInstance) {
     };
   });
 
-  /** Approvals addressed to the signed-in user. */
-  app.get('/api/my/approvals', { preHandler: need('approval.decide') }, async (req) =>
+  /** Approvals addressed to the signed-in user (being named in a workflow is the authority to decide). */
+  app.get('/api/my/approvals', async (req) =>
     (await pool.query(
-      `SELECT a.id, a.kind, a.version_number, a.requested_at, a.expires_at, t.id AS ticket_id, t.title
-       FROM approvals a JOIN tickets t ON t.id = a.ticket_id WHERE a.approver_id = $1 AND a.status = 'pending' ORDER BY a.requested_at`, [req.user!.id])).rows);
+      `SELECT a.id, a.kind, a.version_number, a.requested_at, a.expires_at, a.level_name, r.workflow_name, t.id AS ticket_id, t.title
+       FROM approvals a JOIN tickets t ON t.id = a.ticket_id LEFT JOIN approval_requests r ON r.id = a.request_id
+       WHERE a.approver_id = $1 AND a.status = 'pending' ORDER BY a.requested_at`, [req.user!.id])).rows);
 }

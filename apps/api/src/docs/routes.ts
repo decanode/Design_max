@@ -5,7 +5,8 @@ import type { Embedder } from '../etl/vectorize.js';
 import type { DocGenerator } from './generator.js';
 import type { Mailer } from './mailer.js';
 import { need, ticketVisible } from '../rbac/auth.js';
-import { DocError, decideApproval, decideApprovalAsUser, diffVersions, generateDocument, requestApproval, saveVersion, ticketOverview, viewApproval } from './service.js';
+import { DocError, diffVersions, generateDocument, saveVersion, ticketOverview, viewApproval } from './service.js';
+import { approvalPlan, cancelRequest, decideAsUser, decideByToken, requestApproval } from '../approvals/engine.js';
 
 const Id = z.object({ id: z.string().uuid() });
 const Kind = z.enum(['FS', 'TS']);
@@ -54,11 +55,27 @@ export function registerDocRoutes(app: FastifyInstance, d: DocDeps) {
     return diffVersions(p.id, p.kind, q.from, q.to);
   });
 
+  /** Who would be asked, in what order, under the workflow that covers this document. */
+  app.get('/api/tickets/:id/approval-plan', { preHandler: need('approval.request') }, async (req) => {
+    const { id } = Id.parse(req.params);
+    const { kind } = z.object({ kind: Kind }).parse(req.query);
+    await visible(req, id);
+    return approvalPlan(id, kind, req.user!.id);
+  });
+
   app.post('/api/tickets/:id/approvals', { preHandler: need('approval.request') }, async (req, reply) => {
     const { id } = Id.parse(req.params);
+    const { kind } = z.object({ kind: Kind }).parse(req.body);
     await visible(req, id);
-    const b = z.object({ kind: Kind, approverEmail: z.string().email() }).parse(req.body);
-    return reply.code(201).send(await requestApproval(id, b.kind, b.approverEmail, d.mailer, d.appUrl));
+    return reply.code(201).send(await requestApproval(id, kind, req.user!, d.mailer, d.appUrl));
+  });
+
+  app.post('/api/tickets/:id/approvals/cancel', { preHandler: need('approval.request') }, async (req) => {
+    const { id } = Id.parse(req.params);
+    const { kind } = z.object({ kind: Kind }).parse(req.body);
+    await visible(req, id);
+    await cancelRequest(id, kind, req.user!);
+    return { ok: true };
   });
 
   // Token-holder endpoints (no login yet; the emailed single-use token is the credential).
@@ -66,13 +83,13 @@ export function registerDocRoutes(app: FastifyInstance, d: DocDeps) {
   app.post('/api/approvals/:token/decision', async (req) => {
     const { token } = z.object({ token: z.string().min(20) }).parse(req.params);
     const b = z.object({ decision: z.enum(['approved', 'rejected']), comment: z.string().max(2000).optional() }).parse(req.body);
-    return decideApproval(token, b.decision, b.comment);
+    return decideByToken(token, b.decision, b.comment, d.mailer, d.appUrl);
   });
 
-  app.post('/api/my/approvals/:id/decision', { preHandler: need('approval.decide') }, async (req) => {
+  app.post('/api/my/approvals/:id/decision', async (req) => {
     const { id } = Id.parse(req.params);
     const b = z.object({ decision: z.enum(['approved', 'rejected']), comment: z.string().max(2000).optional() }).parse(req.body);
-    return decideApprovalAsUser(id, req.user!.id, b.decision, b.comment);
+    return decideAsUser(id, req.user!.id, b.decision, b.comment, d.mailer, d.appUrl);
   });
 
   if (process.env.NODE_ENV !== 'production')

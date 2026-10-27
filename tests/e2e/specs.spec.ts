@@ -2,7 +2,6 @@ import { test, expect } from '@playwright/test';
 
 test('FS and TS: generate, edit with history, approve by emailed link, then continue', async ({ page }) => {
   const title = `Spec flow ${Date.now()}`;
-  const approver = `mgr${Date.now()}@corp.com`;
 
   await page.goto('/');
   await page.getByLabel('New ticket title').fill(title);
@@ -24,15 +23,18 @@ test('FS and TS: generate, edit with history, approve by emailed link, then cont
   await expect(page.getByRole('region', { name: 'Diff' })).toContainText('Blocked vendors must not appear');
   await history.getByRole('button', { name: /^v2/ }).click();
 
-  // request approval -> email -> approver page
-  await page.getByLabel('Approver email').fill(approver);
+  // request approval: the route comes from the Admin's workflow, no free-typed approver
+  await expect(page.getByRole('region', { name: 'Approval route' })).toContainText('Standard approval');
   await page.getByRole('button', { name: 'Request approval' }).click();
-  await expect(page.getByText(`Waiting for approval from ${approver}`)).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Approval' })).toContainText('Waiting for approval');
+  await expect(page.getByRole('list', { name: 'Approval progress' })).toContainText('L1');
 
+  // the approver gets an emailed link (here: the local mailbox)
   await page.getByRole('link', { name: 'Mailbox' }).click();
-  const mail = page.getByRole('article').filter({ hasText: approver }).first();
+  const mail = page.getByRole('article').filter({ hasText: title }).filter({ hasText: 'mia@designmax.dev' }).first();
   await mail.getByRole('link').click();
   await expect(page.getByText('Blocked vendors must not appear')).toBeVisible();
+  await expect(page.getByText('Level L1 (1 of 1)')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Reject' })).toBeDisabled();   // needs a comment
   await page.getByRole('button', { name: 'Approve', exact: true }).click();
   await expect(page.getByRole('status')).toContainText('Approved');

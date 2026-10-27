@@ -91,35 +91,34 @@ function TeamPanel({ tickets, reload }: { tickets: PanelTicket[]; reload: () => 
 }
 
 type Portfolio = { byState: { state: string; count: number }[]; pendingApprovals: number; mine: number };
-type Mine = { id: string; ticket_id: string; title: string; kind: 'FS' | 'TS'; version_number: number }[];
+type Mine = { id: string; ticket_id: string; title: string; kind: 'FS' | 'TS'; version_number: number; level_name: string | null; workflow_name: string | null }[];
 
-/** Manager: portfolio distribution and the approvals waiting on them. */
-function PortfolioPanel() {
-  const { can } = useAuth();
-  const [p, setP] = useState<Portfolio | null>(null);
+/** Approvals waiting on this person, whatever their role: being named in a workflow is what puts them here. */
+function MyApprovalsPanel() {
   const [mine, setMine] = useState<Mine>([]);
-  useEffect(() => {
-    fetch('/api/dashboard/portfolio').then((r) => r.ok && r.json()).then((d) => d && setP(d));
-    if (can('approval.decide')) fetch('/api/my/approvals').then((r) => r.ok && r.json()).then((d) => d && setMine(d));
-  }, [can]);
+  useEffect(() => { fetch('/api/my/approvals').then((r) => r.ok && r.json()).then((d) => d && setMine(d)); }, []);
+  if (mine.length === 0) return null;
+  return (
+    <Panel title="Waiting for your approval" hint={`${mine.length} document${mine.length === 1 ? '' : 's'}`}>
+      <ul className="rlist">{mine.map((a) => (
+        <li key={a.id}><Link href={`/tickets/${a.ticket_id}`}>{a.title}</Link>
+          <span className="note">{a.kind === 'FS' ? 'Functional' : 'Technical'} spec v{a.version_number}{a.level_name ? ` · ${a.level_name}` : ''}{a.workflow_name ? ` · ${a.workflow_name}` : ''}</span>
+          <Link className="btn sm" href={`/tickets/${a.ticket_id}`} style={{ textDecoration: 'none' }}>Review</Link></li>))}</ul>
+    </Panel>
+  );
+}
+
+/** Manager view: how tickets are spread across phases, and how many approvals are open firm-wide. */
+function PortfolioPanel() {
+  const [p, setP] = useState<Portfolio | null>(null);
+  useEffect(() => { fetch('/api/dashboard/portfolio').then((r) => r.ok && r.json()).then((d) => d && setP(d)); }, []);
   const max = Math.max(1, ...(p?.byState.map((s) => s.count) ?? [1]));
   return (
     <Panel title="Portfolio" hint={p ? `${p.pendingApprovals} approvals pending across the firm` : ''}>
-      <div className="split">
-        <ul className="bars" aria-label="Tickets by phase">
-          {p?.byState.map((s) => (
-            <li key={s.state}><span className="bl">{s.state}</span><span className="bar"><i style={{ width: `${(s.count / max) * 100}%` }} /></span><span className="bn">{s.count}</span></li>))}
-        </ul>
-        {can('approval.decide') && (
-          <div>
-            <h4 className="mini">Waiting for your approval</h4>
-            {mine.length === 0 ? <p className="note" style={{ margin: 0 }}>Nothing needs your decision.</p> : (
-              <ul className="rlist">{mine.map((a) => (
-                <li key={a.id}><Link href={`/tickets/${a.ticket_id}`}>{a.title}</Link><span className="note">{a.kind} v{a.version_number}</span>
-                  <Link className="btn sm" href={`/tickets/${a.ticket_id}`} style={{ textDecoration: 'none' }}>Review</Link></li>))}</ul>)}
-          </div>
-        )}
-      </div>
+      <ul className="bars" aria-label="Tickets by phase">
+        {p?.byState.map((s) => (
+          <li key={s.state}><span className="bl">{s.state}</span><span className="bar"><i style={{ width: `${(s.count / max) * 100}%` }} /></span><span className="bn">{s.count}</span></li>))}
+      </ul>
     </Panel>
   );
 }
@@ -128,6 +127,7 @@ export function RolePanels({ tickets, reload }: { tickets: PanelTicket[]; reload
   const { can } = useAuth();
   return (
     <div className="rpanels">
+      <MyApprovalsPanel />
       {can('chat.as_customer') && !can('ticket.view_all') && <CustomerPanel />}
       {/* Leads get the same list inside Team workload, with assignment controls instead of Claim. */}
       {can('ticket.claim') && !can('dashboard.team') && <QueuePanel tickets={tickets} reload={reload} />}

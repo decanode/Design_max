@@ -5,7 +5,7 @@ import { Nav } from '../../../components/Nav';
 import { Markdown } from '../../../components/Markdown';
 
 const API = '';
-type View = { ticketTitle: string; kind: 'FS' | 'TS'; version: number; status: string; comment: string | null; content: string };
+type View = { ticketTitle: string; kind: 'FS' | 'TS'; version: number; status: string; comment: string | null; content: string; level?: { name: string; position: number; of: number; workflow: string } };
 
 export default function Approve() {
   const { token } = useParams<{ token: string }>();
@@ -35,7 +35,7 @@ export default function Approve() {
         {error && <p role="alert" className="err">{error}</p>}
         {v && (<>
           <h2 style={{ marginTop: 0 }}>{v.kind === 'FS' ? 'Functional' : 'Technical'} Specification: {v.ticketTitle}</h2>
-          <p className="note">Version {v.version}</p>
+          <p className="note">Version {v.version}{v.level && <> · Level <b>{v.level.name}</b> ({v.level.position} of {v.level.of}) · {v.level.workflow}</>}</p>
           <Markdown>{v.content}</Markdown>
           {done ? <p role="status" className="ok">{done}</p> : v.status !== 'pending' ? (
             <p role="status" className="note">This request is {v.status}{v.comment ? ` — “${v.comment}”` : ''}. No action is needed.</p>

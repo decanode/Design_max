@@ -16,6 +16,7 @@ import { registerAuthRoutes } from './rbac/authRoutes.js';
 import { registerAdminRoutes, AdminError } from './rbac/adminRoutes.js';
 import { registerDashboardRoutes } from './rbac/dashboardRoutes.js';
 import { registerReportRoutes } from './reports/routes.js';
+import { registerWorkflowRoutes } from './approvals/adminRoutes.js';
 
 export function buildApp(deps: Partial<DocDeps> = {}) {
   const app = Fastify();
@@ -112,5 +113,6 @@ export function buildApp(deps: Partial<DocDeps> = {}) {
   registerAdminRoutes(app);
   registerDashboardRoutes(app);
   registerReportRoutes(app);
+  registerWorkflowRoutes(app);
   return app;
 }

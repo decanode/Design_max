@@ -5,13 +5,19 @@ import { TemplateGenerator, LlmGenerator } from './generator.js';
 import { OutboxMailer } from './mailer.js';
 import { diffLines } from './diff.js';
 import { createTicket } from '../tickets.js';
-import { makeUser } from '../testAuth.js';
+import { makeUser, makeWorkflow } from '../testAuth.js';
 import { HashEmbedder } from '../etl/vectorize.js';
 
 const app = buildApp({ generator: new TemplateGenerator(), mailer: new OutboxMailer(), embedder: new HashEmbedder(), appUrl: 'http://app.test' });
 let projectId: string;
 let cookie: string;
-beforeAll(async () => { await app.ready(); cookie = (await makeUser('Admin')).cookie; projectId = (await pool.query("INSERT INTO projects(name) VALUES('docs') RETURNING id")).rows[0].id; });
+let mgr: Awaited<ReturnType<typeof makeUser>>;
+beforeAll(async () => {
+  await app.ready(); cookie = (await makeUser('Admin')).cookie;
+  projectId = (await pool.query("INSERT INTO projects(name) VALUES('docs') RETURNING id")).rows[0].id;
+  mgr = await makeUser('Manager');
+  await makeWorkflow({ projectId, levels: [{ users: [mgr.id] }] });   // this project: one level, one named approver
+});
 afterAll(async () => { await app.close(); await pool.end(); });
 
 const call = async (method: 'GET' | 'POST', url: string, payload?: unknown) => {
@@ -21,7 +27,7 @@ const call = async (method: 'GET' | 'POST', url: string, payload?: unknown) => {
 const newTicket = async (title = 'Block vendor') => (await createTicket(projectId, title, 'Customer wants vendors blocked')).id as string;
 const state = async (id: string) => (await pool.query('SELECT current_state s FROM tickets WHERE id=$1', [id])).rows[0].s;
 const tokenFor = async (to: string) => {
-  const mail = (await pool.query('SELECT body FROM email_outbox WHERE to_email=$1 ORDER BY id DESC LIMIT 1', [to])).rows[0];
+  const mail = (await pool.query("SELECT body FROM email_outbox WHERE to_email=$1 AND body LIKE '%/approve/%' ORDER BY id DESC LIMIT 1", [to])).rows[0];
   return mail.body.match(/\/approve\/([\w-]+)/)[1] as string;
 };
 
@@ -63,10 +69,10 @@ describe('gated lifecycle', () => {
     expect(diff.body.filter((l: any) => l.type === 'add').map((l: any) => l.text)).toEqual(['Extra line']);
 
     // approval request -> email -> approve
-    expect((await call('POST', `/api/tickets/${id}/approvals`, { kind: 'FS', approverEmail: 'not-an-email' })).status).toBe(400);
-    expect((await call('POST', `/api/tickets/${id}/approvals`, { kind: 'FS', approverEmail: 'Mgr@Corp.com' })).status).toBe(201);
-    expect((await call('POST', `/api/tickets/${id}/approvals`, { kind: 'FS', approverEmail: 'mgr@corp.com' })).status).toBe(409); // already pending
-    const token = await tokenFor('mgr@corp.com');
+    expect((await call('POST', `/api/tickets/${id}/approvals`, { kind: 'XX' })).status).toBe(400);
+    expect((await call('POST', `/api/tickets/${id}/approvals`, { kind: 'FS' })).status).toBe(201);
+    expect((await call('POST', `/api/tickets/${id}/approvals`, { kind: 'FS' })).status).toBe(409); // already in progress
+    const token = await tokenFor(mgr.email);
     const view = await call('GET', `/api/approvals/${token}`);
     expect(view.body).toMatchObject({ kind: 'FS', version: 2, status: 'pending' });
     expect(view.body.content).toContain('Extra line');
@@ -81,8 +87,8 @@ describe('gated lifecycle', () => {
     const ts = await call('POST', `/api/tickets/${id}/documents/generate`, { kind: 'TS' });
     expect(ts.body.content_md).toContain('Extra line'); // built from the approved FS
     expect(await state(id)).toBe('TS Drafted');
-    await call('POST', `/api/tickets/${id}/approvals`, { kind: 'TS', approverEmail: 'arch@corp.com' });
-    expect((await call('POST', `/api/approvals/${await tokenFor('arch@corp.com')}/decision`, { decision: 'approved' })).status).toBe(200);
+    await call('POST', `/api/tickets/${id}/approvals`, { kind: 'TS' });
+    expect((await call('POST', `/api/approvals/${await tokenFor(mgr.email)}/decision`, { decision: 'approved' })).status).toBe(200);
     expect(await state(id)).toBe('TS Approved');
     // the normal ungated path continues
     expect((await call('POST', `/api/tickets/${id}/transition`, { to: 'Development' })).status).toBe(200);
@@ -95,21 +101,21 @@ describe('gated lifecycle', () => {
   it('rejection needs a reason, keeps the ticket drafted, and a new request is allowed after edits', async () => {
     const id = await newTicket('Reject flow');
     await call('POST', `/api/tickets/${id}/documents/generate`, { kind: 'FS' });
-    await call('POST', `/api/tickets/${id}/approvals`, { kind: 'FS', approverEmail: 'rej@corp.com' });
-    const t1 = await tokenFor('rej@corp.com');
+    await call('POST', `/api/tickets/${id}/approvals`, { kind: 'FS' });
+    const t1 = await tokenFor(mgr.email);
     expect((await call('POST', `/api/approvals/${t1}/decision`, { decision: 'rejected' })).status).toBe(400);
     expect((await call('POST', `/api/approvals/${t1}/decision`, { decision: 'rejected', comment: 'Missing scope' })).status).toBe(200);
     expect(await state(id)).toBe('FS Drafted');
     expect((await call('GET', `/api/approvals/${t1}`)).body).toMatchObject({ status: 'rejected', comment: 'Missing scope' });
     expect((await call('POST', `/api/approvals/${t1}/decision`, { decision: 'approved' })).status).toBe(409);
-    expect((await call('POST', `/api/tickets/${id}/approvals`, { kind: 'FS', approverEmail: 'rej@corp.com' })).status).toBe(201);
+    expect((await call('POST', `/api/tickets/${id}/approvals`, { kind: 'FS' })).status).toBe(201);
   });
 
   it('editing after requesting approval voids the old link', async () => {
     const id = await newTicket('Supersede');
     await call('POST', `/api/tickets/${id}/documents/generate`, { kind: 'FS' });
-    await call('POST', `/api/tickets/${id}/approvals`, { kind: 'FS', approverEmail: 'sup@corp.com' });
-    const tok = await tokenFor('sup@corp.com');
+    await call('POST', `/api/tickets/${id}/approvals`, { kind: 'FS' });
+    const tok = await tokenFor(mgr.email);
     await call('POST', `/api/tickets/${id}/documents/FS/versions`, { content: 'changed text', baseVersion: 1, author: 'Bob' });
     const r = await call('POST', `/api/approvals/${tok}/decision`, { decision: 'approved' });
     expect(r.status).toBe(410);
@@ -119,8 +125,8 @@ describe('gated lifecycle', () => {
   it('expired and unknown tokens are refused', async () => {
     const id = await newTicket('Expiry');
     await call('POST', `/api/tickets/${id}/documents/generate`, { kind: 'FS' });
-    await call('POST', `/api/tickets/${id}/approvals`, { kind: 'FS', approverEmail: 'exp@corp.com' });
-    const tok = await tokenFor('exp@corp.com');
+    await call('POST', `/api/tickets/${id}/approvals`, { kind: 'FS' });
+    const tok = await tokenFor(mgr.email);
     await pool.query(`UPDATE approvals SET expires_at = now() - interval '1 day' WHERE ticket_id=$1`, [id]);
     expect((await call('POST', `/api/approvals/${tok}/decision`, { decision: 'approved' })).status).toBe(410);
     expect((await call('GET', `/api/approvals/${'x'.repeat(43)}`)).status).toBe(404);

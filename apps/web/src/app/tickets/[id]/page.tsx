@@ -1,8 +1,9 @@
 'use client';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { Nav } from '../../../components/Nav';
 import { Markdown } from '../../../components/Markdown';
+import { ApprovalPanel, type ApprovalRequest } from '../../../components/ApprovalPanel';
 import { NoAccess, useAuth } from '../../../lib/auth';
 
 const API = '';
@@ -13,7 +14,8 @@ type Overview = {
   ticket: { id: string; title: string; current_state: string; ai_summary: string | null; customer_name: string | null; consultant_name: string | null; consultant_id: string | null };
   docs: Record<Kind, { latest: { version_number: number; content_md: string }; versions: Ver[] } | null>;
   stacks?: string[]; stackWarnings?: { kind: Kind; stack: string; terms: string[] }[];
-  approvals: { id: string; approver_id: string; kind: Kind; version_number: number; status: string; comment: string | null; approver: string }[];
+  approvals: { id: string; approver_id: string; kind: Kind; version_number: number; status: string; comment: string | null; approver: string; level_name: string | null }[];
+  requests: ApprovalRequest[];
 };
 type DiffLine = { type: 'same' | 'add' | 'del'; text: string };
 
@@ -29,7 +31,6 @@ export default function TicketPage() {
   const [text, setText] = useState('');
   const [viewing, setViewing] = useState<number | null>(null);   // historical version being viewed (read-only)
   const [diff, setDiff] = useState<DiffLine[] | null>(null);
-  const [approver, setApprover] = useState('');
   const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -53,9 +54,8 @@ export default function TicketPage() {
   const state = o?.ticket.current_state ?? '';
   const editable = can('spec.edit') && state === `${kind} Drafted` && viewing === null;
   const dirty = editable && doc != null && text !== doc.latest.content_md;
-  const pending = o?.approvals.find((a) => a.kind === kind && a.status === 'pending');
   const canGenerate = can('spec.generate') && ((kind === 'FS' && state === 'Requirement Verified') || (kind === 'TS' && state === 'FS Approved'));
-  const myApproval = o?.approvals.find((a) => a.kind === kind && a.status === 'pending' && a.approver_id === me?.user.id && can('approval.decide'));
+  const myApproval = o?.approvals.find((a) => a.kind === kind && a.status === 'pending' && a.approver_id === me?.user.id);
 
   function pick(k: Kind) { setKind(k); setViewing(null); setDiff(null); setText(o?.docs[k]?.latest.content_md ?? ''); setMsg(null); }
 
@@ -76,7 +76,6 @@ export default function TicketPage() {
     await run(() => fetch(`${API}/api/my/approvals/${approvalId}/decision`, j({ decision: d, comment: decision })), d === 'approved' ? 'Approved. The ticket moved on.' : 'Rejected with your comment.');
     setDecision('');
   }
-  const request = () => run(() => fetch(`${API}/api/tickets/${id}/approvals`, j({ kind, approverEmail: approver })), `Approval link sent to ${approver}. See the Mailbox.`);
 
   async function open(v: number) {
     if (v === latest) { setViewing(null); setDiff(null); setText(doc!.latest.content_md); return; }
@@ -87,8 +86,6 @@ export default function TicketPage() {
   }
 
   const idx = STATES.indexOf(state);
-  const approvalNote = useMemo(() => o?.approvals.filter((a) => a.kind === kind).map((a) =>
-    `v${a.version_number} · ${a.approver} · ${a.status}${a.comment ? ` — “${a.comment}”` : ''}`) ?? [], [o, kind]);
 
   if (authLoading || !me) return <><Nav current="none" /><main id="main"><p className="note">Loading…</p></main></>;
   if (!o) return <><Nav current="none" /><main id="main">{msg ? <p role="alert" className="err">{msg.text}</p> : <p className="note">Loading…</p>}</main></>;
@@ -153,16 +150,11 @@ export default function TicketPage() {
                   {dirty && <span className="note">Unsaved changes</span>}
                 </div>
               )}
-              {editable && can('approval.request') && !pending && (
-                <div className="row">
-                  <label className="sr" htmlFor="approver">Approver email</label>
-                  <input id="approver" type="email" value={approver} onChange={(e) => setApprover(e.target.value)} placeholder="approver@company.com" />
-                  <button className="btn ghost" disabled={busy || dirty || !approver} onClick={request} title={dirty ? 'Save your changes first' : undefined}>Request approval</button>
-                </div>
-              )}
+              <ApprovalPanel ticketId={id} kind={kind} state={state} dirty={dirty} busy={busy} requests={o.requests ?? []} meId={me.user.id}
+                canRequest={can('approval.request') && viewing === null} isAdmin={can('admin.workflows')} run={run} />
               {myApproval && (
                 <div className="pane" style={{ padding: 14, marginTop: 12 }}>
-                  <h3 style={{ margin: '0 0 8px' }}>Your decision on v{myApproval.version_number}</h3>
+                  <h3 style={{ margin: '0 0 8px' }}>Your decision{myApproval.level_name ? ` at ${myApproval.level_name}` : ''} on v{myApproval.version_number}</h3>
                   <label className="sr" htmlFor="dec">Comment</label>
                   <textarea id="dec" rows={2} placeholder="Comment (required to reject)" value={decision} onChange={(e) => setDecision(e.target.value)}
                     style={{ width: '100%', padding: 10, borderRadius: 8, border: '1px solid var(--line)', background: 'var(--bg)', color: 'var(--text)' }} />
@@ -171,7 +163,6 @@ export default function TicketPage() {
                     <button className="btn ghost" disabled={busy || !decision.trim()} onClick={() => decide(myApproval.id, 'rejected')}>Reject</button>
                   </div>
                 </div>)}
-              {pending && !myApproval && <p className="note">Waiting for approval from {pending.approver} (v{pending.version_number}). Editing will cancel the request.</p>}
             </section>
             <aside className="side" aria-label="History">
               <div>
@@ -181,7 +172,6 @@ export default function TicketPage() {
                     v{v.version}{v.version === latest ? ' (latest)' : ''}<br /><span className="note">{v.author ?? '—'}{v.note ? ` · ${v.note}` : ''}</span>
                   </button></li>))}</ul>
               </div>
-              {approvalNote.length > 0 && <div><h3>Approvals</h3><ul>{approvalNote.map((n) => <li key={n} className="note">{n}</li>)}</ul></div>}
             </aside>
           </div>
         )}

@@ -9,7 +9,7 @@ import { TemplateGenerator } from '../docs/generator.js';
 import { HashEmbedder } from '../etl/vectorize.js';
 import { createConversation } from '../chat/service.js';
 import { createTicket } from '../tickets.js';
-import { makeUser } from '../testAuth.js';
+import { makeUser, makeWorkflow } from '../testAuth.js';
 import { signSession, verifySession } from './auth.js';
 import { ALL_KEYS, CATALOG } from './permissions.js';
 
@@ -35,6 +35,7 @@ beforeAll(async () => {
   projectId = (await pool.query("INSERT INTO projects(name) VALUES('rbac') RETURNING id")).rows[0].id;
   [admin, lead, manager, consultant, consultant2, customer, customer2] = await Promise.all(
     ['Admin', 'Lead', 'Manager', 'Consultant', 'Consultant', 'Customer', 'Customer'].map((r) => makeUser(r)));
+  await makeWorkflow({ projectId, levels: [{ users: [manager.id] }] });   // in this project only `manager` approves
 });
 afterAll(async () => { await app.close(); await pool.end(); });
 
@@ -133,7 +134,7 @@ describe('Lead and Manager', () => {
   it('Manager decides approvals addressed to them, and only them', async () => {
     const t = await ticketFor({ consultant, title: 'mgr-approval' });
     await call(consultant, 'POST', `/api/tickets/${t}/documents/generate`, { kind: 'FS' });
-    expect((await call(consultant, 'POST', `/api/tickets/${t}/approvals`, { kind: 'FS', approverEmail: manager.email })).status).toBe(201);
+    expect((await call(consultant, 'POST', `/api/tickets/${t}/approvals`, { kind: 'FS' })).status).toBe(201);
 
     const mine = (await call(manager, 'GET', '/api/my/approvals')).body;
     const a = mine.find((x: any) => x.ticket_id === t);
@@ -142,7 +143,7 @@ describe('Lead and Manager', () => {
 
     const other = await makeUser('Manager');
     expect((await call(other, 'POST', `/api/my/approvals/${a.id}/decision`, { decision: 'approved' })).status).toBe(403);
-    expect((await call(consultant, 'POST', `/api/my/approvals/${a.id}/decision`, { decision: 'approved' })).status).toBe(403); // lacks approval.decide
+    expect((await call(consultant, 'POST', `/api/my/approvals/${a.id}/decision`, { decision: 'approved' })).status).toBe(403); // not addressed to them
     expect((await call(manager, 'POST', `/api/my/approvals/${a.id}/decision`, { decision: 'approved' })).status).toBe(200);
     expect((await pool.query('SELECT current_state s FROM tickets WHERE id=$1', [t])).rows[0].s).toBe('FS Approved');
     expect((await call(manager, 'POST', `/api/my/approvals/${a.id}/decision`, { decision: 'approved' })).status).toBe(409);

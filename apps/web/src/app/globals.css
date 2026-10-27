@@ -226,3 +226,30 @@ a.link-btn.plain { all: unset; cursor: pointer; color: var(--muted); font-size: 
 .board-head p a, .preview-head a { color: var(--accent); text-decoration: none; } .board-head p a:hover { text-decoration: underline; }
 header.top nav { overflow-x: auto; scrollbar-width: none; } header.top nav a { white-space: nowrap; }
 @media (max-width: 560px) { .who .role-badge { display: none; } header.top { gap: 8px; } header.top nav a { padding: 7px 9px; } }
+
+/* ---------- Approval workflows ---------- */
+.chain { list-style: none; margin: 10px 0 0; padding: 0; display: flex; gap: 0; flex-wrap: wrap; align-items: stretch; }
+.chain li { position: relative; display: grid; gap: 4px; align-content: start; padding: 10px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel-2); min-width: 150px; margin: 0 26px 8px 0; }
+.chain li:not(:last-child)::after { content: '→'; position: absolute; right: -24px; top: 50%; transform: translateY(-50%); color: var(--muted); font-size: 18px; }
+.chain li.bad { border-color: var(--danger); } .chain-name { font-weight: 700; } .chain-rule { font-size: 11.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.chain-who { display: flex; flex-wrap: wrap; gap: 4px; } .chain-warn { font-size: 12px; color: var(--danger); font-weight: 600; }
+.chain.compact li { min-width: 0; padding: 6px 10px; margin-right: 22px; }
+.chip.removable { display: inline-flex; align-items: center; gap: 4px; } .chip.removable button { all: unset; cursor: pointer; padding: 0 3px; color: var(--muted); font-size: 14px; line-height: 1; } .chip.removable button:hover { color: var(--danger); } .chip.removable button:focus-visible { outline: 2px solid var(--accent); border-radius: 4px; }
+.wf-editor { padding: 16px; } .wf-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 0 16px; }
+.levels { list-style: none; margin: 0 0 10px; padding: 0; display: grid; gap: 10px; }
+.level { display: flex; gap: 12px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel-2); } .level-body { flex: 1; min-width: 0; }
+.level-no { flex: none; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: var(--accent); color: var(--accent-ink); font-weight: 700; font-size: 13px; }
+.grow { flex: 1; }
+.wf-list { display: grid; gap: 12px; margin-top: 14px; } .wf { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; box-shadow: var(--shadow); } .wf.off { opacity: .65; }
+.wf header { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; align-items: flex-start; } .wf h3 { margin: 0 0 2px; font-size: 15px; }
+/* approval progress on the ticket page */
+.route { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; margin-top: 12px; } .route h3 { margin: 0 0 4px; font-size: 14px; }
+.steps { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 0; }
+.step { display: grid; grid-template-columns: 26px 1fr; gap: 10px; position: relative; padding-bottom: 12px; }
+.step:not(:last-child)::before { content: ''; position: absolute; left: 12px; top: 26px; bottom: 0; width: 2px; background: var(--line); }
+.step-dot { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-size: 13px; font-weight: 700; border: 2px solid var(--line); background: var(--panel); color: var(--muted); }
+.step[data-state='done'] .step-dot, .step[data-state='auto'] .step-dot { background: var(--done); border-color: var(--done); color: #fff; }
+.step[data-state='active'] .step-dot { border-color: var(--accent); color: var(--accent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 20%, transparent); }
+.step[data-state='rejected'] .step-dot { background: var(--danger); border-color: var(--danger); color: #fff; }
+.step-title { font-weight: 650; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; } .step-who { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 2px; font-size: 13px; }
+.st-approved { color: var(--done); font-weight: 600; } .st-rejected { color: var(--danger); font-weight: 600; } .st-pending { color: var(--warn); font-weight: 600; } .st-skipped, .st-superseded { color: var(--muted); }

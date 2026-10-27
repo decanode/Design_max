@@ -61,6 +61,14 @@ Automated background ingestion workers populate a central Vector Database (`pgve
 *   **Reporting output:** each report downloads as CSV (formula-injection safe); every chart has a table view and hover/keyboard tooltips for accessibility.
 *   **Not yet:** scheduled/emailed reports, dashboard-wide filters, drill-through to tickets, and PDF export.
 
+### I. Multi-Level Approval Workflows (added by approved design change)
+*   **Admin-defined chains (ServiceNow-style L1, L2, L3…):** an approval workflow is an ordered list of levels (1–10, renameable). Each level names approvers — specific people and/or roles (a role means every active member) — and a rule: *any one* approver completes the level, or *everyone* must approve. Workflows apply to the Functional Spec, the Technical Spec, or both, for all projects or a single project (project-specific wins); at most one active workflow per project and document type. A built-in "Standard approval" (L1: any Manager) ships as the default.
+*   **Sequential execution:** level N+1 is only asked after level N completes; each asked person gets an emailed single-use deep link (and sees the task in-app). A rejection (reason required) at any level ends the request and returns the document to drafting; the requester is told why. Final approval moves the ticket to `FS Approved` / `TS Approved`.
+*   **Guardrails:** requesters cannot approve their own request; a person who already approved at an earlier level is not asked again (levels they cover pass automatically); every level must be satisfiable before a request starts; requests carry a frozen copy of the workflow, so editing a workflow never changes one in flight; editing the document withdraws a running request; the requester or an Admin can cancel. Decisions lock the request row so concurrent approvers cannot double-advance a level.
+*   **Authority:** being named in a workflow is the authority to decide (the standalone `approval.decide` permission was removed). New permission `admin.workflows` manages workflows; changes are audit-logged.
+*   **Visibility:** the ticket page shows the route before requesting and a live level-by-level timeline afterwards (who approved, who is pending, comments); reports gain an "Approval level" grouping.
+*   **Not yet:** escalation/timeouts, delegation/out-of-office, conditional levels (e.g. by ticket size), and email/Teams reminders.
+
 ## 2. Technology Stack
 
 | Layer | Component | Purpose |

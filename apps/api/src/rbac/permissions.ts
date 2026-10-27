@@ -23,8 +23,7 @@ export const CATALOG: FeatureDef[] = [
     { key: 'spec.generate', label: 'Generate drafts', description: 'Create the first FS or TS draft.' },
     { key: 'spec.edit', label: 'Edit specifications', description: 'Save new document versions.' }] },
   { feature: 'Approvals', permissions: [
-    { key: 'approval.request', label: 'Request approvals', description: 'Send a specification for approval.' },
-    { key: 'approval.decide', label: 'Decide approvals', description: 'Approve or reject specifications addressed to them.' }] },
+    { key: 'approval.request', label: 'Request approvals', description: 'Send a specification for approval through its workflow, and cancel their own requests.' }] },
   { feature: 'Dashboards', permissions: [
     { key: 'dashboard.team', label: 'Team dashboard', description: 'Workload per consultant and the unassigned queue.' },
     { key: 'dashboard.portfolio', label: 'Portfolio dashboard', description: 'Tickets by phase and pending approvals across projects.' }] },
@@ -37,6 +36,7 @@ export const CATALOG: FeatureDef[] = [
   { feature: 'Administration', permissions: [
     { key: 'admin.users', label: 'Manage users', description: 'Create users and assign their roles.' },
     { key: 'admin.projects', label: 'Manage projects & stacks', description: 'Create projects and choose which technology stacks the AI may work in for each.' },
+    { key: 'admin.workflows', label: 'Manage approval workflows', description: 'Define the approval levels (L1, L2, L3…) and who approves at each.' },
     { key: 'admin.roles', label: 'Manage roles', description: 'Create roles and choose their permissions per feature.' }] },
 ];
 

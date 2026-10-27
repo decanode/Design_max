@@ -1,22 +1,19 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { pool } from '../db.js';
 import { applyTransition } from '../tickets.js';
 import type { TicketState } from '../stateMachine.js';
 import { similar, type Embedder } from '../etl/vectorize.js';
 import type { DocContext, DocGenerator, DocKind } from './generator.js';
-import type { Mailer } from './mailer.js';
 import { diffLines } from './diff.js';
+import { supersedeOpenRequest, requestsForTicket } from '../approvals/engine.js';
 import { assessFit, loadStackPolicy, projectPolicyForTicket } from '../stacks.js';
 
-/** `status` carries the HTTP code the route should answer with. */
-export class DocError extends Error {
-  constructor(message: string, public status = 409, public extra?: Record<string, unknown>) { super(message); }
-}
+import { DocError } from '../errors.js';
+export { DocError };
 
 const draftedState = (k: DocKind) => `${k} Drafted` as TicketState;
 const approvedState = (k: DocKind) => `${k} Approved` as TicketState;
 const hash = (t: string) => createHash('sha256').update(t).digest('hex');
-const APPROVAL_TTL_DAYS = 7;
 
 export async function getTicket(id: string) {
   const t = (await pool.query('SELECT * FROM tickets WHERE id=$1', [id])).rows[0];
@@ -88,7 +85,7 @@ export async function saveVersion(ticketId: string, kind: DocKind, content: stri
       'INSERT INTO documents (ticket_id, kind, version_number, content_md, author_name, change_note) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
       [ticketId, kind, latest + 1, content, author, note ?? null]);
     // An edit invalidates any approval requested for the previous text.
-    await c.query(`UPDATE approvals SET status='superseded' WHERE ticket_id=$1 AND kind=$2 AND status='pending'`, [ticketId, kind]);
+    await supersedeOpenRequest(c, ticketId, kind);
     await c.query('COMMIT');
     return rows[0];
   } catch (e) { await c.query('ROLLBACK'); throw e; } finally { c.release(); }
@@ -101,44 +98,9 @@ export async function diffVersions(ticketId: string, kind: DocKind, from: number
   return diffLines(get(from)!, get(to)!);
 }
 
-/** Emails the approver a single-use deep link tied to the current version. */
-export async function requestApproval(ticketId: string, kind: DocKind, approverEmail: string, mailer: Mailer, appUrl: string) {
-  const token = randomBytes(32).toString('base64url');
-  const c = await pool.connect();
-  let title: string, version: number;
-  try {
-    await c.query('BEGIN');
-    const t = (await c.query('SELECT title, current_state FROM tickets WHERE id=$1 FOR UPDATE', [ticketId])).rows[0];
-    if (!t) throw new DocError('Ticket not found', 404);
-    if (t.current_state !== draftedState(kind)) throw new DocError(`Approval for the ${kind} can only be requested while the ticket is in "${draftedState(kind)}"`);
-    title = t.title;
-    version = (await c.query('SELECT max(version_number) v FROM documents WHERE ticket_id=$1 AND kind=$2', [ticketId, kind])).rows[0].v;
-    const email = approverEmail.trim().toLowerCase();
-    const approver = (await c.query(
-      `INSERT INTO users (email, display_name, role_id) VALUES ($1,$1,(SELECT id FROM roles WHERE name='Approver'))
-       ON CONFLICT (email) DO UPDATE SET email=EXCLUDED.email RETURNING id`, [email])).rows[0].id;
-    try {
-      await c.query(
-        `INSERT INTO approvals (ticket_id, approver_id, kind, version_number, token_hash, expires_at) VALUES ($1,$2,$3,$4,$5, now() + ($6 || ' days')::interval)`,
-        [ticketId, approver, kind, version, hash(token), String(APPROVAL_TTL_DAYS)]);
-    } catch (e) {
-      if ((e as { code?: string }).code === '23505') throw new DocError('An approval is already pending for this document');
-      throw e;
-    }
-    await c.query('COMMIT');
-  } catch (e) { await c.query('ROLLBACK'); throw e; } finally { c.release(); }
-
-  await mailer.send({
-    to: approverEmail.trim().toLowerCase(),
-    subject: `Approval needed: ${kind === 'FS' ? 'Functional' : 'Technical'} Specification – ${title}`,
-    body: `Please review and approve or reject (version ${version}):\n\n${appUrl}/approve/${token}\n\nThis link is single-use and expires in ${APPROVAL_TTL_DAYS} days.`,
-  });
-  return { version };
-}
-
 async function findByToken(q: { query: (s: string, p: unknown[]) => Promise<{ rows: any[] }> }, token: string, lock = '') {
   const a = (await q.query(
-    `SELECT a.*, t.title, t.current_state FROM approvals a JOIN tickets t ON t.id=a.ticket_id WHERE a.token_hash=$1 ${lock}`, [hash(token)])).rows[0];
+    `SELECT a.*, t.title, t.current_state FROM approvals a JOIN tickets t ON t.id=a.ticket_id WHERE a.token_hash=$1 AND a.request_id IS NOT NULL ${lock}`, [hash(token)])).rows[0];
   if (!a) throw new DocError('This approval link is not valid', 404);
   return a;
 }
@@ -148,36 +110,12 @@ const effectiveStatus = (a: { status: string; expires_at: Date }) => (a.status =
 export async function viewApproval(token: string) {
   const a = await findByToken(pool, token);
   const doc = (await pool.query('SELECT content_md FROM documents WHERE ticket_id=$1 AND kind=$2 AND version_number=$3', [a.ticket_id, a.kind, a.version_number])).rows[0];
-  return { ticketTitle: a.title, kind: a.kind as DocKind, version: a.version_number as number, status: effectiveStatus(a), comment: a.comment as string | null, content: doc.content_md as string };
-}
-
-export async function decideApproval(token: string, decision: 'approved' | 'rejected', comment?: string) {
-  return decideWith((c) => findByToken(c, token, 'FOR UPDATE OF a'), decision, comment);
-}
-
-/** In-app decision by a signed-in approver; only the person the approval was addressed to may decide it. */
-export async function decideApprovalAsUser(approvalId: string, userId: string, decision: 'approved' | 'rejected', comment?: string) {
-  return decideWith(async (c) => {
-    const a = (await c.query(`SELECT a.*, t.title, t.current_state FROM approvals a JOIN tickets t ON t.id=a.ticket_id WHERE a.id=$1 FOR UPDATE OF a`, [approvalId])).rows[0];
-    if (!a) throw new DocError('Approval not found', 404);
-    if (a.approver_id !== userId) throw new DocError('This approval is addressed to someone else', 403);
-    return a;
-  }, decision, comment);
-}
-
-async function decideWith(lookup: (c: import('pg').PoolClient) => Promise<any>, decision: 'approved' | 'rejected', comment?: string) {
-  const c = await pool.connect();
-  try {
-    await c.query('BEGIN');
-    const a = await lookup(c);
-    const st = effectiveStatus(a);
-    if (st !== 'pending') throw new DocError(`This approval is already ${st}`, st === 'expired' || st === 'superseded' ? 410 : 409);
-    if (decision === 'rejected' && !comment?.trim()) throw new DocError('Please say why you are rejecting', 400);
-    await c.query(`UPDATE approvals SET status=$2, comment=$3, decided_at=now() WHERE id=$1`, [a.id, decision, comment?.trim() || null]);
-    if (decision === 'approved') await applyTransition(c, a.ticket_id, approvedState(a.kind), a.approver_id);
-    await c.query('COMMIT');
-    return { status: decision };
-  } catch (e) { await c.query('ROLLBACK'); throw e; } finally { c.release(); }
+  const req = (await pool.query('SELECT workflow_name, levels FROM approval_requests WHERE id=$1', [a.request_id])).rows[0];
+  const levels = req.levels as { position: number; name: string }[];
+  return {
+    ticketTitle: a.title, kind: a.kind as DocKind, version: a.version_number as number, status: effectiveStatus(a), comment: a.comment as string | null, content: doc.content_md as string,
+    level: { name: a.level_name as string, position: a.level as number, of: levels.length, workflow: req.workflow_name as string },
+  };
 }
 
 export async function ticketOverview(id: string) {
@@ -189,7 +127,7 @@ export async function ticketOverview(id: string) {
   const docs: Record<string, unknown> = {};
   for (const k of ['FS', 'TS'] as const) { const v = await listVersions(id, k); docs[k] = v.length ? { latest: v[0], versions: v.map((x) => ({ version: x.version_number, author: x.author_name, note: x.change_note, at: x.created_at })) } : null; }
   const approvals = (await pool.query(
-    `SELECT a.id, a.approver_id, a.kind, a.version_number, a.status, a.comment, a.requested_at, a.decided_at, u.email AS approver FROM approvals a JOIN users u ON u.id=a.approver_id WHERE a.ticket_id=$1 ORDER BY a.requested_at DESC`, [id])).rows;
+    `SELECT a.id, a.approver_id, a.kind, a.version_number, a.status, a.comment, a.level, a.level_name, a.requested_at, a.decided_at, u.email AS approver FROM approvals a JOIN users u ON u.id=a.approver_id WHERE a.ticket_id=$1 ORDER BY a.requested_at DESC`, [id])).rows;
   const policy = await projectPolicyForTicket(id);
   // Advisory: terms from stacks this project does not allow, found in the latest drafts.
   const stackWarnings = (['FS', 'TS'] as const).flatMap((k) => {
@@ -197,5 +135,5 @@ export async function ticketOverview(id: string) {
     return latest ? assessFit(latest, policy).foreign.map((f) => ({ kind: k, ...f })) : [];
   });
   const stacks = policy?.allowed.map((a) => a.name) ?? [];
-  return { ticket, docs, approvals, stacks, stackWarnings };
+  return { ticket, docs, approvals, requests: await requestsForTicket(id), stacks, stackWarnings };
 }

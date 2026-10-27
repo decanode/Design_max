@@ -97,9 +97,9 @@ export function registerAdminRoutes(app: FastifyInstance) {
     return { ok: true };
   });
 
-  app.get('/api/admin/catalog', { preHandler: needAny('admin.roles', 'admin.users', 'admin.projects') }, async () => CATALOG);
+  app.get('/api/admin/catalog', { preHandler: needAny('admin.roles', 'admin.users', 'admin.projects', 'admin.workflows') }, async () => CATALOG);
 
-  app.get('/api/admin/roles', { preHandler: needAny('admin.roles', 'admin.users', 'admin.projects') }, async () => {
+  app.get('/api/admin/roles', { preHandler: needAny('admin.roles', 'admin.users', 'admin.projects', 'admin.workflows') }, async () => {
     const roles = (await pool.query(
       `SELECT r.id, r.name, r.description, r.is_system,
               (SELECT count(*)::int FROM users u WHERE u.role_id = r.id AND u.active) AS users,
@@ -163,6 +163,7 @@ export function registerAdminRoutes(app: FastifyInstance) {
     const r = await roleRow(id);
     if (r.is_system) throw new AdminError('Built-in roles cannot be deleted');
     if ((await pool.query('SELECT 1 FROM users WHERE role_id=$1', [id])).rowCount) throw new AdminError('Reassign this role\'s users first', 409);
+    if ((await pool.query('SELECT 1 FROM approval_level_approvers WHERE role_id=$1', [id])).rowCount) throw new AdminError('This role is used in an approval workflow. Change the workflow first', 409);
     await pool.query('DELETE FROM roles WHERE id=$1', [id]);
     await audit(req, 'role.delete', { id, name: r.name });
     return { ok: true };
@@ -194,7 +195,7 @@ export function registerAdminRoutes(app: FastifyInstance) {
     return { ok: true };
   });
 
-  app.get('/api/admin/audit', { preHandler: needAny('admin.roles', 'admin.users', 'admin.projects') }, async () =>
+  app.get('/api/admin/audit', { preHandler: needAny('admin.roles', 'admin.users', 'admin.projects', 'admin.workflows') }, async () =>
     (await pool.query(`SELECT a.id, a.action, a.detail, a.created_at, u.display_name AS actor FROM audit_log a LEFT JOIN users u ON u.id=a.actor_id ORDER BY a.id DESC LIMIT 100`)).rows);
 
 }
