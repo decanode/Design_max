@@ -5,7 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 export type ProjectRef = { id: string; name: string; role?: string | null };
 export type Me = {
   user: { id: string; email: string; name: string; role: string; roleId: number | null; isSuperAdmin: boolean };
-  project: ProjectRef | null; projects: ProjectRef[]; permissions: string[];
+  project: (ProjectRef & { modules?: Record<string, boolean> }) | null; projects: ProjectRef[]; permissions: string[];
 };
 type Ctx = {
   me: Me | null; loading: boolean;

@@ -14,7 +14,7 @@ import type { Kind } from '../lib/docKinds';
 
 export interface Anchored { id: string; status: string; anchor: { from: unknown; to: unknown } | null }
 export interface SelectionAnchor { anchor: { from: unknown; to: unknown }; quote: string }
-export interface EditorApi { selection(): SelectionAnchor | null; scrollTo(id: string): void }
+export interface EditorApi { selection(): SelectionAnchor | null; scrollTo(id: string): void; whenSynced(): Promise<void> }
 type Pass = { token: string; room: string; canEdit: boolean; lock: string | null };
 type Peer = { name: string; color: string };
 const COLORS = ['#c2410c', '#0f766e', '#7c3aed', '#be123c', '#1d4ed8', '#a16207'];
@@ -65,8 +65,10 @@ function Toolbar({ editor }: { editor: Editor }) {
  * The shared, live editor. Everyone with the document open edits the same draft and sees each other's cursors; the server
  * keeps the draft, so closing the tab loses nothing. "Save version" (outside this component) turns the draft into a version.
  */
-export function DocEditor({ ticketId, kind, userName, onPass, onChange, threads = [], activeId = null, onActivate, onOrphans, onReady, onSelection }: {
-  ticketId: string; kind: Kind; userName: string; onPass?: (p: Pass) => void; onChange?: () => void;
+const NO_THREADS: Anchored[] = [];     // a stable default: a fresh [] on every render would re-run the highlight repaint forever
+
+export function DocEditor({ ticketId, kind, userName, tokenUrl, label, onPass, onChange, threads = NO_THREADS, activeId = null, onActivate, onOrphans, onReady, onSelection }: {
+  ticketId: string; kind: Kind | 'CHARTER'; userName: string; tokenUrl?: string; label?: string; onPass?: (p: Pass) => void; onChange?: () => void;
   threads?: Anchored[]; activeId?: string | null; onActivate?: (id: string) => void; onOrphans?: (ids: string[]) => void; onReady?: (api: EditorApi) => void; onSelection?: (has: boolean) => void;
 }) {
   const live = useRef({ threads, activeId, onActivate });
@@ -81,7 +83,7 @@ export function DocEditor({ ticketId, kind, userName, onPass, onChange, threads 
   useEffect(() => {
     let dead = false; let p: HocuspocusProvider | null = null;
     (async () => {
-      const r = await fetch(`/api/tickets/${ticketId}/documents/${kind}/collab-token`, { method: 'POST' });
+      const r = await fetch((tokenUrl ?? `/api/tickets/${ticketId}/documents/${kind}/collab-token`), { method: 'POST' });
       if (!r.ok) return setError('Could not open the shared draft.');
       const pa: Pass = await r.json();
       if (dead) return;
@@ -89,7 +91,7 @@ export function DocEditor({ ticketId, kind, userName, onPass, onChange, threads 
       p = new HocuspocusProvider({
         url: wsUrl(), name: pa.room, document: ydoc,
         // A fresh pass on every (re)connect: the pass is short-lived, the session is not.
-        token: async () => (await (await fetch(`/api/tickets/${ticketId}/documents/${kind}/collab-token`, { method: 'POST' })).json()).token,
+        token: async () => (await (await fetch((tokenUrl ?? `/api/tickets/${ticketId}/documents/${kind}/collab-token`), { method: 'POST' })).json()).token,
         onStatus: ({ status: s }: { status: string }) => setStatus(s === 'connected' ? 'connected' : s === 'connecting' ? 'connecting' : 'offline'),
         onAwarenessChange: ({ states }: { states: { user?: Peer }[] }) => setPeers(states.map((s) => s.user).filter((u): u is Peer => !!u)),
         onAuthenticationFailed: () => setError('You are not allowed to open this draft.'),
@@ -97,7 +99,7 @@ export function DocEditor({ ticketId, kind, userName, onPass, onChange, threads 
       setProvider(p);
     })();
     return () => { dead = true; p?.destroy(); setProvider(null); };
-  }, [ticketId, kind, ydoc, onPass]);
+  }, [ticketId, kind, ydoc, onPass, tokenUrl]);
 
   const highlights = useMemo(() => Extension.create({
     name: 'commentHighlights',
@@ -137,7 +139,7 @@ export function DocEditor({ ticketId, kind, userName, onPass, onChange, threads 
       Collaboration.configure({ document: ydoc, field: 'default' }),
       CollaborationCursor.configure({ provider, user: { name: userName, color: colorFor(userName) } }),
     ] : docExtensions(),
-    editorProps: { attributes: { class: 'rte-body', 'aria-label': `${kind} document`, role: 'textbox', 'aria-multiline': 'true' } },
+    editorProps: { attributes: { class: 'rte-body', 'aria-label': label ?? `${kind} document`, role: 'textbox', 'aria-multiline': 'true' } },
     onUpdate: () => onChange?.(),
     onSelectionUpdate: ({ editor: e }) => onSelection?.(!e.state.selection.empty),
   }, [provider, pass?.canEdit]);
@@ -156,9 +158,11 @@ export function DocEditor({ ticketId, kind, userName, onPass, onChange, threads 
         return { anchor: { from: rel(from), to: rel(to) }, quote: editor.state.doc.textBetween(from, to, ' ').slice(0, 500) };
       },
       scrollTo(id) { editor.view.dom.querySelector(`[data-cid="${id}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' }); },
+      /** Resolves once everything typed so far has reached the server (so an action that reads the saved text sees it). */
+      async whenSynced() { const end = Date.now() + 5000; while (provider?.hasUnsyncedChanges && Date.now() < end) await new Promise((r) => setTimeout(r, 50)); },
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editor]);
+  }, [editor, provider]);
 
   if (error) return <p role="alert" className="err">{error}</p>;
   if (!pass || !provider || !editor) return <p className="note">Opening the shared draft…</p>;

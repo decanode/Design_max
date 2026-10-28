@@ -250,6 +250,34 @@ Roles belong to a **project membership**, not to the person. Someone can be a Co
 
 ---
 
+## 6a. AI Project Planning (Charter, WBS and tickets)
+
+**What it is.** An optional, per-project module for the very start of a project. A Project Manager answers three questions and **Google Gemini** drafts a **project charter**; the PM edits it live and approves it; Gemini then breaks the approved charter into a **work breakdown structure (WBS)** of phases, deliverables and work packages, which the PM edits on an interactive board and finally **converts into tickets** (Request Items, WRICEFs and so on, whatever the project's template allows).
+
+**Switching it on (Project Admin).** Project settings → **Modules** → switch **Enable AI Project Planning (Charter & WBS)**. It is off for every project until someone does this, and it affects only that project. Switching it off hides the tab; nothing already planned is deleted. The change is written to the project's activity log.
+
+**Who can use it.** People whose role has **Plan the project** (`planning.manage`): the new built-in **Project Manager** role, Project Admins and Super Admins. The **Planning** tab appears for them only when the module is on; a Consultant, Lead or Customer never sees it. Opening `/planning` anyway shows why it is not available, and the server refuses the calls too.
+
+**How to use it**
+1. **Intake.** Planning tab → answer *What is the business problem?*, *Who is the sponsor?* and *What are the high-level goals and known constraints?* (plus a review screen). Each answer is checked as you go. Click **Draft the charter with Gemini**. A progress panel shows while it works (usually 10 to 40 seconds). If it fails, your answers are kept and the message says what to do.
+2. **Charter.** The draft (Executive Summary, Objectives, Scope, Out of Scope, Stakeholders, Milestones, Risks) opens in the rich-text editor: headings, lists, tables, links. **Several people can edit at once** and see each other's cursors; changes save by themselves. **Approve charter** locks it (read-only, with who approved it); **Reopen to edit** unlocks it. **Draft again…** returns to the questions and replaces the draft after confirmation.
+3. **Work breakdown.** Once the charter is approved, **Generate WBS with Gemini** builds a board: one column per phase, deliverable cards inside, work packages inside those, each with an effort in person-days that rolls up to the deliverable and phase totals.
+   - **Edit anything in place:** click a title, description or effort, type, press Enter.
+   - **Add** a phase (**+ Add phase**), a deliverable (**+ Add deliverable**) or a work package (**+ Add work package**); the new item opens ready to name.
+   - **Drag and drop** with the ⋮⋮ handle: reorder phases, move a deliverable to another phase, move a work package to another deliverable. Keyboard users can pick up a handle with Space and move it with the arrow keys, or use each item's **Move to…** menu and the ◀ ▶ buttons on phases.
+   - Three levels only: a fourth level, or moving something under itself, is refused (by the screen and by the database).
+4. **Convert to tickets.** Tick work packages (or **Select all**) and click **Convert to tickets**. Choose the ticket type (a Request Item if the project allows it, otherwise the project's default) and fill that type's required fields once; `{title}`, `{phase}` and `{deliverable}` are replaced per work package. The tickets appear on the board in the type's first phase, each work package shows a **Ticket · phase** link, and the **Tickets** step lists them. A work package becomes a ticket only once.
+
+**What to expect**
+- **AI output is a draft.** Gemini is told to use only what you wrote and to label assumptions; it can still be wrong. Read before approving. The text you type is passed to Gemini as data, not instructions.
+- **Limits:** a person can start about 12 AI drafts per 10 minutes. If Google is busy it retries automatically; a persistent outage gives a plain message and loses nothing.
+- **Technology scope:** if the project is limited to certain technologies (section 4), Gemini is told to plan only within them.
+- **After conversion** the plan can no longer be regenerated (tickets depend on it) and converted branches cannot be deleted; edit by hand instead. Before conversion, regenerating replaces the plan after a confirmation.
+- **No Gemini key?** The module still works with a simple offline template that organises what you wrote; the badge at the top says which is in use. The key is configured on the server (`GEMINI_API_KEY`, `GEMINI_MODEL`) and is never shown to the browser.
+- **Not built yet:** live co-editing of the WBS (it saves each change, so two people editing at once see each other's changes on reload), exporting the charter or WBS to Word or Excel, dependencies and a schedule between work packages, and a separate approval workflow for the charter.
+
+---
+
 ## 7. Approval workflows (L1, L2, L3…)
 
 **What it is.** The chain of sign-offs a specification needs. The Admin decides who approves and in what order; any number of levels.
@@ -337,6 +365,7 @@ Roles belong to a **project membership**, not to the person. Someone can be a Co
 - **Members**: add people by email with a role (a new email creates an account that can reach nothing else), change someone's role, or remove them. A project always keeps at least one Project Admin.
 - **Roles & permissions**: what each role can do **in this project**. Roles you have not touched follow the standard; changing one affects only this project, and **Reset** undoes it. Platform powers cannot be given to a project role.
 - **Template builder**: the project's type, methodology, phases and allowed ticket types (section 5).
+- **Modules**: switch optional capabilities on or off for this project, such as AI Project Planning (section 6a).
 - **Ticket fields**, **Technology**, **Approval workflows**: as in sections 9, 4 and 7.
 - **Documents**: fonts, names, numbering, template set and the delivery rules for the project's documents (section 6).
 - **Activity**: a log of changes made in this project.

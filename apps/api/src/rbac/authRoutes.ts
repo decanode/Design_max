@@ -1,3 +1,4 @@
+import { modulesOf } from '../planning/service.js';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { pool } from '../db.js';
@@ -13,6 +14,7 @@ const DEMO = [
   { name: 'Pia Project Admin', email: 'pia@designmax.dev', role: PROJECT_ADMIN_ROLE },
   { name: 'Leo Lead', email: 'leo@designmax.dev', role: 'Lead' },
   { name: 'Mia Manager', email: 'mia@designmax.dev', role: 'Manager' },
+  { name: 'Pam Project Manager', email: 'pam@designmax.dev', role: 'Project Manager' },
   { name: 'Sam Consultant', email: 'sam@designmax.dev', role: 'Consultant' },
   { name: 'Cleo Customer', email: 'cleo@designmax.dev', role: 'Customer' },
 ];
@@ -29,7 +31,7 @@ export function registerAuthRoutes(app: FastifyInstance) {
       : (await membershipsOf(u.id)).map((m) => ({ id: m.projectId, name: m.projectName, role: m.roleName }));
     return {
       user: { id: u.id, email: u.email, name: u.name, role: u.roleName, roleId: u.roleId, isSuperAdmin: u.isSuper },
-      project: u.projectId ? { id: u.projectId, name: u.projectName } : null,
+      project: u.projectId ? { id: u.projectId, name: u.projectName, modules: await modulesOf(u.projectId) } : null,
       projects, permissions: [...u.perms].sort(),
     };
   });

@@ -14,6 +14,7 @@
   "dependencies": {
     "@design-max/doc-schema": "file:../../packages/doc-schema",
     "@fastify/cors": "^11.3.1",
+    "@google/generative-ai": "0.24.1",
     "@hocuspocus/server": "4.7.1",
     "@hocuspocus/transformer": "4.7.1",
     "dotenv": "^18.0.9",

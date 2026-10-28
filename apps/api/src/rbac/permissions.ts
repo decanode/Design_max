@@ -26,6 +26,8 @@ export const CATALOG: FeatureDef[] = [
     { key: 'spec.edit', label: 'Edit specifications', description: 'Edit the shared draft and save new document versions.' },
     { key: 'doc.comment', label: 'Comment on documents', description: 'Add review comments and replies on a document, even without edit access.' },
     { key: 'doc.review', label: 'Review documents', description: 'Request changes or confirm a document looks good, and resolve anyone\'s comments.' }] },
+  { feature: 'Planning', permissions: [
+    { key: 'planning.manage', label: 'Plan the project', description: 'Use the AI Planning module (when the project has switched it on): project charter, work breakdown structure and converting work packages to tickets.' }] },
   { feature: 'Approvals', permissions: [
     { key: 'approval.request', label: 'Request approvals', description: 'Send a specification for approval through its workflow, and cancel their own requests.' }] },
   { feature: 'Dashboards', permissions: [

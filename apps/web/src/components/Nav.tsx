@@ -2,7 +2,7 @@
 import Link from 'next/link';
 import { useAuth } from '../lib/auth';
 
-type Key = 'board' | 'chat' | 'dashboards' | 'mailbox' | 'admin' | 'platform' | 'none';
+type Key = 'board' | 'planning' | 'chat' | 'dashboards' | 'mailbox' | 'admin' | 'platform' | 'none';
 
 export function Nav({ current }: { current: Key }) {
   const { me, can, canAny, logout, isSuper, switchProject } = useAuth();
@@ -25,6 +25,7 @@ export function Nav({ current }: { current: Key }) {
       {me && me.projects.length === 1 && !isSuper && <span className="proj-name" title="Your project">{me.project?.name}</span>}
       <nav aria-label="Primary">
         {inProject && link('/', 'board', 'Board', can('board.view'))}
+        {inProject && link('/planning', 'planning', 'Planning', !!me?.project?.modules?.planning_module && can('planning.manage'))}
         {inProject && link('/dashboards', 'dashboards', 'Dashboards', can('report.view'))}
         {inProject && link('/chat', 'chat', 'Chat', canAny('chat.as_customer', 'chat.as_consultant', 'chat.view_all'))}
         {link('/mailbox', 'mailbox', 'Mailbox', isSuper)}

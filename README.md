@@ -27,3 +27,9 @@ FS, TS, Unit Test and Code Review documents are edited live by several people at
 same web address under `/collab` (the web server forwards it, so nothing extra to open in Codespaces); set
 `NEXT_PUBLIC_COLLAB_URL` only if the API is reached directly. Documents download as .docx. The automated rendering check converts a generated file with LibreOffice and runs only
 where it is installed (`apt-get install libreoffice-writer poppler-utils` on Debian/Ubuntu); without it that one test is skipped.
+
+## AI planning and Gemini
+The Planning module calls Google Gemini from the server with the official SDK. Set `GEMINI_API_KEY` and `GEMINI_MODEL` in `.env`
+(see `.env.example`); the key is never sent to the browser. Without a key the module uses an offline template. End-to-end tests
+point the SDK at a local mock (`tests/e2e/mock-gemini.mjs`) through `GEMINI_API_BASE_URL`, so they spend no quota, and the web
+server in those tests is a production build.

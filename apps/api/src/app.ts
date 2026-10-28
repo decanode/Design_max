@@ -17,6 +17,8 @@ import { audit } from './rbac/audit.js';
 import { membersWithPermission } from './rbac/effective.js';
 import { registerAuthRoutes } from './rbac/authRoutes.js';
 import { registerPlatformRoutes } from './platform/routes.js';
+import { registerPlanningRoutes } from './planning/routes.js';
+import { defaultPlanningAi, type PlanningAi } from './planning/ai.js';
 import { registerBuilderRoutes } from './workflow/builderRoutes.js';
 import { registerWorkflowAdminRoutes } from './workflow/platformRoutes.js';
 import { registerProjectRoutes } from './project/routes.js';
@@ -26,7 +28,7 @@ import { registerWorkflowRoutes } from './approvals/adminRoutes.js';
 import { canWrite, sanitizeTicket } from './tickets/fields.js';
 import { ticketVisible } from './rbac/auth.js';
 
-export function buildApp(deps: Partial<DocDeps> = {}) {
+export function buildApp(deps: Partial<DocDeps> & { planningAi?: PlanningAi } = {}) {
   const app = Fastify();
   app.register(cors, { origin: true, credentials: true });
   registerAuth(app);
@@ -169,6 +171,7 @@ export function buildApp(deps: Partial<DocDeps> = {}) {
   registerPlatformRoutes(app);
   registerProjectRoutes(app);
   registerBuilderRoutes(app);
+  registerPlanningRoutes(app, { ai: deps.planningAi ?? defaultPlanningAi() });
   registerWorkflowAdminRoutes(app);
   registerDashboardRoutes(app);
   registerReportRoutes(app);

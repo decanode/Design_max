@@ -175,3 +175,19 @@ Automated background ingestion workers populate a central Vector Database (`pgve
 
 **Libraries added (web):** `react-hook-form` (form state), `zod` (the same field rules as the server), `@hookform/resolvers`, `framer-motion` (card, dialog and flow transitions). Drag-and-drop was not added: phase order is edited with explicit up/down controls, which are keyboard-accessible.
 
+---
+
+## N. AI Project Planning module (directive FEATURE_PM_PLANNING_MODULE.md)
+
+**Feature flag.** `projects.enabled_modules JSONB` holds per-project flags (`planning_module`). A Project Admin sets them (`PUT /api/project/modules`, audited); the session payload carries them so the web app hides the tab; every planning route also checks the flag and the permission `planning.manage` server-side (module off answers 403 `MODULE_DISABLED`). New built-in role *Project Manager*.
+
+**Data (RLS by project).** `project_charters` (one per project: section text columns derived from the edited document, `content_json` ProseMirror, `ydoc` live state, `intake` the wizard answers, `status` Draft/Approved) and `wbs_elements` (self-referencing tree; `level` and the rules are enforced by triggers: same project, at most three levels, no cycles, only level-3 elements can hold a `ticket_id`; moving a subtree re-levels it).
+
+**Gemini.** `planning/ai.ts` wraps the official `@google/generative-ai` SDK behind a `PlanningAi` interface. JSON mode plus zod validation of the reply (one corrective retry with the validation errors), backoff on 429/500/503, a timeout, a per-user rate limit, input length caps, the PM's text fenced in tags the system prompt calls data, and the project's technology scope appended. Credentials stay in server environment variables (`GEMINI_API_KEY`, `GEMINI_MODEL`; `GEMINI_API_BASE_URL` redirects the SDK to a mock in tests; `PLANNING_PROVIDER` forces gemini/offline independently of `AI_PROVIDER`). Without a key an offline deterministic stand-in produces a valid charter and WBS from the PM's own words. The key is never returned by any endpoint (`/api/planning` reports provider and model only).
+
+**Charter editing.** Live co-editing reuses the collaboration server (section L): room `projectId:charter:CHARTER`, same short-lived signed pass, read-only once approved. The server persists the Yjs state and re-derives the section columns on every store, so the WBS prompt and the API always read current text. Approval first flushes what is still in memory, then locks and disconnects editors.
+
+**WBS.** Generated into the tree in one transaction (replacing only an unconverted plan). Edits are individual PATCH/POST/DELETE calls; `POST /wbs/:id/move` re-parents and renumbers siblings under a project-wide lock. The board (`@dnd-kit`) updates optimistically with the same move arithmetic as the server and reconciles with the server's answer; every drag also has a keyboard-accessible menu equivalent.
+
+**Conversion.** Work packages become tickets through the normal `createTicket` path, so the dynamic-workflow engine (section M) decides the type's entry phase and validates the type's required fields (validated for every package before the first ticket is created). Idempotent through `wbs_elements.ticket_id`.
+

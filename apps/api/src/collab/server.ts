@@ -6,6 +6,7 @@ import { Hocuspocus } from '@hocuspocus/server';
 import { runWithContext } from '../db.js';
 import { verifyCollab, type CollabClaim } from './token.js';
 import { loadDraft, pmToYdoc, storeDraft, replaceContent } from './draft.js';
+import { loadCharterDoc, storeCharterDoc } from '../planning/collab.js';
 import { emptyDoc, type PmNode } from '../docgen/pm.js';
 import type { DocKind } from '../docs/kinds.js';
 
@@ -33,12 +34,12 @@ export function attachCollab(http: HttpServer) {
     },
     async onLoadDocument({ documentName, document }) {
       const { pid, ticket, kind } = parse(documentName);
-      const stored = (await loadDraft(pid, ticket, kind)) ?? pmToYdoc(emptyDoc());
+      const stored = ((ticket === 'charter' ? await loadCharterDoc(pid) : await loadDraft(pid, ticket, kind))) ?? pmToYdoc(emptyDoc());
       Y.applyUpdate(document, Y.encodeStateAsUpdate(stored));
     },
     async onStoreDocument({ documentName, document }) {
       const { pid, ticket, kind } = parse(documentName);
-      await storeDraft(pid, ticket, kind, document);
+      if (ticket === 'charter') await storeCharterDoc(pid, document); else await storeDraft(pid, ticket, kind, document);
     },
   });
   hocuspocus = hp;
