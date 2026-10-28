@@ -97,55 +97,6 @@ export function RoleMatrix({ mode, flash }: { mode: 'project' | 'platform'; flas
   );
 }
 
-/* ------------------------------------------------------------------ project members */
-type Member = { id: string; email: string; name: string; active: boolean; role_id: number; role: string };
-export function MembersAdmin({ flash, meId }: { flash: Flash; meId: string }) {
-  const [members, setMembers] = useState<Member[]>([]);
-  const [roles, setRoles] = useState<{ id: number; name: string }[]>([]);
-  const [form, setForm] = useState({ email: '', name: '', roleId: '' });
-  const load = useCallback(async () => { const [m, r] = await Promise.all([api('/api/project/members'), api('/api/project/roles')]); setMembers(m); setRoles(r.roles.map((x: RoleRow) => ({ id: x.id, name: x.name }))); }, []);
-  useEffect(() => { load().catch((e) => flash('err', e.message)); }, [load, flash]);
-
-  async function add(e: React.FormEvent) {
-    e.preventDefault();
-    try { const r = await api('/api/project/members', j({ email: form.email, name: form.name || undefined, roleId: Number(form.roleId) })); flash('ok', r.created ? `Created an account for ${form.email} and added them to this project.` : `${form.email} was added to this project.`); setForm({ email: '', name: '', roleId: '' }); load(); }
-    catch (er) { flash('err', (er as Error).message); }
-  }
-  async function setRole(m: Member, roleId: number) {
-    try { await api(`/api/project/members/${m.id}`, j({ roleId }, 'PATCH')); flash('ok', `${m.name} is now ${roles.find((r) => r.id === roleId)?.name} in this project.`); load(); } catch (e) { flash('err', (e as Error).message); load(); }
-  }
-  async function remove(m: Member) {
-    if (!confirm(`Remove ${m.name} from this project? Their account stays; they just lose access here.`)) return;
-    try { await api(`/api/project/members/${m.id}`, { method: 'DELETE' }); flash('ok', `${m.name} was removed from this project.`); load(); } catch (e) { flash('err', (e as Error).message); }
-  }
-  return (
-    <>
-      <form className="pane build" onSubmit={add} aria-label="Add a member">
-        <h3>Add someone to this project</h3>
-        <div className="row">
-          <label className="sr" htmlFor="me">Email</label><input id="me" type="email" placeholder="name@company.com" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} required />
-          <label className="sr" htmlFor="mn">Name (only needed for new people)</label><input id="mn" placeholder="Name (for new people)" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-          <label className="sr" htmlFor="mr">Role</label>
-          <select id="mr" value={form.roleId} onChange={(e) => setForm({ ...form, roleId: e.target.value })} required><option value="">Choose a role…</option>{roles.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}</select>
-          <button className="btn" type="submit">Add</button>
-        </div>
-      </form>
-      <div className="matrix-wrap">
-        <table className="grid users">
-          <caption className="sr">Project members</caption>
-          <thead><tr><th scope="col">Name</th><th scope="col">Email</th><th scope="col">Role in this project</th><th scope="col"><span className="sr">Actions</span></th></tr></thead>
-          <tbody>{members.map((m) => (
-            <tr key={m.id} className={m.active ? '' : 'inactive'}>
-              <td>{m.name}{m.id === meId && <span className="note"> (you)</span>}{!m.active && <span className="note"> · deactivated</span>}</td><td>{m.email}</td>
-              <td><select aria-label={`Role for ${m.name}`} value={m.role_id} onChange={(e) => setRole(m, Number(e.target.value))}>{roles.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}</select></td>
-              <td style={{ textAlign: 'right' }}><button className="link-btn" onClick={() => remove(m)} aria-label={`Remove ${m.name}`}>Remove</button></td>
-            </tr>))}</tbody>
-        </table>
-      </div>
-    </>
-  );
-}
-
 /* ------------------------------------------------------------------ the technology a project allows */
 export function ProjectTech({ flash }: { flash: Flash }) {
   const [cat, setCat] = useState<{ id: number; name: string; description: string }[]>([]);

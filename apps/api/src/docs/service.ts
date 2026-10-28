@@ -149,7 +149,7 @@ export async function viewApproval(token: string) {
 export async function ticketOverview(id: string, fields: FieldAccess) {
   const base = await getTicket(id);
   const names = (await pool.query(
-    `SELECT cu.display_name AS customer_name, co.display_name AS consultant_name, p.name AS project_name, (t.consultant_id IS NOT NULL) AS is_assigned FROM tickets t
+    `SELECT cu.display_name AS customer_name, co.display_name AS consultant_name, p.name AS project_name, (t.consultant_id IS NOT NULL) AS is_assigned, tm.name AS team_name FROM tickets t LEFT JOIN teams tm ON tm.id = t.team_id
      JOIN projects p ON p.id=t.project_id LEFT JOIN users cu ON cu.id=t.customer_id LEFT JOIN users co ON co.id=t.consultant_id WHERE t.id=$1`, [id])).rows[0];
   const ty = (await pool.query('SELECT id, key, name, short FROM ticket_types WHERE id=$1', [base.ticket_type_id])).rows[0] ?? null;
   const typeDefs = ty ? ((await typeFields()).get(ty.id) ?? []) : [];

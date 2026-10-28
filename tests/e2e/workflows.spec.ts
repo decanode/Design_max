@@ -25,10 +25,12 @@ test('a Project Admin sets up a project and its two-level workflow; a request th
   await pia.goto('/admin');
   await expect(pia.getByRole('heading', { name: new RegExp(`Project settings.*${project}`) })).toBeVisible();
   for (const [email, role] of [['sam@designmax.dev', 'Consultant'], ['mia@designmax.dev', 'Manager'], ['leo@designmax.dev', 'Lead']]) {
+    await pia.getByRole('button', { name: '+ Add member' }).click();                   // the add-member page
     await pia.getByLabel('Email').fill(email);
-    await pia.getByLabel('Role', { exact: true }).selectOption({ label: role });
-    await pia.getByRole('button', { name: 'Add', exact: true }).click();
-    await expect(pia.getByRole('status')).toContainText(`${email} was added to this project`);
+    await pia.getByRole('combobox', { name: 'Role', exact: true }).selectOption({ label: role });
+    await pia.getByRole('button', { name: 'Add member', exact: true }).click();
+    await expect(pia.getByRole('status')).toContainText(`${email} already had an account`);
+    await pia.getByRole('navigation', { name: 'Breadcrumb' }).getByRole('button', { name: 'Members' }).click();
   }
 
   // A ticket assigned to Sam, in this project (the API call uses the project Pia is working in)

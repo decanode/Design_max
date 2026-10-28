@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 
-export interface SettingsItem<K extends string> { key: K; label: string; hint: string; show?: boolean }
+export interface SettingsItem<K extends string> { key: K; label: string; hint?: string; show?: boolean }
 export interface SettingsGroup<K extends string> { label: string; items: SettingsItem<K>[] }
 
 /**
@@ -48,17 +48,24 @@ export function SettingsShell<K extends string>({ label, groups, active, onSelec
         </div>
       </nav>
       <section className="settings-body" role="tabpanel" aria-label={current?.label}>
-        {current && <header className="settings-head"><h3>{current.label}</h3><p>{current.hint}</p></header>}
+        {current && <header className="settings-head"><h3>{current.label}</h3>{current.hint && <p>{current.hint}</p>}</header>}
         <div aria-live="polite" className="settings-status">{status}</div>
         {children}
       </section>
     </div>);
 }
 
-/** Keeps the open section in the address bar (#members) so a reload or a shared link lands on the same section. */
-export function useSectionHash<K extends string>(valid: K[], fallback: K): [K, (k: K) => void] {
-  const [sec, setSec] = useState<K | null>(null);
-  useEffect(() => { const h = decodeURIComponent(location.hash.slice(1)); if (h) setSec(h as K); }, []);
-  const choose = (k: K) => { setSec(k); history.replaceState(null, '', `#${k}`); };
-  return [sec && valid.includes(sec) ? sec : fallback, choose];
+/**
+ * Keeps the open section, and a drill-down inside it, in the address bar (#members, #members/new, #members/<id>) so a reload or
+ * a shared link lands in the same place.
+ */
+export function useSectionHash<K extends string>(valid: K[], fallback: K): { section: K; choose: (k: K) => void; sub: string | null; setSub: (s: string | null) => void } {
+  const [h, setH] = useState<{ section: K | null; sub: string | null }>({ section: null, sub: null });
+  useEffect(() => {
+    const read = () => { const [a, b] = decodeURIComponent(location.hash.slice(1)).split('/'); setH({ section: (a || null) as K | null, sub: b || null }); };
+    read(); window.addEventListener('hashchange', read); return () => window.removeEventListener('hashchange', read);
+  }, []);
+  const section = h.section && valid.includes(h.section) ? h.section : fallback;
+  const go = (sec: K, sub: string | null) => { setH({ section: sec, sub }); history.pushState(null, '', `#${sec}${sub ? `/${sub}` : ''}`); };
+  return { section, choose: (k) => go(k, null), sub: h.section === section ? h.sub : null, setSub: (s) => go(section, s) };
 }

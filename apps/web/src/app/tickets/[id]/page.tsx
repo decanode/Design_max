@@ -16,7 +16,7 @@ const API = '';
 type Ver = { version: number; author: string | null; note: string | null; at: string };
 type Overview = {
   ticketType?: { id: number; key: string; name: string; short: string; fields: TypeField[] } | null;
-  ticket: DetailTicket & { dynamic_metadata?: Record<string, unknown>; type_short?: string; type_name?: string; current_state: string; customer_name?: string | null; consultant_name?: string | null; consultant_id?: string | null; is_assigned?: boolean };
+  ticket: DetailTicket & { dynamic_metadata?: Record<string, unknown>; type_short?: string; type_name?: string; team_id?: string | null; team_name?: string | null; current_state: string; customer_name?: string | null; consultant_name?: string | null; consultant_id?: string | null; is_assigned?: boolean };
   fields: Record<string, 'hidden' | 'read' | 'write'>;
   docs: Record<Kind, { latest: { version_number: number; content_md: string }; versions: Ver[] } | null>;
   stacks?: string[]; stackWarnings?: { kind: Kind; stack: string; terms: string[] }[];
@@ -31,6 +31,7 @@ export default function TicketPage() {
   const { id } = useParams<{ id: string }>();
   const { me, can, loading: authLoading } = useAuth();
   const [people, setPeople] = useState<{ id: string; name: string }[]>([]);
+  const [teamOptions, setTeamOptions] = useState<{ id: string; name: string }[]>([]);
   const [decision, setDecision] = useState('');
   const wf = useWorkflow(!!me?.project);
   const [next, setNext] = useState<{ to: string; gated: string | null }[]>([]);
@@ -57,7 +58,7 @@ export default function TicketPage() {
     return data;
   }, [id]);
 
-  useEffect(() => { if (can('ticket.assign')) fetch(`${API}/api/users/assignable`).then((r) => r.ok && r.json()).then((d) => d && setPeople(d)); }, [can]);
+  useEffect(() => { if (can('ticket.assign')) { fetch(`${API}/api/users/assignable`).then((r) => r.ok && r.json()).then((d) => d && setPeople(d)); fetch(`${API}/api/project/team-options`).then((r) => r.ok && r.json()).then((d) => d && setTeamOptions(d)); } }, [can]);
   useEffect(() => { if (!me) return; load().then((d) => {
     if (!d) return;
     setKind(([...KINDS].reverse().find((k) => d.docs[k]) ?? 'FS') as Kind);
@@ -93,6 +94,7 @@ export default function TicketPage() {
   const generate = (k: Kind) => run(() => fetch(`${API}/api/tickets/${id}/documents/generate`, j({ kind: k })), 'Draft created.');
   const save = () => run(() => fetch(`${API}/api/tickets/${id}/documents/${kind}/snapshot`, j({})), 'Saved as a new version.');
   async function claim() { await run(() => fetch(`${API}/api/tickets/${id}/claim`, { method: 'POST' }), 'You now own this ticket.'); }
+  async function assignTeam(teamId: string) { await run(() => fetch(`${API}/api/tickets/${id}/team`, j({ teamId: teamId || null })), 'Team updated.'); }
   async function assign(consultantId: string) { await run(() => fetch(`${API}/api/tickets/${id}/assign`, j({ consultantId: consultantId || null })), 'Assignment updated.'); }
   async function decide(approvalId: string, d: 'approved' | 'rejected') {
     await run(() => fetch(`${API}/api/my/approvals/${approvalId}/decision`, j({ decision: d, comment: decision })), d === 'approved' ? 'Approved. The ticket moved on.' : 'Rejected with your comment.');
@@ -131,6 +133,9 @@ export default function TicketPage() {
             <select aria-label="Assign consultant" value={o.ticket.consultant_id ?? ''} onChange={(e) => assign(e.target.value)}>
               <option value="">Unassigned</option>{people.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>)}
+          {o.fields.consultant !== 'hidden' && (o.fields.consultant === 'write' && can('ticket.assign') && teamOptions.length > 0
+            ? <select aria-label="Assign team" value={o.ticket.team_id ?? ''} onChange={(e) => assignTeam(e.target.value)}><option value="">No team</option>{teamOptions.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</select>
+            : o.ticket.team_name ? <span className="note">· Team: {o.ticket.team_name}</span> : null)}
         </div>
         {(o.stacks?.length ?? 0) > 0 && <p className="note" style={{ marginTop: 0 }}>Project technology: <span className="stack-chips">{o.stacks!.map((t) => <span key={t} className="chip">{t}</span>)}</span></p>}
         {(o.stackWarnings?.length ?? 0) > 0 && (

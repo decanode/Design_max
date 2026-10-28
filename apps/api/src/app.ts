@@ -19,6 +19,7 @@ import { registerAuthRoutes } from './rbac/authRoutes.js';
 import { registerPlatformRoutes } from './platform/routes.js';
 import { registerPlanningRoutes } from './planning/routes.js';
 import { defaultPlanningAi, type PlanningAi } from './planning/ai.js';
+import { registerPeopleRoutes } from './project/peopleRoutes.js';
 import { registerBuilderRoutes } from './workflow/builderRoutes.js';
 import { registerWorkflowAdminRoutes } from './workflow/platformRoutes.js';
 import { registerProjectRoutes } from './project/routes.js';
@@ -65,10 +66,10 @@ export function buildApp(deps: Partial<DocDeps> & { planningAi?: PlanningAi } = 
   app.get('/api/tickets', { preHandler: need('board.view') }, async (req) => {
     const s = ticketScope(req.user!, 1);
     const rows = (await pool.query(
-      `SELECT t.id, t.title, t.current_state, t.ai_summary, t.ticket_type_id, tt.name AS type_name, tt.short AS type_short, tt.key AS type_key, (ph.tone = 'done') AS is_done, t.dynamic_metadata, t.legacy_id, t.legacy_source, t.created_at, t.updated_at, t.consultant_id,
+      `SELECT t.id, t.title, t.current_state, t.ai_summary, t.ticket_type_id, tt.name AS type_name, tt.short AS type_short, tt.key AS type_key, (ph.tone = 'done') AS is_done, t.team_id, tm.name AS team_name, t.dynamic_metadata, t.legacy_id, t.legacy_source, t.created_at, t.updated_at, t.consultant_id,
               c.display_name AS consultant, (t.consultant_id IS NOT NULL) AS is_assigned,
               EXISTS (SELECT 1 FROM approvals a WHERE a.ticket_id = t.id AND a.status = 'pending') AS awaiting_approval
-       FROM tickets t LEFT JOIN users c ON c.id = t.consultant_id LEFT JOIN ticket_types tt ON tt.id = t.ticket_type_id LEFT JOIN phases ph ON ph.name = t.current_state
+       FROM tickets t LEFT JOIN users c ON c.id = t.consultant_id LEFT JOIN ticket_types tt ON tt.id = t.ticket_type_id LEFT JOIN phases ph ON ph.name = t.current_state LEFT JOIN teams tm ON tm.id = t.team_id
        WHERE ${s.sql} ORDER BY t.updated_at DESC LIMIT 500`, s.params)).rows;
     return rows.map((r) => sanitizeTicket(r, req.user!.fields));      // column-level security: hidden fields never leave the server
   });
@@ -171,6 +172,7 @@ export function buildApp(deps: Partial<DocDeps> & { planningAi?: PlanningAi } = 
   registerPlatformRoutes(app);
   registerProjectRoutes(app);
   registerBuilderRoutes(app);
+  registerPeopleRoutes(app);
   registerPlanningRoutes(app, { ai: deps.planningAi ?? defaultPlanningAi() });
   registerWorkflowAdminRoutes(app);
   registerDashboardRoutes(app);

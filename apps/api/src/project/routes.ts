@@ -13,7 +13,6 @@ import { sampleDocument } from '../docgen/sample.js';
 import { KINDS } from '../docs/kinds.js';
 import { DocSettings, FONTS, STACK_SETS, effectiveSettings, saveProjectSettings } from '../docs/settings.js';
 import { KNOWN_MODULES, PLANNING_MODULE, modulesOf, setModule } from '../planning/service.js';
-import { findOrCreateUser } from '../platform/routes.js';
 
 /**
  * Project Admin console API. Everything here acts on the caller's CURRENT project only (taken from the session,
@@ -22,15 +21,8 @@ import { findOrCreateUser } from '../platform/routes.js';
 const pid = (req: { user: { projectId: string | null } | null }) => req.user!.projectId!;
 const roleRow = async (id: number) => { const r = (await pool.query('SELECT * FROM roles WHERE id=$1', [id])).rows[0]; if (!r) throw new DocError('Role not found', 404); return r; };
 
-async function assertAdminRemains(projectId: string, exceptUserId: string) {
-  const n = (await pool.query(
-    `SELECT count(*)::int c FROM project_members m JOIN roles r ON r.id = m.role_id JOIN users u ON u.id = m.user_id WHERE m.project_id=$1 AND r.name=$2 AND u.active AND m.user_id <> $3`,
-    [projectId, PROJECT_ADMIN_ROLE, exceptUserId])).rows[0].c;
-  if (n < 1) throw new DocError('A project must keep at least one Project Admin', 409);
-}
-
 export function registerProjectRoutes(app: FastifyInstance) {
-  const members = need('admin.users'), roles = need('admin.roles'), settings = need('admin.projects');
+  const roles = need('admin.roles'), settings = need('admin.projects');
   const anyAdmin = needAny('admin.users', 'admin.roles', 'admin.projects', 'admin.workflows');
 
   app.get('/api/project', { preHandler: inProject() }, async (req) => {
@@ -38,45 +30,6 @@ export function registerProjectRoutes(app: FastifyInstance) {
     const p = (await pool.query('SELECT id, name, status FROM projects WHERE id=$1', [id])).rows[0];
     const stacks = (await pool.query('SELECT s.id, s.name FROM project_stacks ps JOIN tech_stacks s ON s.id=ps.stack_id WHERE ps.project_id=$1 ORDER BY s.name', [id])).rows;
     return { ...p, stacks, role: req.user!.roleName, isSuperAdmin: req.user!.isSuper };
-  });
-
-  // ---------------- members
-  app.get('/api/project/members', { preHandler: members }, async (req) =>
-    (await pool.query(
-      `SELECT u.id, u.email, u.display_name AS name, u.active, r.id AS role_id, r.name AS role, m.created_at
-       FROM project_members m JOIN users u ON u.id = m.user_id JOIN roles r ON r.id = m.role_id WHERE m.project_id = $1 ORDER BY u.active DESC, u.display_name`, [pid(req)])).rows);
-
-  /** Add someone to this project. An unknown email creates an account that can reach nothing else. */
-  app.post('/api/project/members', { preHandler: members }, async (req, reply) => {
-    const b = z.object({ email: z.string().email(), name: z.string().trim().max(80).optional(), roleId: z.number().int() }).parse(req.body);
-    const role = await roleRow(b.roleId);
-    const u = await findOrCreateUser(pool, b.email, b.name);
-    if ((await pool.query('SELECT 1 FROM project_members WHERE project_id=$1 AND user_id=$2', [pid(req), u.id])).rowCount) throw new DocError('That person is already in this project', 409);
-    await pool.query('INSERT INTO project_members (project_id, user_id, role_id, added_by) VALUES ($1,$2,$3,$4)', [pid(req), u.id, b.roleId, req.user!.id]);
-    await audit(req, 'member.add', { email: b.email.toLowerCase(), role: role.name, newAccount: u.created });
-    return reply.code(201).send({ userId: u.id, created: u.created });
-  });
-
-  app.patch('/api/project/members/:userId', { preHandler: members }, async (req) => {
-    const { userId } = z.object({ userId: z.string().uuid() }).parse(req.params);
-    const { roleId } = z.object({ roleId: z.number().int() }).parse(req.body);
-    const role = await roleRow(roleId);
-    const cur = (await pool.query('SELECT r.name, u.email FROM project_members m JOIN roles r ON r.id=m.role_id JOIN users u ON u.id=m.user_id WHERE m.project_id=$1 AND m.user_id=$2', [pid(req), userId])).rows[0];
-    if (!cur) throw new DocError('That person is not in this project', 404);
-    if (cur.name === PROJECT_ADMIN_ROLE && role.name !== PROJECT_ADMIN_ROLE) await assertAdminRemains(pid(req), userId);
-    await pool.query('UPDATE project_members SET role_id=$3 WHERE project_id=$1 AND user_id=$2', [pid(req), userId, roleId]);
-    await audit(req, 'member.role', { email: cur.email, from: cur.name, to: role.name });
-    return { ok: true };
-  });
-
-  app.delete('/api/project/members/:userId', { preHandler: members }, async (req) => {
-    const { userId } = z.object({ userId: z.string().uuid() }).parse(req.params);
-    const cur = (await pool.query('SELECT r.name, u.email FROM project_members m JOIN roles r ON r.id=m.role_id JOIN users u ON u.id=m.user_id WHERE m.project_id=$1 AND m.user_id=$2', [pid(req), userId])).rows[0];
-    if (!cur) throw new DocError('That person is not in this project', 404);
-    if (cur.name === PROJECT_ADMIN_ROLE) await assertAdminRemains(pid(req), userId);
-    await pool.query('DELETE FROM project_members WHERE project_id=$1 AND user_id=$2', [pid(req), userId]);
-    await audit(req, 'member.remove', { email: cur.email, role: cur.name });
-    return { ok: true };
   });
 
   // ---------------- role tuning (permissions)

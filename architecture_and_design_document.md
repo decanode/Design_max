@@ -191,3 +191,13 @@ Automated background ingestion workers populate a central Vector Database (`pgve
 
 **Conversion.** Work packages become tickets through the normal `createTicket` path, so the dynamic-workflow engine (section M) decides the type's entry phase and validates the type's required fields (validated for every package before the first ticket is created). Idempotent through `wbs_elements.ticket_id`.
 
+---
+
+## O. People: profiles, teams and team-based ticket access
+
+**Profiles.** `users` carries the person's profile (first/last name, `user_id` unique case-insensitively, employee ID, phone, mobile, job title, department, company, location, cost center, manager, time zone, language, admin notes). A trigger fills `first_name`, `last_name` and `user_id` for every new account, whatever path created it, and a migration backfilled existing people. Profiles are platform-wide, so the API is careful: adding an existing account never overwrites its profile, and **email and user ID can be changed by a Project Admin only when the person belongs to no other project** (otherwise Super Admin only). Audit entries list changed field names, not values.
+
+**Teams.** `teams` and `team_members` are project-scoped (RLS); leaving a project removes the person from its teams (trigger); a trigger also guarantees a ticket's `team_id` belongs to the ticket's own project. Permission `ticket.team_access` extends `ticketScope`: `t.team_id IN (SELECT team_id FROM team_members WHERE user_id = me)`. Because every ticket read path (board, ticket page, documents, reports, approvals) goes through `ticketScope`/`ticketVisible`, one rule covers them all; edits remain governed by column-level field access. The ticket's team columns sit under the *Assigned consultant* field for column security.
+
+**Interface.** The Members and Teams sections are a table plus drill-down pages (`#members/<id>`, `#members/new`, `#teams/<id>`), using the settings shell's section-and-sub-path address handling.
+

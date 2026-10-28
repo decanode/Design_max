@@ -188,7 +188,7 @@ export default function Platform() {
     { label: 'Building blocks', items: [{ key: 'workflows', label: 'Workflows', hint: 'Ticket types and their fields, methodologies and their transitions, project-type defaults.' }, { key: 'documents', label: 'Documents', hint: 'Word templates and the defaults for document style.' }] },
     { label: 'Audit', items: [{ key: 'activity', label: 'Activity', hint: 'A log of platform-wide changes.' }] },
   ];
-  const [tab, setTab] = useSectionHash<Tab>(groups.flatMap((g) => g.items.map((i) => i.key)), 'projects');
+  const { section: tab, choose: setTab } = useSectionHash<Tab>(groups.flatMap((g) => g.items.map((i) => i.key)), 'projects');
   useEffect(() => { setStatus(null); }, [tab]);
   if (loading || !me) return <><Nav current="platform" /><main id="main"><p className="note">Loading…</p></main></>;
   if (!isSuper) return <><Nav current="platform" /><main id="main"><NoAccess what="the platform console" /></main></>;

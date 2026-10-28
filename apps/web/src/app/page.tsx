@@ -14,7 +14,7 @@ type Ticket = {
   id: string; title: string; current_state: string; ai_summary?: string | null;
   legacy_id?: string | null; legacy_source?: 'jira' | 'servicenow' | null;
   created_at: string; updated_at: string; awaiting_approval: boolean; is_assigned: boolean; is_done?: boolean; consultant?: string | null;
-  ticket_type_id?: number; type_name?: string; type_short?: string;
+  ticket_type_id?: number; type_name?: string; type_short?: string; team_name?: string | null;
 };
 
 const ago = (iso: string) => {
@@ -128,6 +128,7 @@ export default function Board() {
                                   {t.awaiting_approval && <span className="tag warn">Awaiting approval</span>}
                                   {t.legacy_source && <span className="tag src">{t.legacy_source === 'jira' ? 'Jira' : 'ServiceNow'} · {t.legacy_id}</span>}
                                   {t.consultant && <span className="tag" title="Assigned consultant">{t.consultant}</span>}
+                                  {t.team_name && <span className="tag team" title="Assigned team">{t.team_name}</span>}
                                   <span>{ago(t.updated_at)}</span>
                                 </div>
                                 {can('ticket.advance') && open.length === 1 && <button className="adv" onClick={() => advance(t, open[0].to)}>Advance → {open[0].to}</button>}

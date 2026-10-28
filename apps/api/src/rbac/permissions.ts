@@ -11,6 +11,7 @@ export const CATALOG: FeatureDef[] = [
     { key: 'ticket.view_all', label: 'See all tickets', description: 'Every ticket in the system.' },
     { key: 'ticket.view_own', label: 'See own tickets', description: 'Tickets where they are the customer or the assigned consultant.' },
     { key: 'ticket.view_unassigned', label: 'See unassigned tickets', description: 'The intake queue of tickets with no consultant yet.' },
+    { key: 'ticket.team_access', label: 'Work team tickets', description: 'See and work the tickets assigned to the teams they belong to (what they can change still follows their ticket-field access).' },
     { key: 'ticket.create', label: 'Create tickets manually', description: 'Add a ticket directly from the board.' },
     { key: 'ticket.claim', label: 'Claim tickets', description: 'Take an unassigned ticket; also makes the user assignable.' },
     { key: 'ticket.assign', label: 'Assign tickets', description: 'Assign or reassign a ticket to a consultant.' },

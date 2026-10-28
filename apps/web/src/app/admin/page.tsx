@@ -7,10 +7,12 @@ import { ModulesAdmin } from '../../components/ModulesAdmin';
 import { TemplateBuilder } from '../../components/TemplateBuilder';
 import { DocSettingsAdmin } from '../../components/DocSettingsAdmin';
 import { WorkflowAdmin } from '../../components/WorkflowAdmin';
-import { ActivityList, MembersAdmin, ProjectTech, RoleMatrix } from '../../components/consoleBits';
+import { ActivityList, ProjectTech, RoleMatrix } from '../../components/consoleBits';
+import { MembersAdmin } from '../../components/people/MembersAdmin';
+import { TeamsAdmin } from '../../components/people/TeamsAdmin';
 import { NoAccess, NoProject, useAuth } from '../../lib/auth';
 
-type Tab = 'members' | 'roles' | 'fields' | 'tech' | 'workflows' | 'template' | 'modules' | 'documents' | 'activity';
+type Tab = 'members' | 'teams' | 'roles' | 'fields' | 'tech' | 'workflows' | 'template' | 'modules' | 'documents' | 'activity';
 
 /** Project settings: what a Project Admin (or anyone they delegate to) controls, for the project they are working in. */
 export default function ProjectSettings() {
@@ -20,7 +22,8 @@ export default function ProjectSettings() {
 
   const groups: SettingsGroup<Tab>[] = [
     { label: 'People & access', items: [
-      { key: 'members', label: 'Members', hint: 'Who is in this project and the role each person has.', show: can('admin.users') },
+      { key: 'members', label: 'Members', show: can('admin.users') },
+      { key: 'teams', label: 'Teams', hint: 'Groups of people. Team members can work the tickets assigned to their team.', show: can('admin.users') },
       { key: 'roles', label: 'Roles & permissions', hint: 'What each role can do in this project.', show: can('admin.roles') },
       { key: 'fields', label: 'Ticket fields', hint: 'Which ticket fields each role can see or edit.', show: can('admin.roles') }] },
     { label: 'How work flows', items: [
@@ -33,7 +36,7 @@ export default function ProjectSettings() {
     { label: 'Audit', items: [{ key: 'activity', label: 'Activity', hint: 'A log of changes made in this project.' }] },
   ];
   const allowed = groups.flatMap((g) => g.items).filter((i) => i.show !== false).map((i) => i.key);
-  const [t, setTab] = useSectionHash<Tab>(allowed, allowed[0] ?? 'activity');
+  const { section: t, choose: setTab, sub, setSub } = useSectionHash<Tab>(allowed, allowed[0] ?? 'activity');
   useEffect(() => { setStatus(null); }, [t]);
 
   if (loading || !me) return <><Nav current="admin" /><main id="main"><p className="note">Loading…</p></main></>;
@@ -46,7 +49,8 @@ export default function ProjectSettings() {
       <main id="main">
         <div className="board-head"><div><h2>Project settings <span className="note">· {me.project.name}</span></h2></div></div>
         <SettingsShell label="Project settings" groups={groups} active={t} onSelect={setTab} status={status && <p className={status.kind === 'err' ? 'err' : 'ok'} role={status.kind === 'err' ? 'alert' : 'status'} style={{ margin: 0 }}>{status.text}</p>}>
-        {t === 'members' && can('admin.users') && <MembersAdmin flash={flash} meId={me.user.id} />}
+        {t === 'members' && can('admin.users') && <MembersAdmin flash={flash} meId={me.user.id} sub={sub} onSub={setSub} />}
+        {t === 'teams' && can('admin.users') && <TeamsAdmin flash={flash} sub={sub} onSub={setSub} />}
         {t === 'roles' && can('admin.roles') && <RoleMatrix mode="project" flash={flash} />}
         {t === 'fields' && can('admin.roles') && <FieldAdmin mode="project" flash={flash} />}
         {t === 'template' && can('admin.projects') && <TemplateBuilder flash={flash} />}

@@ -170,8 +170,10 @@ export function ticketScope(u: SessionUser, p: number): { sql: string; params: u
   const inProj = `t.project_id = $${p}`;
   if (u.perms.has('ticket.view_all')) return { sql: inProj, params };
   const parts: string[] = [];
-  if (u.perms.has('ticket.view_own')) { parts.push(`(t.customer_id = $${p + 1} OR t.consultant_id = $${p + 1})`); params.push(u.id); }
+  const me = () => { if (params.length < 2) params.push(u.id); return `$${p + 1}`; };       // the person's id is passed once and reused
+  if (u.perms.has('ticket.view_own')) parts.push(`(t.customer_id = ${me()} OR t.consultant_id = ${me()})`);
   if (u.perms.has('ticket.view_unassigned')) parts.push('t.consultant_id IS NULL');
+  if (u.perms.has('ticket.team_access')) parts.push(`t.team_id IN (SELECT tm.team_id FROM team_members tm WHERE tm.user_id = ${me()})`);
   return { sql: parts.length ? `${inProj} AND (${parts.join(' OR ')})` : 'FALSE', params };
 }
 
