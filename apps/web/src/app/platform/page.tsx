@@ -5,7 +5,8 @@ import { TemplateAdmin } from '../../components/TemplateAdmin';
 import { useCallback, useEffect, useState } from 'react';
 import { Nav } from '../../components/Nav';
 import { FieldAdmin } from '../../components/FieldAdmin';
-import { ActivityList, RoleMatrix, api } from '../../components/consoleBits';
+import { ActivityList, api } from '../../components/consoleBits';
+import { RolesAdmin } from '../../components/people/RolesAdmin';
 import { NoAccess, useAuth, j } from '../../lib/auth';
 
 type Tab = 'projects' | 'users' | 'roles' | 'fields' | 'stacks' | 'workflows' | 'documents' | 'activity';
@@ -198,7 +199,7 @@ export default function Platform() {
     { label: 'Building blocks', items: [{ key: 'workflows', label: 'Workflows', hint: 'Ticket types and their fields, methodologies and their transitions, project-type defaults.' }, { key: 'documents', label: 'Documents', hint: 'Word templates and the defaults for document style.' }] },
     { label: 'Audit', items: [{ key: 'activity', label: 'Activity', hint: 'A log of platform-wide changes.' }] },
   ];
-  const { section: tab, choose: setTab } = useSectionHash<Tab>(groups.flatMap((g) => g.items.map((i) => i.key)), 'projects');
+  const { section: tab, choose: setTab, sub, setSub } = useSectionHash<Tab>(groups.flatMap((g) => g.items.map((i) => i.key)), 'projects');
   useEffect(() => { setStatus(null); }, [tab]);
   if (loading || !me) return <><Nav current="platform" /><main id="main"><p className="note">Loading…</p></main></>;
   if (!isSuper) return <><Nav current="platform" /><main id="main"><NoAccess what="the platform console" /></main></>;
@@ -210,7 +211,7 @@ export default function Platform() {
         <SettingsShell label="Platform" groups={groups} active={tab} onSelect={setTab} status={status && <p className={status.kind === 'err' ? 'err' : 'ok'} role={status.kind === 'err' ? 'alert' : 'status'} style={{ margin: 0 }}>{status.text}</p>}>
         {tab === 'projects' && <Projects flash={flash} />}
         {tab === 'users' && <Users flash={flash} />}
-        {tab === 'roles' && <RoleMatrix mode="platform" flash={flash} />}
+        {tab === 'roles' && <RolesAdmin mode="platform" flash={flash} sub={sub} onSub={setSub} />}
         {tab === 'fields' && <FieldAdmin mode="platform" flash={flash} />}
         {tab === 'stacks' && <Stacks flash={flash} />}
         {tab === 'workflows' && <WorkflowMasters flash={flash} />}

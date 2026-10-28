@@ -19,7 +19,6 @@ export function RoleMatrix({ mode, flash }: { mode: 'project' | 'platform'; flas
   const base = mode === 'project' ? '/api/project' : '/api/platform';
   const [roles, setRoles] = useState<RoleRow[]>([]);
   const [catalog, setCatalog] = useState<Feature[]>([]);
-  const [form, setForm] = useState({ name: '', description: '', copy: '' });
   const [mayCreate, setMayCreate] = useState(false);       // project mode: a Super Admin has allowed this Project Admin to make roles
   const [renaming, setRenaming] = useState<{ id: number; name: string } | null>(null);
 
@@ -42,11 +41,6 @@ export function RoleMatrix({ mode, flash }: { mode: 'project' | 'platform'; flas
   async function reset(r: RoleRow) {
     try { await api(`${base}/roles/${r.id}/permissions`, { method: 'DELETE' }); flash('ok', `${r.name} is back to the standard role.`); load(); } catch (e) { flash('err', (e as Error).message); }
   }
-  async function create(e: React.FormEvent) {
-    e.preventDefault();
-    try { await api(mode === 'project' ? '/api/project/roles' : '/api/platform/roles', j({ name: form.name, description: form.description, copyFromRoleId: form.copy ? Number(form.copy) : undefined })); flash('ok', mode === 'project' ? `Role “${form.name}” was created for this project. Tick what it can do, then give it to people under Members.` : `Role “${form.name}” added to the catalog.`); setForm({ name: '', description: '', copy: '' }); load(); }
-    catch (er) { flash('err', (er as Error).message); }
-  }
   async function del(r: RoleRow) {
     if (!confirm(mode === 'project' ? `Delete the role “${r.name}”? It is removed from this project.` : `Delete the role “${r.name}” from the catalog?`)) return;
     try { await api(mode === 'project' ? `/api/project/roles/${r.id}` : `/api/platform/roles/${r.id}`, { method: 'DELETE' }); flash('ok', `Deleted “${r.name}”.`); load(); } catch (e) { flash('err', (e as Error).message); }
@@ -58,17 +52,6 @@ export function RoleMatrix({ mode, flash }: { mode: 'project' | 'platform'; flas
 
   return (
     <>
-      {(mode === 'platform' || mayCreate) && (
-        <form className="pane build" onSubmit={create} aria-label={mode === 'project' ? 'Create a role for this project' : 'Add a role to the catalog'}>
-          <h3>{mode === 'project' ? 'Create a role for this project' : 'Add a role'}</h3>
-          <div className="row">
-            <label className="sr" htmlFor="rn">Role name</label><input id="rn" placeholder="Role name (e.g. Solution Architect)" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required minLength={2} />
-            <label className="sr" htmlFor="rd">Description</label><input id="rd" placeholder="What is this role for?" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} style={{ minWidth: 260 }} />
-            <label className="sr" htmlFor="rc">Start from</label>
-            <select id="rc" value={form.copy} onChange={(e) => setForm({ ...form, copy: e.target.value })}><option value="">Start with no permissions</option>{roles.map((r) => <option key={r.id} value={r.id}>Copy of {r.name}</option>)}</select>
-            <button className="btn" type="submit" disabled={form.name.trim().length < 2}>{mode === 'project' ? 'Create role' : 'Add role'}</button>
-          </div>
-        </form>)}
       <div className="matrix-wrap">
         <table className="matrix">
           <caption className="sr">Permissions by role</caption>

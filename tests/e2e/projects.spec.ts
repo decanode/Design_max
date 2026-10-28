@@ -66,6 +66,7 @@ test('a Project Admin tunes a role for their project, and the change is theirs a
 
   await pa.goto('/admin');
   await pa.getByRole('tab', { name: 'Roles & permissions' }).click();
+  await pa.getByRole('button', { name: 'Compare permissions' }).click();                    // the side-by-side grid
   const box = pa.getByRole('checkbox', { name: 'Consultant role: Create tickets manually' });
   await expect(box).not.toBeChecked();
   await box.check();

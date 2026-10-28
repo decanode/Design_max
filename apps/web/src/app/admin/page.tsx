@@ -7,7 +7,8 @@ import { ModulesAdmin } from '../../components/ModulesAdmin';
 import { TemplateBuilder } from '../../components/TemplateBuilder';
 import { DocSettingsAdmin } from '../../components/DocSettingsAdmin';
 import { WorkflowAdmin } from '../../components/WorkflowAdmin';
-import { ActivityList, ProjectTech, RoleMatrix } from '../../components/consoleBits';
+import { ActivityList, ProjectTech } from '../../components/consoleBits';
+import { RolesAdmin } from '../../components/people/RolesAdmin';
 import { MembersAdmin } from '../../components/people/MembersAdmin';
 import { TeamsAdmin } from '../../components/people/TeamsAdmin';
 import { NoAccess, NoProject, useAuth } from '../../lib/auth';
@@ -24,7 +25,7 @@ export default function ProjectSettings() {
     { label: 'People & access', items: [
       { key: 'members', label: 'Members', show: can('admin.users') },
       { key: 'teams', label: 'Teams', hint: 'Groups of people. Team members can work the tickets assigned to their team.', show: can('admin.users') },
-      { key: 'roles', label: 'Roles & permissions', hint: 'What each role can do in this project.', show: can('admin.roles') },
+      { key: 'roles', label: 'Roles & permissions', hint: 'What each role can do and see in this project.', show: can('admin.roles') },
       { key: 'fields', label: 'Ticket fields', hint: 'Which ticket fields each role can see or edit.', show: can('admin.roles') }] },
     { label: 'How work flows', items: [
       { key: 'template', label: 'Template builder', hint: 'The project type, methodology, phases and the kinds of items people can create.', show: can('admin.projects') },
@@ -51,7 +52,7 @@ export default function ProjectSettings() {
         <SettingsShell label="Project settings" groups={groups} active={t} onSelect={setTab} status={status && <p className={status.kind === 'err' ? 'err' : 'ok'} role={status.kind === 'err' ? 'alert' : 'status'} style={{ margin: 0 }}>{status.text}</p>}>
         {t === 'members' && can('admin.users') && <MembersAdmin flash={flash} meId={me.user.id} sub={sub} onSub={setSub} />}
         {t === 'teams' && can('admin.users') && <TeamsAdmin flash={flash} sub={sub} onSub={setSub} />}
-        {t === 'roles' && can('admin.roles') && <RoleMatrix mode="project" flash={flash} />}
+        {t === 'roles' && can('admin.roles') && <RolesAdmin mode="project" flash={flash} sub={sub} onSub={setSub} />}
         {t === 'fields' && can('admin.roles') && <FieldAdmin mode="project" flash={flash} />}
         {t === 'template' && can('admin.projects') && <TemplateBuilder flash={flash} />}
         {t === 'tech' && can('admin.projects') && <ProjectTech flash={flash} />}

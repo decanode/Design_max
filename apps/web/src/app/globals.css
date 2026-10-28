@@ -524,3 +524,19 @@ main:has(.settings-rail) { padding-left: calc(var(--rail-w) + 32px); }
 .admin-powers { border: 1px dashed var(--line); border-radius: 10px; padding: 6px 12px 8px; margin: 8px 0 0; display: flex; gap: 6px 18px; flex-wrap: wrap; align-items: center; } .admin-powers legend { padding: 0 6px; }
 .rename { display: flex; gap: 6px; align-items: center; } .rename input { padding: 4px 8px; border-radius: 7px; border: 1px solid var(--accent); background: var(--bg); color: var(--text); font: inherit; width: 130px; }
 .rc-actions { display: flex; gap: 10px; }
+
+/* ---------------------------------------------------------------- Roles: list and role page */
+.seg { display: inline-flex; gap: 4px; padding: 3px; border: 1px solid var(--line); border-radius: 11px; background: var(--panel-2); align-items: center; flex-wrap: wrap; }
+.seg button { all: unset; box-sizing: border-box; cursor: pointer; padding: 6px 14px; border-radius: 8px; font-size: 14px; font-weight: 600; color: var(--muted); display: inline-flex; gap: 8px; align-items: center; }
+.seg button[aria-pressed='true'], .seg button[aria-selected='true'] { background: var(--panel); color: var(--text); box-shadow: 0 1px 3px rgba(0, 0, 0, .12); } .seg button:focus-visible { outline: 2px solid var(--accent); }
+.seg .btn { all: revert; margin-left: 6px; }
+.status.own { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 50%, var(--line)); } .status.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 50%, var(--line)); }
+.mini-steps { list-style: none; display: flex; gap: 10px; padding: 0; margin: 0; flex-wrap: wrap; } .mini-steps li { display: flex; align-items: center; gap: 8px; padding: 6px 14px 6px 8px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); font-weight: 600; font-size: 14px; color: var(--muted); }
+.mini-steps li.cur { border-color: var(--accent); color: var(--text); background: color-mix(in srgb, var(--accent) 10%, var(--panel)); } .mini-steps li.done { color: var(--done); }
+.mini-steps .n { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--line); font-size: 12px; color: var(--text); } .mini-steps li.cur .n { background: var(--accent); color: var(--accent-ink); } .mini-steps li.done .n { background: var(--done); color: #fff; }
+.drill-card.narrow { max-width: 620px; } .drill-card.narrow .pf { margin-bottom: 12px; }
+.perm-group { border: 1px solid var(--line); border-radius: 12px; margin: 12px 0 0; padding: 4px 8px 8px; position: relative; } .perm-group legend { padding: 0 8px; font-weight: 700; font-size: 13px; } .perm-group .sm-link { position: absolute; right: 12px; top: -10px; background: var(--panel); padding: 0 6px; font-size: 12px; }
+.perm-row { display: flex; gap: 12px; align-items: flex-start; padding: 8px 10px; border-radius: 9px; cursor: pointer; } .perm-row:hover { background: var(--panel-2); } .perm-row.on { background: color-mix(in srgb, var(--accent) 7%, var(--panel)); } .perm-row input { margin-top: 4px; accent-color: var(--accent); width: 16px; height: 16px; }
+.field-list { display: grid; } .field-line { display: flex; gap: 16px; align-items: center; justify-content: space-between; padding: 10px 4px; border-bottom: 1px solid var(--line); } .field-line:last-child { border-bottom: 0; } .field-line select { min-width: 130px; }
+
+.drill-card .search-wrap { flex: none; max-width: none; } .nowrap, .status { white-space: nowrap; }
