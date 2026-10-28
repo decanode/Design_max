@@ -361,7 +361,7 @@ Roles belong to a **project membership**, not to the person. Someone can be a Co
 
 ## 11. Project settings (Project Admin)
 
-**Menu: Project settings** (shows the project name). Tabs:
+**Menu: Project settings** (shows the project name). The sections are listed in a navigation rail on the left, grouped as **People & access** (Members, Roles & permissions, Ticket fields), **How work flows** (Template builder, Approval workflows, Technology), **Features & content** (Modules, Documents) and **Audit** (Activity). Pick one and only that section is shown, with a one-line description; arrow keys move between sections, and the address (for example `/admin#modules`) remembers where you were, so a reload or a shared link lands on the same section. On a narrow screen the rail becomes a scrolling strip. The Platform console uses the same layout (Workspace, Standards, Building blocks, Audit). The sections are:
 - **Members**: add people by email with a role (a new email creates an account that can reach nothing else), change someone's role, or remove them. A project always keeps at least one Project Admin.
 - **Roles & permissions**: what each role can do **in this project**. Roles you have not touched follow the standard; changing one affects only this project, and **Reset** undoes it. Platform powers cannot be given to a project role.
 - **Template builder**: the project's type, methodology, phases and allowed ticket types (section 5).

@@ -1,4 +1,5 @@
 'use client';
+import { SettingsShell, useSectionHash, type SettingsGroup } from '../../components/SettingsShell';
 import { WorkflowMasters } from '../../components/WorkflowMasters';
 import { TemplateAdmin } from '../../components/TemplateAdmin';
 import { useCallback, useEffect, useState } from 'react';
@@ -182,22 +183,24 @@ function Stacks({ flash }: { flash: Flash }) {
 
 export default function Platform() {
   const { me, isSuper, loading } = useAuth();
-  const [tab, setTab] = useState<Tab>('projects');
   const [status, setStatus] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
   const flash = useCallback<Flash>((kind, text) => setStatus({ kind, text }), []);
+  const groups: SettingsGroup<Tab>[] = [
+    { label: 'Workspace', items: [{ key: 'projects', label: 'Projects', hint: 'Create projects, appoint their admins, step into one, or archive it.' }, { key: 'users', label: 'Users', hint: 'Everyone on the platform, their projects and roles.' }] },
+    { label: 'Standards', items: [{ key: 'roles', label: 'Role catalog', hint: 'The standard roles every project starts from.' }, { key: 'fields', label: 'Default ticket fields', hint: 'Which ticket fields each standard role can see.' }, { key: 'stacks', label: 'Technology catalog', hint: 'The technologies a project can be limited to.' }] },
+    { label: 'Building blocks', items: [{ key: 'workflows', label: 'Workflows', hint: 'Ticket types and their fields, methodologies and their transitions, project-type defaults.' }, { key: 'documents', label: 'Documents', hint: 'Word templates and the defaults for document style.' }] },
+    { label: 'Audit', items: [{ key: 'activity', label: 'Activity', hint: 'A log of platform-wide changes.' }] },
+  ];
+  const [tab, setTab] = useSectionHash<Tab>(groups.flatMap((g) => g.items.map((i) => i.key)), 'projects');
   useEffect(() => { setStatus(null); }, [tab]);
   if (loading || !me) return <><Nav current="platform" /><main id="main"><p className="note">Loading…</p></main></>;
   if (!isSuper) return <><Nav current="platform" /><main id="main"><NoAccess what="the platform console" /></main></>;
-  const tabs: [Tab, string][] = [['projects', 'Projects'], ['users', 'Users'], ['roles', 'Role catalog'], ['fields', 'Default ticket fields'], ['stacks', 'Technology catalog'], ['workflows', 'Workflows'], ['documents', 'Documents'], ['activity', 'Activity']];
   return (
     <>
       <Nav current="platform" />
       <main id="main">
         <div className="board-head"><div><h2>Platform</h2><p>Create projects, appoint their admins, and keep the standard roles and technologies every project starts from.</p></div></div>
-        <div className="tabs" role="tablist" aria-label="Platform">
-          {tabs.map(([k, label]) => <button key={k} role="tab" className="tab" aria-selected={tab === k} onClick={() => setTab(k)}>{label}</button>)}
-        </div>
-        <div aria-live="polite" style={{ minHeight: 24 }}>{status && <p className={status.kind === 'err' ? 'err' : 'ok'} role={status.kind === 'err' ? 'alert' : 'status'} style={{ margin: '0 0 10px' }}>{status.text}</p>}</div>
+        <SettingsShell label="Platform" groups={groups} active={tab} onSelect={setTab} status={status && <p className={status.kind === 'err' ? 'err' : 'ok'} role={status.kind === 'err' ? 'alert' : 'status'} style={{ margin: 0 }}>{status.text}</p>}>
         {tab === 'projects' && <Projects flash={flash} />}
         {tab === 'users' && <Users flash={flash} />}
         {tab === 'roles' && <RoleMatrix mode="platform" flash={flash} />}
@@ -206,6 +209,7 @@ export default function Platform() {
         {tab === 'workflows' && <WorkflowMasters flash={flash} />}
         {tab === 'documents' && <TemplateAdmin flash={flash} />}
         {tab === 'activity' && <ActivityList path="/api/platform/audit" flash={flash} showProject />}
+        </SettingsShell>
       </main>
     </>
   );

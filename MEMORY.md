@@ -265,3 +265,7 @@ Authorised by the directive; begin immediately. Scope is not reduced.
 
 - **Race fixed (found by a flaky e2e run, a real product bug):** approving the charter right after typing could reach the server before the last keystrokes synced over the WebSocket, so the saved sections missed them. `DocEditor` now exposes `whenSynced()` (waits for `provider.hasUnsyncedChanges` to clear) and the Planning page awaits it before Approve; the server also flushes the live document first.
 - **Test infrastructure hardened:** Chromium kept crashing ("Page crashed" / "Target crashed") on the heavy editor pages in this 8 GB Codespace, and the dev server's per-page compiles and hot reloads caused navigation aborts. Playwright now (a) passes `--disable-dev-shm-usage` (64 MB `/dev/shm`), (b) serves a **production build** (`next build && next start`, also proves the app builds), (c) uses a 15 s `expect` and 60 s test timeout, (d) starts the mock Gemini server. **Final state: 239 Vitest tests and 41 Playwright results (40 specs + setup), all passing on two consecutive full runs.**
+
+### Settings declutter (frontend only)
+- Project settings (9 tabs) and the Platform console (8) now use a shared `SettingsShell`: a grouped navigation rail (vertical tablist, same roles/names so tests are unchanged) plus one section at a time with its own title and hint; open section kept in the URL hash; narrow screens get a scrolling strip. No feature removed, no logic or API change. Verified by the full e2e suite (41 passing) and a screenshot.
+
