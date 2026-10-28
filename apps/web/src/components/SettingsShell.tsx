@@ -16,6 +16,13 @@ export function SettingsShell<K extends string>({ label, groups, active, onSelec
   const all = visible.flatMap((g) => g.items);
   const current = all.find((i) => i.key === active) ?? all[0];
   const rail = useRef<HTMLDivElement>(null);
+  // the side navigation is fixed just under the top bar, so it needs the bar's height
+  useEffect(() => {
+    const bar = document.querySelector('header.top') as HTMLElement | null;
+    const set = () => document.documentElement.style.setProperty('--top-h', `${bar?.getBoundingClientRect().height ?? 64}px`);
+    set(); window.addEventListener('resize', set);
+    return () => window.removeEventListener('resize', set);
+  }, []);
 
   // arrow keys move between sections, as in any tab list
   function onKey(e: React.KeyboardEvent) {
