@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { useAuth, j } from '../lib/auth';
 
-export type PanelTicket = { id: string; title: string; current_state: string; is_assigned: boolean; awaiting_approval: boolean };
+export type PanelTicket = { id: string; title: string; current_state: string; is_assigned: boolean; is_done?: boolean; awaiting_approval: boolean };
 
 function Panel({ title, hint, children }: { title: string; hint?: string; children: ReactNode }) {
   return (
@@ -25,7 +25,7 @@ function CustomerPanel() {
 
 /** Consultant (and anyone who can claim): the intake queue. */
 function QueuePanel({ tickets, reload }: { tickets: PanelTicket[]; reload: () => void }) {
-  const queue = tickets.filter((t) => !t.is_assigned && t.current_state !== 'Deployed');
+  const queue = tickets.filter((t) => !t.is_assigned && !t.is_done);
   const [err, setErr] = useState('');
   async function claim(id: string) {
     const r = await fetch(`/api/tickets/${id}/claim`, { method: 'POST' });
@@ -57,7 +57,7 @@ function TeamPanel({ tickets, reload }: { tickets: PanelTicket[]; reload: () => 
     if (a.ok) setTeam(await a.json()); if (b.ok) setPeople(await b.json());
   }, []);
   useEffect(() => { load(); }, [load, tickets]);
-  const waiting = tickets.filter((t) => !t.is_assigned && t.current_state !== 'Deployed');
+  const waiting = tickets.filter((t) => !t.is_assigned && !t.is_done);
   const max = Math.max(1, ...(team?.consultants.map((c) => c.open) ?? [1]));
   async function assign(ticketId: string, consultantId: string) {
     if (!consultantId) return;

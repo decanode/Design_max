@@ -1,4 +1,4 @@
-import { test, expect, type Browser } from '@playwright/test';
+import { test, expect, type Browser } from './fixtures';
 
 const ctxFor = (browser: Browser, role: string) => browser.newContext({ storageState: `.auth/${role}.json` });
 
@@ -27,8 +27,9 @@ test('Super Admin creates a project; its new Project Admin sees only that projec
   await expect(g.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name: 'Platform' })).toHaveCount(0);
 
   // She creates a ticket; nobody outside this project can see it
-  await g.getByLabel('New ticket title').fill(ticketTitle);
-  await g.getByRole('button', { name: 'Create ticket' }).click();
+  await g.getByRole('button', { name: 'Create item' }).click();
+  await g.getByRole('dialog').getByLabel('Title').fill(ticketTitle);
+  await g.getByRole('dialog').getByRole('button', { name: 'Create Requirement' }).click();
   await expect(g.getByRole('region', { name: 'Requirement Verified' }).getByRole('link', { name: ticketTitle })).toBeVisible();
 
   const pia = await (await ctxFor(browser, 'Project Admin')).newPage();            // a Project Admin of a different project
@@ -61,7 +62,7 @@ test('a Project Admin tunes a role for their project, and the change is theirs a
   const [paCtx, samCtx] = await Promise.all(['Project Admin', 'Consultant'].map((r) => ctxFor(browser, r)));
   const pa = await paCtx.newPage(), sp = await samCtx.newPage();
   await sp.goto('/');
-  await expect(sp.getByRole('button', { name: 'Create ticket' })).toHaveCount(0);                // Consultants cannot create tickets by default
+  await expect(sp.getByRole('button', { name: 'Create item' })).toHaveCount(0);                // Consultants cannot create tickets by default
 
   await pa.goto('/admin');
   await pa.getByRole('tab', { name: 'Roles & permissions' }).click();
@@ -74,11 +75,11 @@ test('a Project Admin tunes a role for their project, and the change is theirs a
   await expect(pa.getByRole('checkbox', { name: /Consultant role: View the dev mailbox/ })).toHaveCount(0);   // platform powers are not on offer
 
   await sp.reload();
-  await expect(sp.getByRole('button', { name: 'Create ticket' })).toBeVisible();
+  await expect(sp.getByRole('button', { name: 'Create item' })).toBeVisible();
 
   await pa.getByRole('button', { name: 'Reset Consultant to the standard role' }).click();
   await expect(pa.getByRole('status')).toContainText('back to the standard role');
   await sp.reload();
-  await expect(sp.getByRole('button', { name: 'Create ticket' })).toHaveCount(0);
+  await expect(sp.getByRole('button', { name: 'Create item' })).toHaveCount(0);
   await Promise.all([paCtx, samCtx].map((c) => c.close()));
 });

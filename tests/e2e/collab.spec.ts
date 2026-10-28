@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 
 test('two people edit one document at the same time and see each other', async ({ browser }) => {
   const title = `Co-edit ${Date.now()}`;

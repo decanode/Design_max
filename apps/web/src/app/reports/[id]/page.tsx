@@ -10,7 +10,6 @@ type Filters = { states?: string[]; consultantIds?: string[]; sources?: string[]
 type Def = { dataset: string; measure: string; groupBy: string | null; filters: Filters; sort: 'natural' | 'value_desc' | 'value_asc'; limit: number; chart: ChartKind };
 type Meta = { datasets: { key: string; label: string; filters: string[]; measures: { key: string; label: string }[]; dimensions: { key: string; label: string; time: string | null; field: string | null }[] }[]; people: { id: string; name: string }[]; readableFields: string[]; filterFields: Record<string, string> };
 
-const STATES = ['Requirement Verified', 'FS Drafted', 'FS Approved', 'TS Drafted', 'TS Approved', 'Development', 'QA', 'UAT', 'Deployed'];
 const NEW: Def = { dataset: 'tickets', measure: 'count', groupBy: 'state', filters: {}, sort: 'natural', limit: 12, chart: 'column' };
 const CHARTS: { key: ChartKind; label: string; hint: string }[] = [
   { key: 'kpi', label: 'Number', hint: 'One headline number' }, { key: 'column', label: 'Columns', hint: 'Compare categories or phases' },
@@ -36,6 +35,8 @@ export default function Builder() {
   const { me, can, loading } = useAuth();
   const isNew = id === 'new';
   const [meta, setMeta] = useState<Meta | null>(null);
+  const [STATES, setStates] = useState<string[]>([]);
+  useEffect(() => { fetch('/api/states').then((r) => r.ok && r.json()).then((d) => d && setStates(d)); }, []);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [visibility, setVisibility] = useState<'private' | 'shared'>('private');

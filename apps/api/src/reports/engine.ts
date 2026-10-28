@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { pool } from '../db.js';
-import { STATES } from '../stateMachine.js';
+import { OPEN_SQL, projectPhaseNames } from '../workflow/service.js';
 import { ticketScope, type SessionUser } from '../rbac/auth.js';
 import { DocError } from '../errors.js';
 import { canRead, fieldDef } from '../tickets/fields.js';
@@ -12,6 +12,8 @@ import { canRead, fieldDef } from '../tickets/fields.js';
  */
 
 type Time = 'day' | 'week' | 'month';
+/** Marks a dimension whose values are the project's phases; replaced by the real list when a report runs. */
+const PHASES: readonly string[] = [];
 interface Dim { label: string; sql: string; domain?: readonly string[]; time?: Time }
 interface Measure { label: string; unit: string; sql: string }
 interface Dataset { label: string; from: string; dims: Record<string, Dim>; measures: Record<string, Measure>; filters: string[]; dateCol: string }
@@ -32,7 +34,7 @@ export const DATASETS: Record<string, Dataset> = {
     from: `tickets t LEFT JOIN users co ON co.id = t.consultant_id LEFT JOIN users cu ON cu.id = t.customer_id`,
     dateCol: 't.created_at',
     dims: {
-      state: { label: 'Phase', sql: 't.current_state::text', domain: STATES },
+      state: { label: 'Phase', sql: 't.current_state::text', domain: PHASES },
       consultant: { label: 'Consultant', sql: `COALESCE(co.display_name, 'Unassigned')` },
       customer: { label: 'Customer', sql: `COALESCE(cu.display_name, 'Not recorded')` },
       source: { label: 'Source', sql: `CASE t.legacy_source WHEN 'jira' THEN 'Jira' WHEN 'servicenow' THEN 'ServiceNow' ELSE 'Design Max' END` },
@@ -68,8 +70,8 @@ export const DATASETS: Record<string, Dataset> = {
     from: `ticket_transitions x JOIN tickets t ON t.id = x.ticket_id LEFT JOIN users ac ON ac.id = x.actor_id`,
     dateCol: 'x.created_at',
     dims: {
-      to_state: { label: 'Moved to', sql: 'x.to_state::text', domain: STATES },
-      from_state: { label: 'Moved from', sql: `COALESCE(x.from_state::text, 'Created')`, domain: ['Created', ...STATES.slice(0, -1)] },
+      to_state: { label: 'Moved to', sql: 'x.to_state::text', domain: PHASES },
+      from_state: { label: 'Moved from', sql: `COALESCE(x.from_state::text, 'Created')`, domain: ['Created', ...PHASES] },
       actor: { label: 'Done by', sql: `COALESCE(ac.display_name, 'System')` },
       ...timeDims('x.created_at', '', 'When'),
     },
@@ -98,7 +100,7 @@ const RANGES: Record<string, string> = { '7d': '7 days', '30d': '30 days', '90d'
 const uuid = z.string().uuid();
 
 export const Filters = z.object({
-  states: z.array(z.enum(STATES)).max(9).optional(),
+  states: z.array(z.string().regex(/^[A-Za-z0-9 .&\/()-]{1,60}$/)).max(40).optional(),   // phase names are plain words; anything else is refused before it can reach a query
   consultantIds: z.array(z.union([uuid, z.literal('unassigned')])).max(50).optional(),
   sources: z.array(z.enum(['jira', 'servicenow', 'native'])).max(3).optional(),
   openOnly: z.boolean().optional(),
@@ -175,14 +177,14 @@ export async function runReport(def: ReportDef, user: SessionUser): Promise<Repo
   const where: string[] = [scope.sql];
 
   const f = def.filters;
-  if (f.states?.length) where.push(`${def.dataset === 'transitions' ? 'x.to_state' : 't.current_state'} = ANY(${p(f.states)}::ticket_state[])`);
+  if (f.states?.length) where.push(`${def.dataset === 'transitions' ? 'x.to_state' : 't.current_state'} = ANY(${p(f.states)}::text[])`);
   if (f.consultantIds?.length) {
     const ids = f.consultantIds.filter((x) => x !== 'unassigned');
     const un = f.consultantIds.includes('unassigned');
     where.push(`(${[ids.length ? `t.consultant_id = ANY(${p(ids)}::uuid[])` : '', un ? 't.consultant_id IS NULL' : ''].filter(Boolean).join(' OR ')})`);
   }
   if (f.sources?.length) where.push(`COALESCE(t.legacy_source, 'native') = ANY(${p(f.sources)}::text[])`);
-  if (f.openOnly) where.push(`t.current_state <> 'Deployed'`);
+  if (f.openOnly) where.push(OPEN_SQL('t'));
   if (f.statuses?.length) where.push(`a.status = ANY(${p(f.statuses)}::text[])`);
   if (f.kinds?.length) where.push(`a.kind = ANY(${p(f.kinds)}::text[])`);
   if (f.range && f.range !== 'all') where.push(`${ds.dateCol} >= now() - interval '${RANGES[f.range]}'`); // RANGES is a closed whitelist
@@ -200,7 +202,9 @@ export async function runReport(def: ReportDef, user: SessionUser): Promise<Repo
     if (def.sort === 'natural' && dim.domain) {
       // Lifecycle order, and every phase shown even when empty, so a gap reads as "none" and not "missing".
       const have = new Map(raw.map((r) => [r.label, r.value]));
-      rows = dim.domain.map((label) => ({ label, value: have.get(label) ?? (def.measure === 'count' ? 0 : null) }));
+      const domain = [...(dim.domain === PHASES ? await projectPhaseNames(user.projectId!) : dim.domain[0] === 'Created' && dim.domain.length === 1 ? ['Created', ...await projectPhaseNames(user.projectId!)]   : dim.domain)];
+      for (const l of raw.map((r) => r.label)) if (!domain.includes(l)) domain.push(l);   // a phase that was switched off but still has tickets
+      rows = domain.map((label) => ({ label, value: have.get(label) ?? (def.measure === 'count' ? 0 : null) }));
     } else if (def.sort === 'value_desc') rows = [...raw].sort((a, b) => (b.value ?? -1) - (a.value ?? -1) || a.label.localeCompare(b.label));  // ties by name: stable between refreshes
     else if (def.sort === 'value_asc') rows = [...raw].sort((a, b) => ((a.value ?? Infinity) - (b.value ?? Infinity)) || a.label.localeCompare(b.label));
     if (rows.length > def.limit) {

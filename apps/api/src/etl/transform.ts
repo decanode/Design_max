@@ -1,4 +1,4 @@
-import type { TicketState } from '../stateMachine.js';
+import type { TicketState } from '../tickets.js';
 import type { LegacyRecord, MappedTicket } from './types.js';
 
 const JIRA_STATE: Record<string, TicketState> = {

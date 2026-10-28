@@ -10,6 +10,7 @@ const testDbUrl = () => process.env.TEST_APP_DATABASE_URL ?? 'postgres://design_
 export default defineConfig({
   testDir: 'tests/e2e',
   globalSetup: './tests/e2e/global-setup.ts',
+  timeout: 60_000,           // several specs drive three browsers; a cold dev-server compile can take a while
   fullyParallel: false,
   workers: 1,
   reporter: [['list'], ['html', { open: 'never' }]],

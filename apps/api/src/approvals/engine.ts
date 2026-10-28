@@ -2,7 +2,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import type pg from 'pg';
 import { pool } from '../db.js';
 import { applyTransition } from '../tickets.js';
-import type { TicketState } from '../stateMachine.js';
+import type { TicketState } from '../tickets.js';
 import { DocError } from '../errors.js';
 import type { Mail, Mailer } from '../docs/mailer.js';
 

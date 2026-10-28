@@ -1,5 +1,5 @@
 'use client';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { Nav } from '../../../components/Nav';
 import { DocEditor, DocView, type EditorApi } from '../../../components/DocEditor';
@@ -7,14 +7,16 @@ import { MergeDialog } from '../../../components/MergeDialog';
 import { CommentsPanel, useThreads } from '../../../components/CommentsPanel';
 import { KINDS, LABEL, FULL, GENERATE_IN, EDIT_IN, HINT, type Kind } from '../../../lib/docKinds';
 import { ApprovalPanel, type ApprovalRequest } from '../../../components/ApprovalPanel';
+import { TypeDetails } from '../../../components/TypeDetails';
+import { useWorkflow, type TypeField } from '../../../lib/workflow';
 import { TicketDetails, type DetailTicket } from '../../../components/TicketDetails';
 import { NoAccess, NoProject, useAuth } from '../../../lib/auth';
 
 const API = '';
-const STATES = ['Requirement Verified', 'FS Drafted', 'FS Approved', 'TS Drafted', 'TS Approved', 'Development', 'QA', 'UAT', 'Deployed'];
 type Ver = { version: number; author: string | null; note: string | null; at: string };
 type Overview = {
-  ticket: DetailTicket & { current_state: string; customer_name?: string | null; consultant_name?: string | null; consultant_id?: string | null; is_assigned?: boolean };
+  ticketType?: { id: number; key: string; name: string; short: string; fields: TypeField[] } | null;
+  ticket: DetailTicket & { dynamic_metadata?: Record<string, unknown>; type_short?: string; type_name?: string; current_state: string; customer_name?: string | null; consultant_name?: string | null; consultant_id?: string | null; is_assigned?: boolean };
   fields: Record<string, 'hidden' | 'read' | 'write'>;
   docs: Record<Kind, { latest: { version_number: number; content_md: string }; versions: Ver[] } | null>;
   stacks?: string[]; stackWarnings?: { kind: Kind; stack: string; terms: string[] }[];
@@ -30,6 +32,8 @@ export default function TicketPage() {
   const { me, can, loading: authLoading } = useAuth();
   const [people, setPeople] = useState<{ id: string; name: string }[]>([]);
   const [decision, setDecision] = useState('');
+  const wf = useWorkflow(!!me?.project);
+  const [next, setNext] = useState<{ to: string; gated: string | null }[]>([]);
   const [o, setO] = useState<Overview | null>(null);
   const [kind, setKind] = useState<Kind>('FS');
   const [viewJson, setViewJson] = useState<unknown>(null);   // a saved version being viewed
@@ -103,7 +107,12 @@ export default function TicketPage() {
     setDiff(d.ok ? await d.json() : null);
   }
 
+  const STATES = useMemo(() => {
+    const names = (wf?.phases ?? []).filter((p) => p.enabled).map((p) => p.name);
+    return names.includes(state) || !state ? names : [...names, state];
+  }, [wf, state]);
   const idx = STATES.indexOf(state);
+  useEffect(() => { if (o) fetch(`${API}/api/tickets/${id}/next`).then((r) => r.ok && r.json()).then((d) => d && setNext(d.options)); }, [id, o?.ticket.current_state]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   if (authLoading || !me) return <><Nav current="none" /><main id="main"><p className="note">Loading…</p></main></>;
   if (!me.project) return <><Nav current="none" /><main id="main"><NoProject /></main></>;
@@ -113,7 +122,7 @@ export default function TicketPage() {
     <>
       <Nav current="none" />
       <main id="main">
-        <h2 style={{ marginTop: 0 }}>{o.ticket.title}</h2>
+        <h2 style={{ marginTop: 0 }}>{o.ticket.type_short && <span className="type-tag" title={o.ticket.type_name} style={{ marginRight: 8, verticalAlign: 'middle' }}>{o.ticket.type_short}</span>}{o.ticket.title}</h2>
         <div className="row" style={{ marginTop: -4 }}>
           {o.fields.customer !== 'hidden' && <span className="note">Customer: {o.ticket.customer_name ?? '—'}</span>}
           {o.fields.consultant !== 'hidden' && <span className="note">{o.fields.customer !== 'hidden' ? '· ' : ''}Consultant: {o.ticket.consultant_name ?? 'Unassigned'}</span>}
@@ -133,7 +142,9 @@ export default function TicketPage() {
           {STATES.map((s, i) => <li key={s} className={i < idx ? 'done' : i === idx ? 'cur' : ''} aria-current={i === idx ? 'step' : undefined}>{s}</li>)}
         </ol>
 
+        <PhaseMoves next={next} state={state} can={can('ticket.advance')} busy={busy} onMove={(to) => run(() => fetch(`${API}/api/tickets/${id}/transition`, j({ to })), `Moved to ${to}.`)} />
         <TicketDetails ticket={o.ticket} fields={o.fields} onSaved={() => load()} />
+        {o.ticketType && <TypeDetails ticketId={id} typeName={o.ticketType.name} fields={o.ticketType.fields} values={o.ticket.dynamic_metadata} access={o.fields.details} onSaved={() => load()} />}
 
         {!can('spec.view') ? <NoAccess what="the specifications" /> : (<>
         <div className="tabs" role="tablist" aria-label="Specification">
@@ -204,4 +215,16 @@ export default function TicketPage() {
       </main>
     </>
   );
+}
+
+/** Where this ticket can go next. Steps that belong to documents and approvals say what they need instead of offering a button. */
+function PhaseMoves({ next, state, can, busy, onMove }: { next: { to: string; gated: string | null }[]; state: string; can: boolean; busy: boolean; onMove: (to: string) => void }) {
+  if (!next.length) return <p className="note" style={{ margin: '0 0 12px' }}>{state} is the last phase of this ticket's workflow.</p>;
+  return (
+    <section className="phase-moves" aria-label="Next phase">
+      <span className="note">Next:</span>
+      {next.map((n) => n.gated
+        ? <span key={n.to} className="tag" title={n.gated}>{n.to} · {n.gated}</span>
+        : can ? <button key={n.to} className="btn sm" disabled={busy} onClick={() => onMove(n.to)}>Move to {n.to}</button> : <span key={n.to} className="tag">{n.to}</span>)}
+    </section>);
 }

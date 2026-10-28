@@ -2,12 +2,13 @@
 import { useEffect, useState } from 'react';
 import { Nav } from '../../components/Nav';
 import { FieldAdmin } from '../../components/FieldAdmin';
+import { TemplateBuilder } from '../../components/TemplateBuilder';
 import { DocSettingsAdmin } from '../../components/DocSettingsAdmin';
 import { WorkflowAdmin } from '../../components/WorkflowAdmin';
 import { ActivityList, MembersAdmin, ProjectTech, RoleMatrix } from '../../components/consoleBits';
 import { NoAccess, NoProject, useAuth } from '../../lib/auth';
 
-type Tab = 'members' | 'roles' | 'fields' | 'tech' | 'workflows' | 'documents' | 'activity';
+type Tab = 'members' | 'roles' | 'fields' | 'tech' | 'workflows' | 'template' | 'documents' | 'activity';
 
 /** Project settings: what a Project Admin (or anyone they delegate to) controls, for the project they are working in. */
 export default function ProjectSettings() {
@@ -18,7 +19,7 @@ export default function ProjectSettings() {
 
   const tabs: [Tab, string, boolean][] = [
     ['members', 'Members', can('admin.users')], ['roles', 'Roles & permissions', can('admin.roles')], ['fields', 'Ticket fields', can('admin.roles')],
-    ['tech', 'Technology', can('admin.projects')], ['workflows', 'Approval workflows', can('admin.workflows')], ['documents', 'Documents', can('admin.projects')], ['activity', 'Activity', true],
+    ['template', 'Template builder', can('admin.projects')], ['tech', 'Technology', can('admin.projects')], ['workflows', 'Approval workflows', can('admin.workflows')], ['documents', 'Documents', can('admin.projects')], ['activity', 'Activity', true],
   ];
   const first = tabs.find((t) => t[2])?.[0] ?? 'activity';
   useEffect(() => { if (me && !tab) setTab(first); }, [me, tab, first]);
@@ -42,6 +43,7 @@ export default function ProjectSettings() {
         {t === 'members' && can('admin.users') && <MembersAdmin flash={flash} meId={me.user.id} />}
         {t === 'roles' && can('admin.roles') && <RoleMatrix mode="project" flash={flash} />}
         {t === 'fields' && can('admin.roles') && <FieldAdmin mode="project" flash={flash} />}
+        {t === 'template' && can('admin.projects') && <TemplateBuilder flash={flash} />}
         {t === 'tech' && can('admin.projects') && <ProjectTech flash={flash} />}
         {t === 'workflows' && can('admin.workflows') && <WorkflowAdmin flash={flash} />}
         {t === 'documents' && can('admin.projects') && <DocSettingsAdmin flash={flash} />}

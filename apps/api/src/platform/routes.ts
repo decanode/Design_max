@@ -6,6 +6,7 @@ import { audit } from '../rbac/audit.js';
 import { CATALOG, PROJECT_ADMIN_ROLE, PROJECT_KEYS, isKnownKey } from '../rbac/permissions.js';
 import { DocError } from '../errors.js';
 import { ALL_WRITE, FIELDS, FIELD_KEYS, LEVELS, resolveFieldAccess, validateFieldAccess } from '../tickets/fields.js';
+import { builderCatalog } from '../workflow/builderRoutes.js';
 import { setProjectStacks } from '../stacks.js';
 import { PlatformDefaults, platformDefaults, savePlatformDefaults, FONTS, STACK_SETS } from '../docs/settings.js';
 import { validateTemplate, MAX_TEMPLATE_BYTES, TOKENS } from '../docgen/templateLibrary.js';
@@ -103,6 +104,9 @@ export function registerPlatformRoutes(app: FastifyInstance) {
     return { ok: true };
   });
 
+  /** Methodologies, project types and ticket types, for choosing a project's setup. */
+  app.get('/api/platform/workflow/catalog', { preHandler: sup }, async () => builderCatalog());
+
   app.get('/api/platform/projects', { preHandler: sup }, async () =>
     (await pool.query(
       `SELECT p.id, p.name, p.status, p.created_at,
@@ -115,7 +119,7 @@ export function registerPlatformRoutes(app: FastifyInstance) {
 
   app.post('/api/platform/projects', { preHandler: sup }, async (req, reply) => {
     const b = z.object({
-      name: z.string().trim().min(2).max(80), stackIds: z.array(z.number().int()).default([]),
+      name: z.string().trim().min(2).max(80), stackIds: z.array(z.number().int()).default([]), projectTypeId: z.number().int().positive().optional(), templateTypeId: z.number().int().positive().optional(),
       admin: z.object({ email: z.string().email(), name: z.string().trim().max(80).optional() }).optional(),
     }).parse(req.body);
     if ((await pool.query('SELECT 1 FROM projects WHERE lower(name)=lower($1)', [b.name])).rowCount) throw new DocError('A project with that name already exists', 409);
@@ -123,6 +127,11 @@ export function registerPlatformRoutes(app: FastifyInstance) {
     try {
       await c.query('BEGIN');
       const id = (await c.query('INSERT INTO projects (name, created_by) VALUES ($1,$2) RETURNING id', [b.name, req.user!.id])).rows[0].id as string;
+      if (b.projectTypeId || b.templateTypeId) {       // the project starts with its type's methodology, phases and ticket types
+        const tt = b.templateTypeId ?? (b.projectTypeId ? (await c.query('SELECT template_type_id FROM project_type_template_defaults WHERE project_type_id=$1', [b.projectTypeId])).rows[0]?.template_type_id : null);
+        if (!tt) throw new DocError('Unknown project type or methodology', 400);
+        try { await c.query('SELECT seed_project_workflow($1,$2,$3)', [id, b.projectTypeId ?? null, tt]); } catch { throw new DocError('Unknown project type or methodology', 400); }
+      }
       try { await setProjectStacks(c, id, b.stackIds); } catch { throw new DocError('Unknown technology stack', 400); }
       await copyTemplateWorkflows(c, id);
       let adminId: string | null = null;

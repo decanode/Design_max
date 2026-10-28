@@ -1,6 +1,7 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 
 test('a Project Admin hides and locks ticket fields per role for their project, and the role\'s screens change at once', async ({ browser }) => {
+  test.setTimeout(90_000);
   const stamp = Date.now();
   const title = `Column security ${stamp}`;
   const [adminCtx, samCtx, leoCtx] = await Promise.all(['Project Admin', 'Consultant', 'Lead'].map((r) => browser.newContext({ storageState: `.auth/${r}.json` })));

@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 
 test.describe('Lead builds reports and dashboards', () => {
   test.use({ storageState: '.auth/Lead.json' });

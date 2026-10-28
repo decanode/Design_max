@@ -1,11 +1,12 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 
 test('FS and TS: generate, edit with history, approve by emailed link, then continue', async ({ page }) => {
   const title = `Spec flow ${Date.now()}`;
 
   await page.goto('/');
-  await page.getByLabel('New ticket title').fill(title);
-  await page.getByRole('button', { name: 'Create ticket' }).click();
+  await page.getByRole('button', { name: 'Create item' }).click();
+  await page.getByRole('dialog').getByLabel('Title').fill(title);
+  await page.getByRole('dialog').getByRole('button', { name: 'Create Requirement' }).click();
   await page.getByRole('region', { name: 'Requirement Verified' }).getByRole('link', { name: title }).click();
 
   // FS draft

@@ -1,4 +1,4 @@
-import { test, expect, type Browser, type Page } from '@playwright/test';
+import { test, expect, type Browser, type Page } from './fixtures';
 
 const ctxFor = (browser: Browser, role: string) => browser.newContext({ storageState: `.auth/${role}.json` });
 /** Works in `projectId` via the project menu in the header (people in several projects choose which one they are in). */

@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 import { readFileSync } from 'node:fs';
 
 test('a consultant downloads a specification as a Word file in the project design', async ({ browser }) => {

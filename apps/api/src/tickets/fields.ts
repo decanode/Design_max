@@ -22,6 +22,7 @@ export const FIELDS: FieldDef[] = [
   { key: 'consultant', label: 'Assigned consultant', description: 'Who is working the ticket. Claiming and assigning need Edit.', columns: ['consultant_id', 'consultant', 'consultant_name'], writable: true, min: 'hidden', newRole: 'hidden' },
   { key: 'project', label: 'Project', description: 'The project the ticket belongs to.', columns: ['project_id', 'project_name'], writable: false, min: 'hidden', newRole: 'hidden' },
   { key: 'legacy', label: 'Legacy reference', description: 'Jira / ServiceNow key, source, type and status for migrated tickets.', columns: ['legacy_id', 'legacy_source', 'legacy_type', 'legacy_status'], writable: false, min: 'hidden', newRole: 'hidden' },
+  { key: 'details', label: 'Type-specific details', description: 'The extra fields of the ticket type, such as impact and urgency of an incident or the RICEF category of a WRICEF.', columns: ['dynamic_metadata'], writable: true, min: 'hidden', newRole: 'hidden' },
   { key: 'resolution_notes', label: 'Resolution notes', description: 'How a past ticket was resolved.', columns: ['resolution_notes'], writable: true, min: 'hidden', newRole: 'hidden' },
   { key: 'acceptance_criteria', label: 'Acceptance criteria', description: 'What must be true for the ticket to be accepted.', columns: ['acceptance_criteria'], writable: true, min: 'hidden', newRole: 'hidden' },
 ];

@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 
 test('an admin restyles the project documents and downloads a sample before saving', async ({ browser }) => {
   const page = await (await browser.newContext({ storageState: '.auth/Super Admin.json' })).newPage();

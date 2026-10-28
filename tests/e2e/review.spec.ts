@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 
 test('a lead comments on selected text, the consultant replies and addresses it, the lead resolves it', async ({ browser }) => {
   const title = `Review flow ${Date.now()}`;

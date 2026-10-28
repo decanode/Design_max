@@ -1,4 +1,5 @@
 'use client';
+import { WorkflowMasters } from '../../components/WorkflowMasters';
 import { TemplateAdmin } from '../../components/TemplateAdmin';
 import { useCallback, useEffect, useState } from 'react';
 import { Nav } from '../../components/Nav';
@@ -6,7 +7,7 @@ import { FieldAdmin } from '../../components/FieldAdmin';
 import { ActivityList, RoleMatrix, api } from '../../components/consoleBits';
 import { NoAccess, useAuth, j } from '../../lib/auth';
 
-type Tab = 'projects' | 'users' | 'roles' | 'fields' | 'stacks' | 'documents' | 'activity';
+type Tab = 'projects' | 'users' | 'roles' | 'fields' | 'stacks' | 'workflows' | 'documents' | 'activity';
 type Flash = (kind: 'ok' | 'err', text: string) => void;
 type Project = { id: string; name: string; status: 'active' | 'archived'; members: number; tickets: number; admins: { id: string; name: string }[]; stacks: string[] };
 type Stack = { id: number; name: string; description: string; keywords: string[]; projects: number };
@@ -16,17 +17,18 @@ function Projects({ flash }: { flash: Flash }) {
   const { switchProject, me } = useAuth();
   const [list, setList] = useState<Project[]>([]);
   const [stacks, setStacks] = useState<Stack[]>([]);
-  const [form, setForm] = useState({ name: '', email: '', adminName: '', stackIds: [] as number[] });
+  const [form, setForm] = useState({ name: '', email: '', adminName: '', stackIds: [] as number[], projectTypeId: 0, templateTypeId: 0 });
+  const [cat, setCat] = useState<{ projectTypes: { id: number; key: string; name: string; defaultTemplateId: number | null }[]; templates: { id: number; name: string }[] } | null>(null);
   const [appoint, setAppoint] = useState<Record<string, { email: string; name: string }>>({});
-  const load = useCallback(async () => { const [p, s] = await Promise.all([api('/api/platform/projects'), api('/api/platform/stacks')]); setList(p); setStacks(s); }, []);
+  const load = useCallback(async () => { const [p, s] = await Promise.all([api('/api/platform/projects'), api('/api/platform/stacks')]); setList(p); setStacks(s); const c = await api('/api/platform/workflow/catalog'); setCat(c); setForm((f) => (f.projectTypeId ? f : { ...f, projectTypeId: c.projectTypes.find((x: { key: string }) => x.key === 'implementation')?.id ?? 0 })); }, []);
   useEffect(() => { load().catch((e) => flash('err', e.message)); }, [load, flash]);
 
   async function create(e: React.FormEvent) {
     e.preventDefault();
     try {
-      await api('/api/platform/projects', j({ name: form.name, stackIds: form.stackIds, admin: form.email ? { email: form.email, name: form.adminName || undefined } : undefined }));
+      await api('/api/platform/projects', j({ name: form.name, stackIds: form.stackIds, projectTypeId: form.projectTypeId || undefined, templateTypeId: form.templateTypeId || undefined, admin: form.email ? { email: form.email, name: form.adminName || undefined } : undefined }));
       flash('ok', `Project “${form.name}” created${form.email ? ` and ${form.email} appointed Project Admin` : ''}. It starts with its own copy of the standard approval workflow.`);
-      setForm({ name: '', email: '', adminName: '', stackIds: [] }); load();
+      setForm({ name: '', email: '', adminName: '', stackIds: [], projectTypeId: form.projectTypeId, templateTypeId: 0 }); load();
     } catch (er) { flash('err', (er as Error).message); }
   }
   async function appointAdmin(p: Project) {
@@ -49,6 +51,15 @@ function Projects({ flash }: { flash: Flash }) {
           <label className="sr" htmlFor="pe">Project Admin email</label><input id="pe" type="email" placeholder="Project Admin's email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
           <label className="sr" htmlFor="pa">Project Admin name</label><input id="pa" placeholder="Their name (if new)" value={form.adminName} onChange={(e) => setForm({ ...form, adminName: e.target.value })} />
         </div>
+        {cat && <div className="row">
+          <label htmlFor="ppt">Project type</label>
+          <select id="ppt" value={form.projectTypeId} onChange={(e) => setForm({ ...form, projectTypeId: Number(e.target.value), templateTypeId: 0 })}>{cat.projectTypes.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</select>
+          <label htmlFor="ptt">Methodology</label>
+          <select id="ptt" value={form.templateTypeId} onChange={(e) => setForm({ ...form, templateTypeId: Number(e.target.value) })}>
+            <option value={0}>Recommended for the project type ({cat.templates.find((t) => t.id === cat.projectTypes.find((x) => x.id === form.projectTypeId)?.defaultTemplateId)?.name ?? '—'})</option>
+            {cat.templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</select>
+          <span className="note">Phases and ticket types start from this; the Project Admin can fine-tune them in Project settings.</span>
+        </div>}
         <fieldset className="stackpick"><legend className="note">Allowed technology (optional, the Project Admin can change it)</legend>
           {stacks.map((s) => (<label key={s.id} className="check"><input type="checkbox" checked={form.stackIds.includes(s.id)} onChange={(e) => setForm({ ...form, stackIds: e.target.checked ? [...form.stackIds, s.id] : form.stackIds.filter((x) => x !== s.id) })} /> {s.name}</label>))}
         </fieldset>
@@ -177,7 +188,7 @@ export default function Platform() {
   useEffect(() => { setStatus(null); }, [tab]);
   if (loading || !me) return <><Nav current="platform" /><main id="main"><p className="note">Loading…</p></main></>;
   if (!isSuper) return <><Nav current="platform" /><main id="main"><NoAccess what="the platform console" /></main></>;
-  const tabs: [Tab, string][] = [['projects', 'Projects'], ['users', 'Users'], ['roles', 'Role catalog'], ['fields', 'Default ticket fields'], ['stacks', 'Technology catalog'], ['documents', 'Documents'], ['activity', 'Activity']];
+  const tabs: [Tab, string][] = [['projects', 'Projects'], ['users', 'Users'], ['roles', 'Role catalog'], ['fields', 'Default ticket fields'], ['stacks', 'Technology catalog'], ['workflows', 'Workflows'], ['documents', 'Documents'], ['activity', 'Activity']];
   return (
     <>
       <Nav current="platform" />
@@ -192,6 +203,7 @@ export default function Platform() {
         {tab === 'roles' && <RoleMatrix mode="platform" flash={flash} />}
         {tab === 'fields' && <FieldAdmin mode="platform" flash={flash} />}
         {tab === 'stacks' && <Stacks flash={flash} />}
+        {tab === 'workflows' && <WorkflowMasters flash={flash} />}
         {tab === 'documents' && <TemplateAdmin flash={flash} />}
         {tab === 'activity' && <ActivityList path="/api/platform/audit" flash={flash} showProject />}
       </main>

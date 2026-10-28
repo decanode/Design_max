@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 
 test('a Project Admin limits the project to SAP: off-stack requests are flagged and blocked, SAP ones go through', async ({ browser }) => {
   const [paCtx, custCtx] = await Promise.all(['Project Admin', 'Customer'].map((r) => browser.newContext({ storageState: `.auth/${r}.json` })));

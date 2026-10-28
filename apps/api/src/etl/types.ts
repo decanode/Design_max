@@ -1,4 +1,4 @@
-import type { TicketState } from '../stateMachine.js';
+import type { TicketState } from '../tickets.js';
 
 export type LegacySource = 'jira' | 'servicenow';
 export type Fetcher = typeof fetch;

@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page } from './fixtures';
 
 const nav = (page: Page) => page.getByRole('navigation', { name: 'Primary' });
 const link = (page: Page, name: string) => nav(page).getByRole('link', { name, exact: true });

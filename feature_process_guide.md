@@ -105,24 +105,48 @@ Roles belong to a **project membership**, not to the person. Someone can be a Co
 
 ---
 
-## 5. The board and the ticket lifecycle
+## 5. The board, ticket types and the project template (dynamic workflows)
 
-**What it is.** Every ticket moves through nine phases, in order, one step at a time:
+**What it is.** How a project works is configured, not hard-coded. Each project has a **project type** (Implementation, Support, DevOps, Conversion), a **methodology** (Waterfall, Agile, Hybrid, ITIL), a set of **phases** it uses and a set of **ticket types** its people may create (Incident, Problem, Change Request, Request Item, WRICEF, Epic, Feature, Bug, Requirement). The board, the create form and the allowed moves all follow that configuration, so a Support project and an SAP implementation behave differently without any code change.
 
-`Requirement Verified → FS Drafted → FS Approved → TS Drafted → TS Approved → Development → QA → UAT → Deployed`
-
-The database itself refuses any other move, and every move is logged.
+**The original lifecycle is the "Waterfall" methodology**, and every project that existed before this feature keeps it unchanged: `Requirement Verified → FS Drafted → FS Approved → TS Drafted → TS Approved → Development → QA → UAT → Deployed` (two optional phases, *Hypercare* and *Closed*, exist after *Deployed* and start switched off for those projects). Other methodologies:
+- **ITIL** (Support): incidents, problems and requests go `New → Triage → In Progress ⇄ Pending → Resolved → Closed` (a resolved item can be reopened). **Change Requests** have their own controlled flow: `New → Assessment → Change Approved → Implementation ⇄ Review → Closed` (an assessment can also close a rejected change).
+- **Agile**: `Backlog ⇄ Ready → In Progress ⇄ In Review → Done`.
+- **Hybrid**: `Backlog → Requirement Verified → FS … TS Approved` (with the same document sign-offs) `→ In Progress ⇄ In Review → UAT → Deployed → Closed`.
 
 **How to use it**
-- **Board** (home page): columns grouped as Intake, Specification, Delivery and Done. Use the search box to filter by title. Click a card to open the ticket.
-- **Create a ticket** (roles that may): type a title and click *Create ticket*. It always lands in the project you are working in.
-- **Advance** (Lead, Manager and others who may): the button appears on tickets from *TS Approved* onward.
-- **Steps before TS Approved cannot be skipped.** Moving into *FS Drafted* needs a generated Functional Specification, and moving out of the specification phases needs the approvals described in section 7.
-- Each role gets a panel at the top of the board: customers a "Raise a new request" button; consultants the **Intake queue** (unassigned tickets with a *Claim* button); leads **Team workload** and assignment; managers the **Portfolio** chart; anyone with approvals waiting sees **Waiting for your approval**.
 
-**What to expect:** customers see only their own tickets; consultants their own plus the unassigned queue; leads and managers all tickets in the project. A ticket you cannot see answers "not found", never "forbidden", so its existence is not revealed.
+*Super Admin, when creating a project:* Platform → Projects → *New project*. Choose a **Project type** and, if you like, a **Methodology** (the default follows the type). The project starts with that type's phases and ticket types.
 
-**Ticket page and details.** Opening a ticket shows who the customer and consultant are, the lifecycle stepper, a **Details** panel (summary, resolution notes, acceptance criteria, project, legacy reference) and the specification tabs. Roles that may edit fields see **Edit details**; a save is refused as a whole if it touches any field your role cannot edit.
+*Project Admin, to tune it:* Project settings → **Template builder**.
+1. **Project type**: pick a card. Changing it re-applies its defaults (for example Support switches on Incident and Change Request; Implementation switches on WRICEF, Epic and Requirement).
+2. **Methodology**: pick a card. Changing it re-applies that methodology's phases.
+3. **Phases**: switch phases on or off. A switched-off phase is skipped: tickets go straight to the next phase that is on (for example turn off *Hypercare* for a DevOps-style project). Phases that carry documents and approvals (*FS Drafted … TS Approved*) are locked on. Phases currently holding tickets show how many.
+4. **Ticket types**: switch types on or off and choose the **default** type (what the intake chat creates). Each card lists the fields that type asks for.
+5. The **Preview** shows how a ticket of the chosen type moves, with skipped phases listed. Click **Save template**.
+
+*Everyone who may create tickets:* on the board click **Create item**. First choose the **type** (only the types the project allows are offered), then fill in the type's fields. Required fields are checked as you submit and again on the server. Examples: an **Incident** asks for Priority, Impact, Urgency, Affected service and Steps to reproduce; a **WRICEF** asks for RICEF category, SAP module and Business value. The values are stored with the ticket and shown on its page in a **<Type> details** panel, where roles with edit access can change them (with the same checks).
+
+*Moving a ticket:* the board shows **Advance → X** when there is exactly one manual next phase, or a **Move to…** menu when there are several. The ticket page has a **Next phase** line with the same choices. Steps that belong to documents and approvals show what they need (for example *Generate the Functional Specification to move forward*) instead of a button.
+
+*Super Admin, to change the building blocks:* Platform → **Workflows**.
+- **Ticket types**: create or edit a type and its fields (text, long text, choice, number, date, checkbox; required or not; help text; order). A type can be deleted only if no ticket uses it.
+- **Methodologies**: edit phases and their board order, which are on by default, which ticket types a methodology can carry, and the **transitions** between phases (a general flow, plus a flow of its own for a specific ticket type). Create a new methodology empty or as a copy. Projects using a methodology follow the change.
+- **Project types**: the methodology, ticket types and phases a new project of that type starts with.
+
+**What to expect**
+- **The database enforces the rules.** A ticket can only move along its project's workflow, one legal step at a time; an illegal jump (for example *New → Closed*, or *Requirement Verified → Deployed*) is refused with a clear message by the application and by the database itself. Every move is logged.
+- **Each project has its own configuration.** One project's template never affects another's, and a Project Admin can only change their own.
+- **Changing methodology** is refused while tickets sit in phases (or are of a kind) the new methodology does not have; the message names them. Switching a phase off never strands tickets already in it: they can still move on.
+- **Board columns** are the project's enabled phases, grouped into Intake, Specification, Delivery, Review and Done lanes; a switched-off phase that still holds tickets stays visible, marked *(off)*.
+- **Dashboards and reports** list the project's own phases. "Open" means "not in a finishing phase".
+- **Documents depend on phases.** FS and TS documents exist in methodologies that have the document phases (Waterfall, Hybrid). Unit Test and Code Review are available in Development, QA, UAT, In Progress and In Review. In an ITIL or Agile project those document tabs simply say they are not available yet.
+- **Column-level security:** the type-specific details are one field, *Type-specific details*, in Ticket fields; roles started with the same access as the AI summary.
+- **Not built yet:** custom per-project fields beyond a type's own fields, per-project transitions (projects choose phases and types, not new moves), drag-and-drop ordering (use the arrows in the Platform editor), and approvals attached to non-document phases.
+
+**Who sees what on the board (unchanged):** customers see only their own tickets; consultants their own plus the unassigned queue; leads and managers all tickets in the project. A ticket you cannot see answers "not found", never "forbidden", so its existence is not revealed. Each role gets a panel at the top of the board: customers a "Raise a new request" button; consultants the **Intake queue**; leads **Team workload**; managers the **Portfolio** chart; anyone with approvals waiting sees **Waiting for your approval**.
+
+**Ticket page and details.** Opening a ticket shows who the customer and consultant are, the phase stepper, the **Next phase** moves, a **Details** panel (summary, resolution notes, acceptance criteria, project, legacy reference), the type's own details panel, and the document tabs. Roles that may edit fields see **Edit details**; a save is refused as a whole if it touches any field your role cannot edit.
 
 ---
 
@@ -301,7 +325,7 @@ The database itself refuses any other move, and every move is logged.
 - **Projects**: *New project* (name, optional first Project Admin's email, optional technology). The project starts with its own copy of the standard approval workflow. *Appoint* additional Project Admins; *Open project* to step into it; *Archive* to cut everyone off at once (nothing is deleted; *Restore* brings it back).
 - **Users**: everyone on the platform, the projects and roles each holds, and toggles for **Super Admin** and **Active**. A new account can reach nothing until a Project Admin adds them to a project.
 - **Role catalog**: the standard roles and what each can do. Add a custom role (optionally copying an existing one). Only project-level permissions can be given to a role.
-- **Default ticket fields**, **Technology catalog**, **Documents** (Word template library and document defaults, section 6), **Activity** (platform-wide log).
+- **Default ticket fields**, **Technology catalog**, **Workflows** (ticket types and their fields, methodologies and their transitions, project-type defaults; section 5), **Documents** (Word template library and document defaults, section 6), **Activity** (platform-wide log).
 
 **What to expect:** at least one active Super Admin always remains. When a Super Admin steps into a project they do not belong to, the entry is recorded in **that project's** activity log, where its own admin can see it.
 
@@ -312,6 +336,7 @@ The database itself refuses any other move, and every move is logged.
 **Menu: Project settings** (shows the project name). Tabs:
 - **Members**: add people by email with a role (a new email creates an account that can reach nothing else), change someone's role, or remove them. A project always keeps at least one Project Admin.
 - **Roles & permissions**: what each role can do **in this project**. Roles you have not touched follow the standard; changing one affects only this project, and **Reset** undoes it. Platform powers cannot be given to a project role.
+- **Template builder**: the project's type, methodology, phases and allowed ticket types (section 5).
 - **Ticket fields**, **Technology**, **Approval workflows**: as in sections 9, 4 and 7.
 - **Documents**: fonts, names, numbering, template set and the delivery rules for the project's documents (section 6).
 - **Activity**: a log of changes made in this project.

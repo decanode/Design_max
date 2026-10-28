@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 
 test('customer chats, AI drafts the requirement, Verify & Approve logs a ticket', async ({ page }) => {
   await page.goto('/chat');

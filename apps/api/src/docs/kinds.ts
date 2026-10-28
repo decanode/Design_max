@@ -1,4 +1,4 @@
-import type { TicketState } from '../stateMachine.js';
+type TicketState = string;
 
 /** The document types. FS and TS drive the ticket's lifecycle gates; TUT and CRC are produced while the ticket is in delivery. */
 export const KINDS = ['FS', 'TS', 'TUT', 'CRC'] as const;
@@ -10,7 +10,7 @@ export const LABEL: Record<DocKind, string> = {
 };
 export const SHORT: Record<DocKind, string> = { FS: 'Functional spec', TS: 'Technical spec', TUT: 'Unit test', CRC: 'Code review' };
 
-const DELIVERY: TicketState[] = ['Development', 'QA', 'UAT'];
+const DELIVERY: TicketState[] = ['Development', 'QA', 'UAT', 'In Progress', 'In Review'];
 
 /** When each type can be created and edited, and which lifecycle step (if any) it drives. */
 export const RULES: Record<DocKind, { generateIn: TicketState[]; editIn: TicketState[]; onGenerate?: TicketState; onApprove?: TicketState; lockedWhenApproved: boolean }> = {

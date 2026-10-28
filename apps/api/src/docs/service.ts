@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { pool } from '../db.js';
 import { applyTransition } from '../tickets.js';
-import type { TicketState } from '../stateMachine.js';
+import type { TicketState } from '../tickets.js';
 import { KINDS, RULES, LABEL, generateHint, type DocKind as Kind } from './kinds.js';
 import { toStored, versionPm, versionText } from './content.js';
 import { pmText, type PmNode } from '../docgen/pm.js';
@@ -11,6 +11,7 @@ import { similar, type Embedder } from '../etl/vectorize.js';
 import type { DocContext, DocGenerator, DocKind } from './generator.js';
 import { diffLines } from './diff.js';
 import { supersedeOpenRequest, requestsForTicket } from '../approvals/engine.js';
+import { typeFields } from '../workflow/service.js';
 import { effectiveSettings } from './settings.js';
 import { stackKey as stackKeyOf } from '../docgen/templateLibrary.js';
 import type { StackKey } from './outlines.js';
@@ -150,7 +151,9 @@ export async function ticketOverview(id: string, fields: FieldAccess) {
   const names = (await pool.query(
     `SELECT cu.display_name AS customer_name, co.display_name AS consultant_name, p.name AS project_name, (t.consultant_id IS NOT NULL) AS is_assigned FROM tickets t
      JOIN projects p ON p.id=t.project_id LEFT JOIN users cu ON cu.id=t.customer_id LEFT JOIN users co ON co.id=t.consultant_id WHERE t.id=$1`, [id])).rows[0];
-  const ticket = sanitizeTicket({ ...base, ...names }, fields);     // column-level security
+  const ty = (await pool.query('SELECT id, key, name, short FROM ticket_types WHERE id=$1', [base.ticket_type_id])).rows[0] ?? null;
+  const typeDefs = ty ? ((await typeFields()).get(ty.id) ?? []) : [];
+  const ticket = sanitizeTicket({ ...base, ...names, type_key: ty?.key, type_name: ty?.name, type_short: ty?.short }, fields);     // column-level security
   const docs: Record<string, unknown> = {};
   for (const k of KINDS) { const v = await listVersions(id, k); docs[k] = v.length ? { latest: v[0], versions: v.map((x) => ({ version: x.version_number, author: x.author_name, note: x.change_note, at: x.created_at })) } : null; }
   const approvals = (await pool.query(
@@ -163,7 +166,7 @@ export async function ticketOverview(id: string, fields: FieldAccess) {
     return latest ? assessFit(latest, policy).foreign.map((f) => ({ kind: k, ...f })) : [];
   });
   const stacks = policy?.allowed.map((a) => a.name) ?? [];
-  return { ticket, docs, approvals, requests: await requestsForTicket(id), stacks, stackWarnings, fields };
+  return { ticket, ticketType: ty && { ...ty, fields: typeDefs }, docs, approvals, requests: await requestsForTicket(id), stacks, stackWarnings, fields };
 }
 
 /** Why the shared draft cannot be edited right now, or null when it can. */

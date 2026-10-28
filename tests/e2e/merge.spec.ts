@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 import PizZip from 'pizzip';
 
 test('a consultant uploads their own Word file and merges it section by section', async ({ browser }) => {

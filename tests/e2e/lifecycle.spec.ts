@@ -1,10 +1,11 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 
 test('board: new ticket cannot skip the gated steps', async ({ page }) => {
   const title = `E2E ticket ${Date.now()}`;
   await page.goto('/');
-  await page.getByLabel('New ticket title').fill(title);
-  await page.getByRole('button', { name: 'Create ticket' }).click();
+  await page.getByRole('button', { name: 'Create item' }).click();
+  await page.getByRole('dialog').getByLabel('Title').fill(title);
+  await page.getByRole('dialog').getByRole('button', { name: 'Create Requirement' }).click();
 
   const card = page.getByRole('region', { name: 'Requirement Verified' }).locator('article', { hasText: title });
   await expect(card).toBeVisible();
