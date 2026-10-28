@@ -78,7 +78,6 @@ export function WorkflowAdmin({ flash }: { flash: (kind: 'ok' | 'err', text: str
 
   return (
     <>
-      <p className="note" style={{ marginTop: 0 }}>Define who approves a specification, and in what order. Level 1 is asked first; level 2 only after level 1 is complete, and so on. Each project has its own workflows, so nothing here affects another project. Approvers named by role mean the people in this project who hold that role.</p>
       {!draft && <div className="row"><button className="btn" onClick={() => setDraft(blank())}>New workflow</button></div>}
 
       {draft && opts && (

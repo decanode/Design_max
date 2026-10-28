@@ -25,7 +25,6 @@ export function ModulesAdmin({ flash }: { flash: Flash }) {
   return (
     <section className="pane tb-sec" aria-label="Module configuration">
       <h3>Module configuration</h3>
-      <p className="note" style={{ marginTop: 0 }}>Optional capabilities for this project. Switching one off hides it; your data stays.</p>
       <ul className="mod-list">
         {mods.map((m) => (
           <li key={m.key} className={`mod ${on[m.key] ? 'on' : ''}`}>

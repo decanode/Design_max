@@ -447,7 +447,7 @@ header.top nav { flex-wrap: nowrap; } header.top nav a { padding: 7px 11px; }
 
 /* ---------------------------------------------------------------- Settings consoles: grouped rail + one section at a time */
 .settings { display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 28px; align-items: start; }
-.settings-rail { position: sticky; top: 16px; display: grid; gap: 4px; padding: 8px 0; }
+.settings-rail { position: sticky; top: 16px; align-self: start; max-height: calc(100vh - 32px); overflow-y: auto; display: grid; gap: 4px; padding: 8px 0; }   /* stays in view while the section scrolls */
 .rail-group { display: grid; gap: 2px; margin-bottom: 14px; }
 .rail-label { font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); padding: 0 12px 4px; }
 .rail-item { all: unset; box-sizing: border-box; cursor: pointer; padding: 8px 12px; border-radius: 9px; border-left: 3px solid transparent; font-size: 14px; color: var(--text); transition: background .12s, border-color .12s; }

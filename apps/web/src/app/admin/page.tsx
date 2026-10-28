@@ -44,7 +44,7 @@ export default function ProjectSettings() {
     <>
       <Nav current="admin" />
       <main id="main">
-        <div className="board-head"><div><h2>Project settings <span className="note">· {me.project.name}</span></h2><p>The rules for this project only. Nothing here changes any other project.</p></div></div>
+        <div className="board-head"><div><h2>Project settings <span className="note">· {me.project.name}</span></h2></div></div>
         <SettingsShell label="Project settings" groups={groups} active={t} onSelect={setTab} status={status && <p className={status.kind === 'err' ? 'err' : 'ok'} role={status.kind === 'err' ? 'alert' : 'status'} style={{ margin: 0 }}>{status.text}</p>}>
         {t === 'members' && can('admin.users') && <MembersAdmin flash={flash} meId={me.user.id} />}
         {t === 'roles' && can('admin.roles') && <RoleMatrix mode="project" flash={flash} />}

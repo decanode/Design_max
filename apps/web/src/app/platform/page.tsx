@@ -44,7 +44,6 @@ function Projects({ flash }: { flash: Flash }) {
 
   return (
     <>
-      <p className="note" style={{ marginTop: 0 }}>Each project is its own workspace with its own people, tickets, chats, approvals and rules. You create it and appoint its Project Admin; they run it from there. You can step into any project to help, and each entry is recorded in that project&rsquo;s activity.</p>
       <form className="pane build" onSubmit={create} aria-label="Create a project">
         <h3>New project</h3>
         <div className="row">
@@ -110,7 +109,6 @@ function Users({ flash }: { flash: Flash }) {
   }
   return (
     <>
-      <p className="note" style={{ marginTop: 0 }}>Everyone with an account. A new account can reach nothing until a Project Admin adds them to a project (or you make them a Super Admin).</p>
       <form className="pane build" onSubmit={create} aria-label="Create a user">
         <h3>New user</h3>
         <div className="row">
@@ -164,7 +162,6 @@ function Stacks({ flash }: { flash: Flash }) {
   async function del(s: Stack) { if (!confirm(`Delete the ${s.name} stack?`)) return; try { await api(`/api/platform/stacks/${s.id}`, { method: 'DELETE' }); flash('ok', `Deleted ${s.name}.`); load(); } catch (e) { flash('err', (e as Error).message); } }
   return (
     <>
-      <p className="note" style={{ marginTop: 0 }}>The list of technologies a project can be limited to. Each project&rsquo;s admin chooses from it. The description is told to the AI; the keywords let the server double-check that drafts stay within a project&rsquo;s technology.</p>
       <form className="pane build" onSubmit={create} aria-label="Add a technology stack">
         <div className="row">
           <label className="sr" htmlFor="sn">Stack name</label><input id="sn" placeholder="Stack name (e.g. Salesforce)" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
@@ -199,7 +196,7 @@ export default function Platform() {
     <>
       <Nav current="platform" />
       <main id="main">
-        <div className="board-head"><div><h2>Platform</h2><p>Create projects, appoint their admins, and keep the standard roles and technologies every project starts from.</p></div></div>
+        <div className="board-head"><div><h2>Platform</h2></div></div>
         <SettingsShell label="Platform" groups={groups} active={tab} onSelect={setTab} status={status && <p className={status.kind === 'err' ? 'err' : 'ok'} role={status.kind === 'err' ? 'alert' : 'status'} style={{ margin: 0 }}>{status.text}</p>}>
         {tab === 'projects' && <Projects flash={flash} />}
         {tab === 'users' && <Users flash={flash} />}

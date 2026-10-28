@@ -38,9 +38,6 @@ export function FieldAdmin({ flash, mode = 'project' }: { flash: (kind: 'ok' | '
 
   return (
     <>
-      <p className="note" style={{ marginTop: 0 }}>{mode === 'project'
-        ? 'Decide which parts of a ticket each role can see or change in THIS project. A hidden field is removed from the board, the ticket page, reports and downloads. Roles you have not changed follow the standard setting from the platform; changing one here applies to this project only.'
-        : 'The standard field access every project starts from. A project can tune its own copy, and projects that have not follow what you set here.'} The title, phase and dates are always visible. A new role starts with only the title until you open more. Changes apply at once.</p>
       <div className="matrix-wrap">
         <table className="matrix">
           <caption className="sr">Ticket field access by role</caption>

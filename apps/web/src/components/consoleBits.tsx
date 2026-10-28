@@ -52,9 +52,6 @@ export function RoleMatrix({ mode, flash }: { mode: 'project' | 'platform'; flas
 
   return (
     <>
-      <p className="note" style={{ marginTop: 0 }}>{mode === 'project'
-        ? 'What each role can do in THIS project. Roles you have not changed follow the standard role defined by the platform. Changing one here affects only this project, and Reset puts it back.'
-        : 'The standard roles every project starts from. Project Admins can tune their own copy; projects that have not tuned a role follow what you set here. Only project-level permissions can be given to a role.'}</p>
       {mode === 'platform' && (
         <form className="pane build" onSubmit={create} aria-label="Add a role to the catalog">
           <h3>Add a role</h3>
@@ -123,7 +120,6 @@ export function MembersAdmin({ flash, meId }: { flash: Flash; meId: string }) {
   }
   return (
     <>
-      <p className="note" style={{ marginTop: 0 }}>Everyone with access to this project and the role they hold here. Someone can hold different roles in different projects. Removing a person only removes their access to this project.</p>
       <form className="pane build" onSubmit={add} aria-label="Add a member">
         <h3>Add someone to this project</h3>
         <div className="row">
@@ -164,7 +160,6 @@ export function ProjectTech({ flash }: { flash: Flash }) {
   }
   return (
     <>
-      <p className="note" style={{ marginTop: 0 }}>The AI assistant only drafts requirements and specifications inside the technologies ticked here. A request that needs something else is flagged and cannot be verified. With nothing ticked there is no restriction. New technologies are added to the list by the platform.</p>
       <fieldset className="pane build stackpick" style={{ margin: 0 }}>
         <legend className="note">Allowed technology for this project</legend>
         {cat.map((s) => (<label key={s.id} className="check" title={s.description}><input type="checkbox" checked={sel.includes(s.id)} onChange={(e) => toggle(s.id, e.target.checked)} /> {s.name}</label>))}
