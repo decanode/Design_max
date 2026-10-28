@@ -40,6 +40,10 @@ export async function getDraft(conversationId: string) {
   return (await pool.query('SELECT * FROM requirement_drafts WHERE conversation_id=$1', [conversationId])).rows[0] ?? null;
 }
 
+export async function conversationCustomer(conversationId: string) {
+  return (await pool.query('SELECT customer_id FROM conversations WHERE id=$1', [conversationId])).rows[0]?.customer_id as string | null | undefined;
+}
+
 export async function addMessage(conversationId: string, role: ChatMessage['role'], name: string, body: string) {
   const { rows } = await pool.query(
     'INSERT INTO messages (conversation_id, sender_role, sender_name, body) VALUES ($1,$2,$3,$4) RETURNING id, sender_role, sender_name, body, created_at',

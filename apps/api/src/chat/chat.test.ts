@@ -28,6 +28,37 @@ beforeAll(async () => {
 });
 afterAll(async () => { sock.close(); await app.close(); await pool.end(); });
 
+describe('role detection', () => {
+  it('speaks as the customer in your own conversation and as a consultant in someone else’s, without being told', async () => {
+    const pid = await testProject();
+    const lead = await makeUser('Admin'); const other = await makeUser('Admin');
+    const mine = (await createConversation(pid, undefined, lead.id)).id;
+    const s1 = client(url, { extraHeaders: { cookie: lead.cookie } }); await once(s1, 'connect');
+    const j1 = await emit(s1, 'join', { conversationId: mine });
+    expect(j1.sendAs).toBe('customer');
+    const got = once(s1, 'message'); await emit(s1, 'message', { conversationId: mine, body: 'My own request' });
+    expect((await got).sender_role).toBe('customer');
+
+    const s2 = client(url, { extraHeaders: { cookie: other.cookie } }); await once(s2, 'connect');
+    expect((await emit(s2, 'join', { conversationId: mine })).sendAs).toBe('consultant');
+    const got2 = once(s2, 'message'); await emit(s2, 'message', { conversationId: mine, body: 'Replying to you' });
+    expect((await got2).sender_role).toBe('consultant');
+    s1.close(); s2.close();
+  });
+
+  it('shows that the summary is being drafted and acknowledges the first draft in the chat', async () => {
+    const pid = await testProject(); const u = await makeUser('Admin');
+    const c = (await createConversation(pid, undefined, u.id)).id;
+    const s = client(url, { extraHeaders: { cookie: u.cookie } }); await once(s, 'connect'); await emit(s, 'join', { conversationId: c });
+    const working = once(s, 'observer:working');
+    const ack = new Promise<any>((res) => s.on('message', (m) => m.sender_role === 'system' && res(m)));
+    await emit(s, 'message', { conversationId: c, body: 'Please add a vendor report' });
+    await working;
+    expect((await ack).body).toMatch(/drafted a requirement summary/);
+    s.close();
+  });
+});
+
 describe('chat + observer + verify', () => {
   it('rejects invalid input', async () => {
     expect(await emit(sock, 'message', { conversationId: cid, role: 'customer', body: '' })).toHaveProperty('error');
@@ -50,7 +81,7 @@ describe('chat + observer + verify', () => {
   it('consultant messages do not alter the draft', async () => {
     await emit(sock, 'message', { conversationId: cid, role: 'consultant', body: 'Understood.' });
     const r = await (await fetch(`${url}/api/conversations/${cid}`, { headers: { cookie } })).json() as any;
-    expect(r.messages).toHaveLength(2);
+    expect(r.messages.filter((m: any) => m.sender_role !== 'system')).toHaveLength(2);   // plus the automatic acknowledgement
     expect(r.draft.summary).not.toContain('Understood');
   });
 

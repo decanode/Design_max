@@ -83,6 +83,12 @@ Roles belong to a **project membership**, not to the person. Someone can be a Co
 
 ---
 
+**Who you speak as (automatic).** There is no role picker. In a conversation you started, you speak as the **customer**; in someone else's conversation you speak as a **consultant**; the composer says *Replying as …*. This holds for Admins and Project Admins too.
+
+**Feedback while the AI works.** After a customer message the summary panel says *Reading your message and drafting the summary…*. When the first draft lands, the chat gets a short note from *Design Max* saying so and what to do next (review, add detail, **Verify & Approve**). If the AI fails, the chat says so and your message is kept; sending another message retries. The AI never replies in the chat itself; its output is the summary panel.
+
+---
+
 ## 4. Technology scoping
 
 **What it is.** Each project can be limited to the technologies it works in (for example SAP only). The AI then drafts only within those technologies.

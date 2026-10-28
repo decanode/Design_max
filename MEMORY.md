@@ -199,3 +199,7 @@ Sprint 0: **complete**. Sprint 1 (ETL & ingestion workers): **core ETL complete;
 - **Upload & merge** (migration 018): `mammoth` + `htmlparser2`; hostile-file checks; section pairing; merge dialog; snapshot before merge.
 - `feature_process_guide.md` section 6 rewritten (documents, Word export, settings, template library, comments, merge); `architecture_and_design_document.md` section L added; plan status updated.
 - **Still open**: the user's real SAP .docx templates (must be copied into the repo or uploaded in Platform → Documents with the placeholders); logo; Word comments in export; per-section AI regeneration; not opened in real Microsoft Word; LLM output quality unevaluated.
+
+## Chat fixes (2026-10-28)
+- **Role picker removed**: server detects the speaking role (`sendAs` in `chat/socket.ts`): customer in a conversation you started, otherwise consultant; returned in the join ack; an explicit `role` is still honoured by the API if permitted. Why: Project Admins hold both permissions and the picker was confusing.
+- **No visible reply**: the observer was working but Gemini calls take seconds and the UI showed nothing (the draft was stored). Added `observer:working` event + panel text, an automatic system message on the first draft, and a system message on failure; observer now runs in the sender's project context.

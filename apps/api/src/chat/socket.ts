@@ -2,12 +2,18 @@ import type { Server as HttpServer } from 'node:http';
 import { Server } from 'socket.io';
 import { z } from 'zod';
 import type { Observer } from './observer.js';
-import { addMessage, canAccessConversation, getConversationProject, getDraft, getMessages, refreshDraft, verifyDraft, VerifyError } from './service.js';
+import { addMessage, canAccessConversation, conversationCustomer, getConversationProject, getDraft, getMessages, refreshDraft, verifyDraft, VerifyError } from './service.js';
 import { userFromCookie, type SessionUser } from '../rbac/auth.js';
 import { runWithContext } from '../db.js';
 
 const Join = z.object({ conversationId: z.string().uuid() });
 const Msg = z.object({ conversationId: z.string().uuid(), role: z.enum(['customer', 'consultant']).optional(), body: z.string().min(1).max(4000) });
+/** Which side of the conversation this person speaks for: the customer who started it, otherwise a consultant. */
+async function sendAs(u: SessionUser, cid: string): Promise<'customer' | 'consultant' | null> {
+  const can = { customer: u.perms.has('chat.as_customer'), consultant: u.perms.has('chat.as_consultant') };
+  if (can.customer && (await conversationCustomer(cid)) === u.id) return 'customer';
+  return can.consultant ? 'consultant' : can.customer ? 'customer' : null;
+}
 type Ack = ((r: unknown) => void) | undefined;
 
 export function attachChat(http: HttpServer, observer: Observer) {
@@ -38,7 +44,7 @@ export function attachChat(http: HttpServer, observer: Observer) {
       if (!p.success) return ack?.({ error: 'Invalid request' });
       if (!(await canAccessConversation(u, p.data.conversationId))) return ack?.({ error: 'Conversation not found' });
       await socket.join(p.data.conversationId);
-      ack?.({ messages: await getMessages(p.data.conversationId), draft: await getDraft(p.data.conversationId), project: await getConversationProject(p.data.conversationId) });
+      ack?.({ messages: await getMessages(p.data.conversationId), draft: await getDraft(p.data.conversationId), sendAs: await sendAs(u, p.data.conversationId), project: await getConversationProject(p.data.conversationId) });
     });
 
     on('message', async (u, raw, ack) => {
@@ -47,14 +53,27 @@ export function attachChat(http: HttpServer, observer: Observer) {
       const { conversationId: cid, body } = p.data;
       if (!(await canAccessConversation(u, cid))) return ack?.({ error: 'Conversation not found' });
       const can = { customer: u.perms.has('chat.as_customer'), consultant: u.perms.has('chat.as_consultant') };
-      const role = p.data.role ?? (can.customer ? 'customer' : 'consultant');
-      if (!can[role]) return ack?.({ error: `Your role cannot send messages as ${role}` });
+      const role = p.data.role ?? (await sendAs(u, cid));      // detected from the person and the conversation; an explicit role is only honoured if allowed
+      if (!role || !can[role]) return ack?.({ error: 'Your role cannot send messages in this conversation' });
       io.to(cid).emit('message', await addMessage(cid, role, u.name, body));
       ack?.({ ok: true });
       if (role !== 'customer') return;
+      io.to(cid).emit('observer:working');
       const run = (chains.get(cid) ?? Promise.resolve()).then(async () => {
-        try { const d = await refreshDraft(cid, observer); if (d) io.to(cid).emit('draft', d); }
-        catch (e) { io.to(cid).emit('observer:error', { error: 'Draft update failed' }); console.error(e); }
+        // Runs in the same project context as the message that triggered it.
+        await runWithContext({ projectId: u.projectId }, async () => {
+          try {
+            const first = !(await getDraft(cid));
+            const d = await refreshDraft(cid, observer);
+            if (d) {
+              io.to(cid).emit('draft', d);
+              if (first) io.to(cid).emit('message', await addMessage(cid, 'system', 'Design Max', 'Thanks, I have drafted a requirement summary from what you described. Review it on the right, keep adding detail if something is missing, then click Verify & Approve to log the ticket.'));
+            } else io.to(cid).emit('observer:done');
+          } catch (e) {
+            io.to(cid).emit('observer:error', { error: 'Draft update failed' }); console.error(e);
+            io.to(cid).emit('message', await addMessage(cid, 'system', 'Design Max', 'I could not draft the summary just now. Your message is saved. Send another message to try again.'));
+          }
+        });
       });
       chains.set(cid, run);
     });
