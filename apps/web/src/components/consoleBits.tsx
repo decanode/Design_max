@@ -13,16 +13,18 @@ export async function api(path: string, init?: RequestInit) {
 /* ------------------------------------------------------------------ roles & permissions (project tuning / platform catalog) */
 type Perm = { key: string; label: string; description: string; scope?: string };
 type Feature = { feature: string; permissions: Perm[] };
-type RoleRow = { id: number; name: string; is_system: boolean; locked: boolean; tuned?: boolean; members?: number; permissions: string[] };
+type RoleRow = { id: number; name: string; is_system: boolean; locked: boolean; tuned?: boolean; owned?: boolean; members?: number; permissions: string[] };
 
 export function RoleMatrix({ mode, flash }: { mode: 'project' | 'platform'; flash: Flash }) {
   const base = mode === 'project' ? '/api/project' : '/api/platform';
   const [roles, setRoles] = useState<RoleRow[]>([]);
   const [catalog, setCatalog] = useState<Feature[]>([]);
   const [form, setForm] = useState({ name: '', description: '', copy: '' });
+  const [mayCreate, setMayCreate] = useState(false);       // project mode: a Super Admin has allowed this Project Admin to make roles
+  const [renaming, setRenaming] = useState<{ id: number; name: string } | null>(null);
 
   const load = useCallback(async () => {
-    if (mode === 'project') { const d = await api('/api/project/roles'); setRoles(d.roles); setCatalog(d.catalog); }
+    if (mode === 'project') { const d = await api('/api/project/roles'); setRoles(d.roles); setCatalog(d.catalog); setMayCreate(!!d.canCreateRoles); }
     else {
       const [r, c] = await Promise.all([api('/api/platform/roles'), api('/api/platform/catalog')]);
       setRoles(r); setCatalog((c as Feature[]).map((f) => ({ ...f, permissions: f.permissions.filter((p) => p.scope !== 'platform') })).filter((f) => f.permissions.length));
@@ -42,25 +44,29 @@ export function RoleMatrix({ mode, flash }: { mode: 'project' | 'platform'; flas
   }
   async function create(e: React.FormEvent) {
     e.preventDefault();
-    try { await api('/api/platform/roles', j({ name: form.name, description: form.description, copyFromRoleId: form.copy ? Number(form.copy) : undefined })); flash('ok', `Role “${form.name}” added to the catalog.`); setForm({ name: '', description: '', copy: '' }); load(); }
+    try { await api(mode === 'project' ? '/api/project/roles' : '/api/platform/roles', j({ name: form.name, description: form.description, copyFromRoleId: form.copy ? Number(form.copy) : undefined })); flash('ok', mode === 'project' ? `Role “${form.name}” was created for this project. Tick what it can do, then give it to people under Members.` : `Role “${form.name}” added to the catalog.`); setForm({ name: '', description: '', copy: '' }); load(); }
     catch (er) { flash('err', (er as Error).message); }
   }
   async function del(r: RoleRow) {
-    if (!confirm(`Delete the role “${r.name}” from the catalog?`)) return;
-    try { await api(`/api/platform/roles/${r.id}`, { method: 'DELETE' }); flash('ok', `Deleted “${r.name}”.`); load(); } catch (e) { flash('err', (e as Error).message); }
+    if (!confirm(mode === 'project' ? `Delete the role “${r.name}”? It is removed from this project.` : `Delete the role “${r.name}” from the catalog?`)) return;
+    try { await api(mode === 'project' ? `/api/project/roles/${r.id}` : `/api/platform/roles/${r.id}`, { method: 'DELETE' }); flash('ok', `Deleted “${r.name}”.`); load(); } catch (e) { flash('err', (e as Error).message); }
+  }
+  async function rename(e: React.FormEvent) {
+    e.preventDefault(); if (!renaming) return;
+    try { await api(`/api/project/roles/${renaming.id}`, j({ name: renaming.name }, 'PATCH')); flash('ok', `Renamed to “${renaming.name.trim()}”.`); setRenaming(null); load(); } catch (er) { flash('err', (er as Error).message); }
   }
 
   return (
     <>
-      {mode === 'platform' && (
-        <form className="pane build" onSubmit={create} aria-label="Add a role to the catalog">
-          <h3>Add a role</h3>
+      {(mode === 'platform' || mayCreate) && (
+        <form className="pane build" onSubmit={create} aria-label={mode === 'project' ? 'Create a role for this project' : 'Add a role to the catalog'}>
+          <h3>{mode === 'project' ? 'Create a role for this project' : 'Add a role'}</h3>
           <div className="row">
             <label className="sr" htmlFor="rn">Role name</label><input id="rn" placeholder="Role name (e.g. Solution Architect)" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required minLength={2} />
             <label className="sr" htmlFor="rd">Description</label><input id="rd" placeholder="What is this role for?" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} style={{ minWidth: 260 }} />
             <label className="sr" htmlFor="rc">Start from</label>
             <select id="rc" value={form.copy} onChange={(e) => setForm({ ...form, copy: e.target.value })}><option value="">Start with no permissions</option>{roles.map((r) => <option key={r.id} value={r.id}>Copy of {r.name}</option>)}</select>
-            <button className="btn" type="submit" disabled={form.name.trim().length < 2}>Add role</button>
+            <button className="btn" type="submit" disabled={form.name.trim().length < 2}>{mode === 'project' ? 'Create role' : 'Add role'}</button>
           </div>
         </form>)}
       <div className="matrix-wrap">
@@ -70,8 +76,11 @@ export function RoleMatrix({ mode, flash }: { mode: 'project' | 'platform'; flas
             <th scope="col" className="feat">Feature · permission</th>
             {roles.map((r) => (
               <th scope="col" key={r.id} className="rcol">
-                <span className="role-badge" data-role={r.is_system ? r.name : 'Custom'}>{r.name}</span>
-                {mode === 'project' && !r.locked && <span className="note">{r.tuned ? 'Customized' : 'Standard'}</span>}
+                {renaming?.id === r.id
+                  ? <form onSubmit={rename} className="rename" aria-label={`Rename ${r.name}`}><input aria-label="New role name" value={renaming.name} onChange={(e) => setRenaming({ id: r.id, name: e.target.value })} autoFocus minLength={2} maxLength={40} required /><button className="link-btn" type="submit">Save</button><button className="link-btn" type="button" onClick={() => setRenaming(null)}>Cancel</button></form>
+                  : <span className="role-badge" data-role={r.is_system ? r.name : 'Custom'}>{r.name}</span>}
+                {mode === 'project' && !r.locked && <span className="note">{r.owned ? 'This project’s role' : r.tuned ? 'Customized' : 'Standard'}</span>}
+                {mode === 'project' && r.owned && mayCreate && renaming?.id !== r.id && <span className="rc-actions"><button className="link-btn" onClick={() => setRenaming({ id: r.id, name: r.name })} aria-label={`Rename role ${r.name}`}>Rename</button><button className="link-btn" onClick={() => del(r)} aria-label={`Delete role ${r.name}`}>Delete</button></span>}
                 {mode === 'project' && r.tuned && <button className="link-btn" onClick={() => reset(r)} aria-label={`Reset ${r.name} to the standard role`}>Reset</button>}
                 {mode === 'platform' && <span className="note">{r.members} in projects</span>}
                 {mode === 'platform' && !r.is_system && <button className="link-btn" onClick={() => del(r)} aria-label={`Delete role ${r.name}`}>Delete</button>}
@@ -92,7 +101,7 @@ export function RoleMatrix({ mode, flash }: { mode: 'project' | 'platform'; flas
             </tbody>))}
         </table>
       </div>
-      <p className="note">Project Admin always has every project permission and cannot be restricted.</p>
+      <p className="note">Project Admin always has every project permission and cannot be restricted.{mode === 'project' && !mayCreate && ' Creating roles of your own needs a Super Admin to allow it for you.'}</p>
     </>
   );
 }

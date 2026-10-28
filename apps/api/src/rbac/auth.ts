@@ -1,7 +1,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { pool, runWithContext, type DbContext } from '../db.js';
-import { ALL_KEYS } from './permissions.js';
+import { ALL_KEYS, PROJECT_ADMIN_ROLE } from './permissions.js';
 import { effectiveFields, effectivePerms } from './effective.js';
 import { ALL_WRITE, resolveFieldAccess, type FieldAccess } from '../tickets/fields.js';
 
@@ -14,6 +14,7 @@ export interface SessionUser {
   isSuper: boolean;
   projectId: string | null; projectName: string | null;
   roleId: number | null; roleName: string;
+  canCreateRoles: boolean;                                // may create roles of their own for the project (Super Admins always; a Project Admin when a Super Admin allowed it)
   perms: Set<string>; fields: FieldAccess;
 }
 declare module 'fastify' { interface FastifyRequest { user: SessionUser | null } }
@@ -56,12 +57,12 @@ export function readCookie(header: string | undefined, name = COOKIE) {
 
 const UUID = /^[0-9a-f-]{36}$/;
 
-export interface Membership { projectId: string; projectName: string; roleId: number; roleName: string }
+export interface Membership { projectId: string; projectName: string; roleId: number; roleName: string; canCreateRoles: boolean }
 export async function membershipsOf(userId: string): Promise<Membership[]> {
   return (await pool.query(
-    `SELECT pm.project_id, p.name AS project_name, pm.role_id, r.name AS role_name FROM project_members pm
+    `SELECT pm.project_id, p.name AS project_name, pm.role_id, r.name AS role_name, pm.can_create_roles FROM project_members pm
      JOIN projects p ON p.id = pm.project_id AND p.status = 'active' JOIN roles r ON r.id = pm.role_id WHERE pm.user_id = $1 ORDER BY p.name`, [userId]))
-    .rows.map((m) => ({ projectId: m.project_id, projectName: m.project_name, roleId: m.role_id, roleName: m.role_name }));
+    .rows.map((m) => ({ projectId: m.project_id, projectName: m.project_name, roleId: m.role_id, roleName: m.role_name, canCreateRoles: m.can_create_roles }));
 }
 
 /**
@@ -85,13 +86,13 @@ export async function loadUser(id: string, requestedProject?: string): Promise<S
   if (!projectId && ms.length) { member = ms[0]; projectId = member.projectId; projectName = member.projectName; }   // default: first membership
 
   const base = { id: u.id, email: u.email, name: u.display_name, isSuper: !!u.is_super_admin, projectId, projectName };
-  if (u.is_super_admin) return { ...base, roleId: member?.roleId ?? null, roleName: member?.roleName ?? 'Super Admin', perms: new Set(ALL_KEYS), fields: ALL_WRITE };
-  if (!member) return { ...base, roleId: null, roleName: 'No project', perms: new Set(), fields: resolveFieldAccess([]) };
+  if (u.is_super_admin) return { ...base, roleId: member?.roleId ?? null, roleName: member?.roleName ?? 'Super Admin', canCreateRoles: true, perms: new Set(ALL_KEYS), fields: ALL_WRITE };
+  if (!member) return { ...base, roleId: null, roleName: 'No project', canCreateRoles: false, perms: new Set(), fields: resolveFieldAccess([]) };
   const [perms, fields] = await Promise.all([
     effectivePerms(pool, member.projectId, member.roleId, member.roleName),
     effectiveFields(pool, member.projectId, member.roleId, member.roleName),
   ]);
-  return { ...base, roleId: member.roleId, roleName: member.roleName, perms: new Set(perms), fields };
+  return { ...base, roleId: member.roleId, roleName: member.roleName, canCreateRoles: member.canCreateRoles && member.roleName === PROJECT_ADMIN_ROLE, perms: new Set(perms), fields };
 }
 
 /** Resolves the session cookie (and the chosen-project cookie) from a raw Cookie header. */

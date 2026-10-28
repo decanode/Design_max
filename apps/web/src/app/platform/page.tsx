@@ -10,7 +10,7 @@ import { NoAccess, useAuth, j } from '../../lib/auth';
 
 type Tab = 'projects' | 'users' | 'roles' | 'fields' | 'stacks' | 'workflows' | 'documents' | 'activity';
 type Flash = (kind: 'ok' | 'err', text: string) => void;
-type Project = { id: string; name: string; status: 'active' | 'archived'; members: number; tickets: number; admins: { id: string; name: string }[]; stacks: string[] };
+type Project = { id: string; name: string; status: 'active' | 'archived'; members: number; tickets: number; admins: { id: string; name: string; canCreateRoles?: boolean }[]; stacks: string[] };
 type Stack = { id: number; name: string; description: string; keywords: string[]; projects: number };
 type PUser = { id: string; email: string; name: string; active: boolean; isSuperAdmin: boolean; projects: { id: string; name: string; role: string }[] };
 
@@ -35,6 +35,10 @@ function Projects({ flash }: { flash: Flash }) {
   async function appointAdmin(p: Project) {
     const a = appoint[p.id]; if (!a?.email) return;
     try { const r = await api(`/api/platform/projects/${p.id}/admins`, j({ email: a.email, name: a.name || undefined })); flash('ok', `${a.email} is now a Project Admin of ${p.name}${r.created ? ' (new account created)' : ''}.`); setAppoint({ ...appoint, [p.id]: { email: '', name: '' } }); load(); }
+    catch (e) { flash('err', (e as Error).message); }
+  }
+  async function allowRoles(p: Project, userId: string, name: string, enabled: boolean) {
+    try { await api(`/api/platform/projects/${p.id}/admins/${userId}/role-creation`, j({ enabled }, 'PUT')); flash('ok', enabled ? `${name} can now create roles in ${p.name}.` : `${name} can no longer create roles in ${p.name}.`); load(); }
     catch (e) { flash('err', (e as Error).message); }
   }
   async function setStatus(p: Project, status: 'active' | 'archived') {
@@ -82,6 +86,12 @@ function Projects({ flash }: { flash: Flash }) {
               <span className="note">Project Admins:</span>
               {p.admins.length ? p.admins.map((a) => <span key={a.id} className="chip">{a.name}</span>) : <span className="err">none yet</span>}
             </div>
+            {p.admins.length > 0 && (
+              <fieldset className="admin-powers" aria-label={`What Project Admins of ${p.name} may do`}>
+                <legend className="note">May create roles of their own in this project</legend>
+                {p.admins.map((a) => (
+                  <label key={a.id} className="check"><input type="checkbox" checked={!!a.canCreateRoles} aria-label={`${a.name} may create roles in ${p.name}`} onChange={(e) => allowRoles(p, a.id, a.name, e.target.checked)} /> {a.name}</label>))}
+              </fieldset>)}
             {p.status === 'active' && (
               <div className="row" style={{ margin: '8px 0 0' }}>
                 <label className="sr" htmlFor={`ae${p.id}`}>Appoint a Project Admin for {p.name}</label>

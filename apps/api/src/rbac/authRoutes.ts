@@ -31,7 +31,7 @@ export function registerAuthRoutes(app: FastifyInstance) {
       : (await membershipsOf(u.id)).map((m) => ({ id: m.projectId, name: m.projectName, role: m.roleName }));
     return {
       user: { id: u.id, email: u.email, name: u.name, role: u.roleName, roleId: u.roleId, isSuperAdmin: u.isSuper },
-      project: u.projectId ? { id: u.projectId, name: u.projectName, modules: await modulesOf(u.projectId) } : null,
+      project: u.projectId ? { id: u.projectId, name: u.projectName, modules: await modulesOf(u.projectId), canCreateRoles: u.canCreateRoles } : null,
       projects, permissions: [...u.perms].sort(),
     };
   });

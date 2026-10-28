@@ -89,7 +89,7 @@ export function registerPeopleRoutes(app: FastifyInstance) {
     const raw = req.body as Record<string, unknown>;
     const b = Profile.partial({ userId: true, firstName: true, lastName: true, employeeId: true, phone: true, mobile: true, jobTitle: true, department: true, company: true, location: true, costCenter: true, managerId: true, timeZone: true, language: true, notes: true })
       .extend({ roleId: z.number().int(), teamIds: TeamIds.default([]), name: z.string().trim().max(120).optional() }).parse(raw);
-    const role = (await pool.query('SELECT id, name FROM roles WHERE id=$1', [b.roleId])).rows[0];
+    const role = (await pool.query('SELECT id, name FROM roles WHERE id=$1 AND (project_id IS NULL OR project_id=$2)', [b.roleId, pid(req)])).rows[0];
     if (!role) throw new DocError('Role not found', 404);
     const email = b.email.toLowerCase();
     await assertManager(pid(req), b.managerId);
@@ -133,7 +133,7 @@ export function registerPeopleRoutes(app: FastifyInstance) {
     try {
       await c.query('BEGIN');
       if (b.roleId !== undefined && b.roleId !== cur.role_id) {
-        const role = (await c.query('SELECT id, name FROM roles WHERE id=$1', [b.roleId])).rows[0];
+        const role = (await c.query('SELECT id, name FROM roles WHERE id=$1 AND (project_id IS NULL OR project_id=$2)', [b.roleId, pid(req)])).rows[0];
         if (!role) throw new DocError('Role not found', 404);
         if (cur.role === PROJECT_ADMIN_ROLE && role.name !== PROJECT_ADMIN_ROLE) await assertAdminRemains(pid(req), userId);
         await c.query('UPDATE project_members SET role_id=$3 WHERE project_id=$1 AND user_id=$2', [pid(req), userId, b.roleId]);

@@ -51,7 +51,7 @@ async function validate(b: WorkflowIn, projectId: string, selfId?: string) {
   const users = b.levels.flatMap((l) => l.approvers).filter((a) => a.kind === 'user').map((a) => String(a.id));
   const roles = b.levels.flatMap((l) => l.approvers).filter((a) => a.kind === 'role').map((a) => Number(a.id));
   if (users.length && (await pool.query('SELECT count(*)::int n FROM project_members m JOIN users u ON u.id = m.user_id WHERE m.project_id = $2 AND u.active AND m.user_id = ANY($1::uuid[])', [[...new Set(users)], projectId])).rows[0].n !== new Set(users).size) throw new DocError('Every chosen person must be an active member of this project', 400);
-  if (roles.length && (await pool.query('SELECT count(*)::int n FROM roles WHERE id = ANY($1::int[])', [[...new Set(roles)]])).rows[0].n !== new Set(roles).size) throw new DocError('One of the chosen roles does not exist', 400);
+  if (roles.length && (await pool.query('SELECT count(*)::int n FROM roles WHERE id = ANY($1::int[]) AND (project_id IS NULL OR project_id = $2)', [[...new Set(roles)], projectId])).rows[0].n !== new Set(roles).size) throw new DocError('One of the chosen roles does not exist', 400);
   const names = b.levels.map((l) => l.name.toLowerCase());
   if (new Set(names).size !== names.length) throw new DocError('Each level needs its own name', 400);
 }
@@ -71,7 +71,7 @@ export function registerWorkflowRoutes(app: FastifyInstance) {
   app.get('/api/project/workflows', { preHandler: admin }, async (req) => loadAll(req.user!.projectId!));
 
   app.get('/api/project/workflows/options', { preHandler: admin }, async (req) => ({
-    roles: (await pool.query('SELECT id, name FROM roles ORDER BY is_system DESC, id')).rows,
+    roles: (await pool.query('SELECT id, name FROM roles WHERE project_id IS NULL OR project_id = $1 ORDER BY (project_id IS NOT NULL), is_system DESC, id', [req.user!.projectId])).rows,
     users: (await pool.query(`SELECT u.id, u.display_name AS name, r.name AS role FROM project_members m JOIN users u ON u.id = m.user_id JOIN roles r ON r.id = m.role_id WHERE m.project_id = $1 AND u.active ORDER BY u.display_name`, [req.user!.projectId])).rows,
   }));
 

@@ -520,3 +520,7 @@ main:has(.settings-rail) { padding-left: calc(var(--rail-w) + 32px); }
 .drill-bar { left: auto; } 
 @media (max-width: 1100px) { .drill-grid, .pf-grid { grid-template-columns: 1fr; } }
 .tag.team { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+
+.admin-powers { border: 1px dashed var(--line); border-radius: 10px; padding: 6px 12px 8px; margin: 8px 0 0; display: flex; gap: 6px 18px; flex-wrap: wrap; align-items: center; } .admin-powers legend { padding: 0 6px; }
+.rename { display: flex; gap: 6px; align-items: center; } .rename input { padding: 4px 8px; border-radius: 7px; border: 1px solid var(--accent); background: var(--bg); color: var(--text); font: inherit; width: 130px; }
+.rc-actions { display: flex; gap: 10px; }

@@ -19,7 +19,8 @@ import { KNOWN_MODULES, PLANNING_MODULE, modulesOf, setModule } from '../plannin
  * never from the request), so a Project Admin cannot touch another project even by guessing ids.
  */
 const pid = (req: { user: { projectId: string | null } | null }) => req.user!.projectId!;
-const roleRow = async (id: number) => { const r = (await pool.query('SELECT * FROM roles WHERE id=$1', [id])).rows[0]; if (!r) throw new DocError('Role not found', 404); return r; };
+/** A role this project may use: a standard one, or one the project made itself. Another project's role does not exist as far as this project can tell. */
+const roleRow = async (id: number, projectId: string) => { const r = (await pool.query('SELECT * FROM roles WHERE id=$1 AND (project_id IS NULL OR project_id=$2)', [id, projectId])).rows[0]; if (!r) throw new DocError('Role not found', 404); return r; };
 
 export function registerProjectRoutes(app: FastifyInstance) {
   const roles = need('admin.roles'), settings = need('admin.projects');
@@ -32,24 +33,76 @@ export function registerProjectRoutes(app: FastifyInstance) {
     return { ...p, stacks, role: req.user!.roleName, isSuperAdmin: req.user!.isSuper };
   });
 
+  // ---------------- roles of the project's own (only where a Super Admin has allowed this Project Admin to make them)
+  const mayCreateRoles = async (req: import('fastify').FastifyRequest, reply: import('fastify').FastifyReply) => {
+    if (!req.user!.canCreateRoles) return reply.code(403).send({ error: 'A Super Admin has not allowed you to create roles for this project' });
+  };
+  const ownedRole = async (id: number, projectId: string) => {
+    const r = await roleRow(id, projectId);
+    if (r.project_id !== projectId) throw new DocError('This is a standard role. Standard roles are managed by a Super Admin in the Platform console; here you can tune what they may do in this project.', 400);
+    return r;
+  };
+  const RoleBody = z.object({ name: z.string().trim().min(2, 'Give the role a name').max(40), description: z.string().trim().max(200).default('') });
+
+  app.post('/api/project/roles', { preHandler: [roles, mayCreateRoles] }, async (req, reply) => {
+    const b = RoleBody.extend({ copyFromRoleId: z.number().int().positive().optional() }).parse(req.body);
+    if ((await pool.query('SELECT 1 FROM roles WHERE lower(name)=lower($1) AND (project_id IS NULL OR project_id=$2)', [b.name, pid(req)])).rowCount) throw new DocError('A role with that name already exists', 409);
+    const src = b.copyFromRoleId ? await roleRow(b.copyFromRoleId, pid(req)) : null;
+    const c = await pool.connect();
+    try {
+      await c.query('BEGIN');
+      const id = (await c.query('INSERT INTO roles (name, description, project_id) VALUES ($1,$2,$3) RETURNING id', [b.name, b.description, pid(req)])).rows[0].id as number;
+      if (src) {      // start from what the source role means in this project today, limited to what a project role may hold
+        const perms = (await effectivePerms(pool, pid(req), src.id, src.name)).filter((p) => PROJECT_KEYS.includes(p));
+        for (const p of perms) await c.query('INSERT INTO role_permissions (role_id, permission) VALUES ($1,$2)', [id, p]);
+        const access = await effectiveFields(pool, pid(req), src.id, src.name);
+        for (const [field, level] of Object.entries(access)) await c.query('INSERT INTO ticket_field_access (role_id, field, access) VALUES ($1,$2,$3)', [id, field, level]);
+      }
+      await c.query('COMMIT');
+      await audit(req, 'role.create', { name: b.name, copiedFrom: src?.name ?? null });
+      return reply.code(201).send({ id });
+    } catch (e) { await c.query('ROLLBACK'); throw e; } finally { c.release(); }
+  });
+
+  app.patch('/api/project/roles/:id', { preHandler: [roles, mayCreateRoles] }, async (req) => {
+    const { id } = z.object({ id: z.coerce.number().int() }).parse(req.params);
+    const b = RoleBody.partial().parse(req.body);
+    const r = await ownedRole(id, pid(req));
+    if (b.name && (await pool.query('SELECT 1 FROM roles WHERE lower(name)=lower($1) AND id<>$2 AND (project_id IS NULL OR project_id=$3)', [b.name, id, pid(req)])).rowCount) throw new DocError('A role with that name already exists', 409);
+    await pool.query('UPDATE roles SET name=COALESCE($2,name), description=COALESCE($3,description) WHERE id=$1', [id, b.name ?? null, b.description ?? null]);
+    await audit(req, 'role.update', { from: r.name, to: b.name ?? r.name });
+    return { ok: true };
+  });
+
+  app.delete('/api/project/roles/:id', { preHandler: [roles, mayCreateRoles] }, async (req) => {
+    const { id } = z.object({ id: z.coerce.number().int() }).parse(req.params);
+    const r = await ownedRole(id, pid(req));
+    const used = (await pool.query('SELECT (SELECT count(*)::int FROM project_members WHERE role_id=$1) AS members, (SELECT count(*)::int FROM approval_level_approvers WHERE role_id=$1) AS approvals', [id])).rows[0];
+    if (used.members) throw new DocError(`${used.members} ${used.members > 1 ? 'people hold' : 'person holds'} this role. Give them another role first.`, 409);
+    if (used.approvals) throw new DocError('An approval workflow asks this role to approve. Change the workflow first.', 409);
+    await pool.query('DELETE FROM roles WHERE id=$1', [id]);                                           // its permissions and field access go with it
+    await audit(req, 'role.delete', { name: r.name });
+    return { ok: true };
+  });
+
   // ---------------- role tuning (permissions)
   app.get('/api/project/roles', { preHandler: roles }, async (req) => {
     const id = pid(req);
     const all = (await pool.query(
-      `SELECT r.id, r.name, r.description, r.is_system, (SELECT count(*)::int FROM project_members m WHERE m.project_id=$1 AND m.role_id=r.id) AS members FROM roles r ORDER BY r.is_system DESC, r.id`, [id])).rows;
+      `SELECT r.id, r.name, r.description, r.is_system, (r.project_id IS NOT NULL) AS owned, (SELECT count(*)::int FROM project_members m WHERE m.project_id=$1 AND m.role_id=r.id) AS members FROM roles r WHERE r.project_id IS NULL OR r.project_id = $1 ORDER BY (r.project_id IS NOT NULL), r.is_system DESC, r.id`, [id])).rows;
     const out = [];
     for (const r of all) {
       const locked = r.name === PROJECT_ADMIN_ROLE;
       const flags = await overrideFlags(pool, id, r.id);
       out.push({ ...r, locked, tuned: flags.perms, fieldsTuned: flags.fields, permissions: await effectivePerms(pool, id, r.id, r.name) });
     }
-    return { roles: out, catalog: CATALOG.map((f) => ({ ...f, permissions: f.permissions.filter((p) => p.scope !== 'platform') })).filter((f) => f.permissions.length) };
+    return { roles: out, canCreateRoles: req.user!.canCreateRoles, catalog: CATALOG.map((f) => ({ ...f, permissions: f.permissions.filter((p) => p.scope !== 'platform') })).filter((f) => f.permissions.length) };
   });
 
   app.put('/api/project/roles/:id/permissions', { preHandler: roles }, async (req) => {
     const { id } = z.object({ id: z.coerce.number().int() }).parse(req.params);
     const { permissions } = z.object({ permissions: z.array(z.string()) }).parse(req.body);
-    const r = await roleRow(id);
+    const r = await roleRow(id, pid(req));
     if (r.name === PROJECT_ADMIN_ROLE) throw new DocError('Project Admin always has every project permission', 400);
     const bad = permissions.filter((p) => !isKnownKey(p) || !PROJECT_KEYS.includes(p));
     if (bad.length) throw new DocError(`Not a permission a project role can hold: ${bad.join(', ')}`, 400);
@@ -70,7 +123,7 @@ export function registerProjectRoutes(app: FastifyInstance) {
   /** Back to the standard role: drops this project's tuning of the role's permissions. */
   app.delete('/api/project/roles/:id/permissions', { preHandler: roles }, async (req) => {
     const { id } = z.object({ id: z.coerce.number().int() }).parse(req.params);
-    const r = await roleRow(id);
+    const r = await roleRow(id, pid(req));
     await pool.query('DELETE FROM project_role_permissions WHERE project_id=$1 AND role_id=$2', [pid(req), id]);
     await pool.query('UPDATE project_role_overrides SET perms=false WHERE project_id=$1 AND role_id=$2', [pid(req), id]);
     await audit(req, 'role.reset', { name: r.name, what: 'permissions' });
@@ -80,7 +133,7 @@ export function registerProjectRoutes(app: FastifyInstance) {
   // ---------------- role tuning (ticket fields)
   app.get('/api/project/ticket-fields', { preHandler: roles }, async (req) => {
     const id = pid(req);
-    const rs = (await pool.query('SELECT id, name, is_system FROM roles ORDER BY is_system DESC, id')).rows;
+    const rs = (await pool.query('SELECT id, name, is_system FROM roles WHERE project_id IS NULL OR project_id = $1 ORDER BY (project_id IS NOT NULL), is_system DESC, id', [id])).rows;
     const out = [];
     for (const r of rs) out.push({ id: r.id, name: r.name, isSystem: r.is_system, locked: r.name === PROJECT_ADMIN_ROLE, tuned: (await overrideFlags(pool, id, r.id)).fields, access: await effectiveFields(pool, id, r.id, r.name) });
     return { levels: LEVELS, fields: FIELDS.map(({ key, label, description, writable, min }) => ({ key, label, description, writable, min })), roles: out };
@@ -89,7 +142,7 @@ export function registerProjectRoutes(app: FastifyInstance) {
   app.put('/api/project/roles/:id/ticket-fields', { preHandler: roles }, async (req) => {
     const { id } = z.object({ id: z.coerce.number().int() }).parse(req.params);
     const { access } = z.object({ access: z.record(z.string(), z.string()) }).parse(req.body);
-    const r = await roleRow(id);
+    const r = await roleRow(id, pid(req));
     if (r.name === PROJECT_ADMIN_ROLE) throw new DocError('Project Admin always has full access to every field', 400);
     const problem = validateFieldAccess(access);
     if (problem) throw new DocError(problem, 400);
@@ -113,7 +166,7 @@ export function registerProjectRoutes(app: FastifyInstance) {
 
   app.delete('/api/project/roles/:id/ticket-fields', { preHandler: roles }, async (req) => {
     const { id } = z.object({ id: z.coerce.number().int() }).parse(req.params);
-    const r = await roleRow(id);
+    const r = await roleRow(id, pid(req));
     await pool.query('DELETE FROM project_ticket_field_access WHERE project_id=$1 AND role_id=$2', [pid(req), id]);
     await pool.query('UPDATE project_role_overrides SET fields=false WHERE project_id=$1 AND role_id=$2', [pid(req), id]);
     await audit(req, 'role.reset', { name: r.name, what: 'ticket fields' });

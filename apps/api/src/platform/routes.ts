@@ -43,7 +43,7 @@ async function assertSuperRemains(exceptUserId: string) {
   const n = (await pool.query('SELECT count(*)::int c FROM users WHERE is_super_admin AND active AND id <> $1', [exceptUserId])).rows[0].c;
   if (n < 1) throw new DocError('At least one active Super Admin must remain', 409);
 }
-const roleRow = async (id: number) => { const r = (await pool.query('SELECT * FROM roles WHERE id=$1', [id])).rows[0]; if (!r) throw new DocError('Role not found', 404); return r; };
+const roleRow = async (id: number) => { const r = (await pool.query('SELECT * FROM roles WHERE id=$1 AND project_id IS NULL', [id])).rows[0]; if (!r) throw new DocError('Role not found', 404); return r; };
 
 export function registerPlatformRoutes(app: FastifyInstance) {
   const sup = needSuper();
@@ -112,7 +112,7 @@ export function registerPlatformRoutes(app: FastifyInstance) {
       `SELECT p.id, p.name, p.status, p.created_at,
               (SELECT count(*)::int FROM project_members m WHERE m.project_id = p.id) AS members,
               (SELECT count(*)::int FROM tickets t WHERE t.project_id = p.id) AS tickets,
-              COALESCE((SELECT json_agg(json_build_object('id', u.id, 'name', u.display_name) ORDER BY u.display_name) FROM project_members m JOIN users u ON u.id = m.user_id JOIN roles r ON r.id = m.role_id
+              COALESCE((SELECT json_agg(json_build_object('id', u.id, 'name', u.display_name, 'canCreateRoles', m.can_create_roles) ORDER BY u.display_name) FROM project_members m JOIN users u ON u.id = m.user_id JOIN roles r ON r.id = m.role_id
                         WHERE m.project_id = p.id AND r.name = $1), '[]') AS admins,
               COALESCE((SELECT array_agg(s.name ORDER BY s.name) FROM project_stacks ps JOIN tech_stacks s ON s.id = ps.stack_id WHERE ps.project_id = p.id), '{}') AS stacks
        FROM projects p ORDER BY p.status, p.name`, [PROJECT_ADMIN_ROLE])).rows);
@@ -143,6 +143,17 @@ export function registerPlatformRoutes(app: FastifyInstance) {
       await audit(req, 'project.create', { id, name: b.name, admin: b.admin?.email ?? null }, id);
       return reply.code(201).send({ id, adminId });
     } catch (e) { await c.query('ROLLBACK'); throw e; } finally { c.release(); }
+  });
+
+  /** Lets a Project Admin create roles of their own in their project (or takes that back). */
+  app.put('/api/platform/projects/:id/admins/:userId/role-creation', { preHandler: sup }, async (req) => {
+    const { id, userId } = z.object({ id: z.string().uuid(), userId: z.string().uuid() }).parse(req.params);
+    const { enabled } = z.object({ enabled: z.boolean() }).parse(req.body);
+    const m = (await pool.query(`SELECT u.display_name, r.name FROM project_members pm JOIN users u ON u.id = pm.user_id JOIN roles r ON r.id = pm.role_id WHERE pm.project_id=$1 AND pm.user_id=$2`, [id, userId])).rows[0];
+    if (!m || m.name !== PROJECT_ADMIN_ROLE) throw new DocError('That person is not a Project Admin of this project', 404);
+    await pool.query('UPDATE project_members SET can_create_roles=$3 WHERE project_id=$1 AND user_id=$2', [id, userId, enabled]);
+    await audit(req, 'project.role_creation', { admin: m.display_name, enabled }, id);
+    return { ok: true };
   });
 
   app.patch('/api/platform/projects/:id', { preHandler: sup }, async (req) => {
@@ -203,7 +214,7 @@ export function registerPlatformRoutes(app: FastifyInstance) {
       `SELECT r.id, r.name, r.description, r.is_system,
               (SELECT count(*)::int FROM project_members m WHERE m.role_id = r.id) AS members,
               COALESCE((SELECT array_agg(permission ORDER BY permission) FROM role_permissions p WHERE p.role_id = r.id), '{}') AS permissions
-       FROM roles r ORDER BY r.is_system DESC, r.id`)).rows;
+       FROM roles r WHERE r.project_id IS NULL ORDER BY r.is_system DESC, r.id`)).rows;
     const fa = (await pool.query('SELECT role_id, field, access FROM ticket_field_access')).rows;
     return roles.map((r) => {
       const locked = r.name === PROJECT_ADMIN_ROLE;
@@ -267,7 +278,7 @@ export function registerPlatformRoutes(app: FastifyInstance) {
 
   /** The standard (template) field access per role: what every project starts from. Same shape as a project's grid. */
   app.get('/api/platform/ticket-fields', { preHandler: sup }, async () => {
-    const rs = (await pool.query('SELECT id, name, is_system FROM roles ORDER BY is_system DESC, id')).rows;
+    const rs = (await pool.query('SELECT id, name, is_system FROM roles WHERE project_id IS NULL ORDER BY is_system DESC, id')).rows;
     const rows = (await pool.query('SELECT role_id, field, access FROM ticket_field_access')).rows;
     return {
       levels: LEVELS,
