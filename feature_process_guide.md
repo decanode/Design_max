@@ -63,31 +63,29 @@ Roles belong to a **project membership**, not to the person. Someone can be a Co
 
 ---
 
-## 3. Chat and the AI requirement summary
+## 3. Chat with the assistant
 
-**What it is.** A real-time chat between a customer and a consultant. An AI assistant listens in silently and keeps a plain-English **requirement summary** up to date. The customer confirms it, which creates a ticket.
+Open **Chat** and press **Start a conversation**. Design Max greets you by name and asks what you want to do. What happens next depends on who you are; this is fixed when the conversation opens.
 
-**How to use it**
-1. Customer: **Chat → Start a conversation**, then describe the need.
-2. The summary appears on the right: a title, the summary, and the business objects, vendors and material types it found.
-3. Consultants (and Leads/Managers who can see all chats) pick the conversation from the left list and reply.
-4. When the summary is right, the **customer** clicks **Verify & Approve**.
+### If you are a customer (your role cannot act as a consultant)
+1. Pick a goal (**Report a problem**, **Ask how something works**, **Request a change or new feature**, **Check on an earlier request**) or just type.
+2. **Reporting a problem:** after you describe it, the assistant first offers a few safe steps you can try yourself, and asks **"try these first, or raise an incident now?"**. If it worked, say so: nothing is raised. Problems that look like outages, data loss, money, security or compliance are never sent down the self-help path; they go straight to an incident.
+3. When a ticket is the right outcome the assistant asks the few things the team needs (urgency, who is affected, and so on), then shows the **full scope** in the chat and in the **Your request** panel, and asks **"Shall I create this ticket?"**.
+4. Reply **yes** (or press **Create ticket**) to confirm. Nothing is created before that.
 
-**What to expect**
-- Messages are saved and survive a reload. Customers see only their own conversations; consultants can see all conversations in their project.
-- Verifying creates **exactly one** ticket at *Requirement Verified*, even if the button is clicked twice. After that the summary is frozen.
-- Each chat belongs to the project you are working in.
-- Names on messages come from the signed-in account; they cannot be faked.
+### If you are a consultant, lead, project manager or admin
+1. Pick a goal (**Scope a new requirement**, **Design a solution or logic**, **Troubleshoot an issue**, **Prepare a ticket**) or type.
+2. The assistant works as a collaborator: it asks about the objective, who signs it off, objects and data volumes, authorisations, error handling and edge cases, suggests alternatives and things you may not have considered, and builds the overall picture with you.
+3. A ticket is **not always the end product**. You may only want a solution, logic or outline: say **"The outline is enough"** and the chat ends with nothing created. If you want it as a ticket, press **Create a ticket**, review the full scope, and confirm.
+4. A ticket you confirm is created owned by you; a customer's ticket belongs to the customer.
 
-**Which AI does the summarising.** The server picks the first one configured in `.env`: GitHub Models (company licence) → Google Gemini → Anthropic. With none set it uses a simple offline stand-in that recognises a few keywords (fine for trying the screens; not a language model). Set `AI_PROVIDER=gemini` (or `github`, `anthropic`, `offline`) to force one. If the AI is briefly unavailable, chat keeps working and the summary simply does not update.
-
----
-
-**Who you speak as (automatic).** There is no role picker. In a conversation you started, you speak as the **customer**; in someone else's conversation you speak as a **consultant**; the composer says *Replying as …*. This holds for Admins and Project Admins too.
-
-**Feedback while the AI works.** After a customer message the summary panel says *Reading your message and drafting the summary…*. When the first draft lands, the chat gets a short note from *Design Max* saying so and what to do next (review, add detail, **Verify & Approve**). If the AI fails, the chat says so and your message is kept; sending another message retries. The AI never replies in the chat itself; its output is the summary panel.
-
----
+### Rules that apply to everyone
+- **Nothing is created without your explicit confirmation**, and exactly one ticket is created even if you confirm twice. After that the conversation is finished; start a new chat for something else.
+- The ticket type and its required fields come from the project's template (section 5). If something required is still missing the assistant asks for it, and **Create ticket** stays disabled.
+- Quick-reply buttons appear under the assistant's question; you can always type instead.
+- People with *view all conversations* can read other people's chats and comment, but the assistant only answers the person who opened the conversation.
+- If the assistant fails, the chat says so, your message is kept, and sending again retries.
+- Without an AI key configured, a simpler built-in assistant follows the same flow with fixed questions; it cannot answer "how do I" questions and offers to raise a request instead. With a key (`AI_PROVIDER` / its key variables), a language model follows the system prompts in `apps/api/src/chat/prompts.ts`.
 
 ## 4. Technology scoping
 
@@ -98,7 +96,7 @@ Roles belong to a **project membership**, not to the person. Someone can be a Co
 - **Super Admin:** *Platform → Technology catalog* adds or edits the technologies themselves (name, a description told to the AI, and identifying keywords). Built in: SAP, .NET, Java, Node.js.
 
 **What to expect**
-- A chat request that needs another technology (for example "build a C# web API" in an SAP project) is flagged **out of scope**: a red notice appears and **Verify & Approve is disabled**. A request that mixes technologies gets an amber "check the scope" notice.
+- A chat request that needs another technology (for example "build a C# web API" in an SAP project) is flagged **out of scope**: a red notice appears and **Create ticket is disabled**. A request that mixes technologies gets an amber "check the scope" notice.
 - Drafted specifications stay within the allowed technology; if one drifts, the ticket shows a warning banner naming the off-stack terms.
 - Search suggestions only draw on assets from the allowed technologies.
 - The server double-checks the AI with its keyword lists, so it does not rely on the AI behaving. Keywords are a safety net, not a guarantee.

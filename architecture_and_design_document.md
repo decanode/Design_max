@@ -12,7 +12,7 @@ The platform operates on an event-driven microservices architecture, utilizing a
 
 ### A. The Front Door: AI-Observed Omnichannel Intake
 *   **Customer-to-Consultant Chat:** Real-time WebSocket-based chat interface.
-*   **The AI Observer:** An LLM silently monitors the chat or uploaded call transcripts (Teams/Zoom). It performs Named Entity Recognition (extracting business objects, vendors, material types) and drafts a plain-English requirement summary.
+*   **The Chat Assistant:** A role-aware conversational agent (customer vs team persona, layered system prompts in `chat/prompts.ts`) greets the user, finds their goal, offers self-help before an incident, probes and builds a full scope with team members, and creates a ticket only after explicit confirmation. Solution-only outcomes are valid. Structured JSON turns are validated server-side (ticket type, fields, stack fit).
 *   **Verification Gate:** The customer clicks "Verify & Approve" on the AI summary to officially log the ticket.
 
 ### B. The State Machine Engine
@@ -49,7 +49,7 @@ Automated background ingestion workers populate a central Vector Database (`pgve
 
 ### G. Technology-Stack Scoping (added by approved design change)
 *   **Allowed stacks per project:** admins maintain a catalog of technology stacks (SAP, .NET, Java, Node.js built in; more can be added, each with a description told to the AI and identifying keywords) and choose which stacks each project allows. A project with no stacks is unrestricted.
-*   **The AI works only inside them:** the AI Observer and the FS/TS generators receive the project's allowed stacks as a hard constraint in their instructions. A request that needs another technology is flagged `out_of_scope` (no solution is drafted) and cannot be verified; partly-outside requests are flagged `unclear`.
+*   **The AI works only inside them:** the chat assistant and the FS/TS generators receive the project's allowed stacks as a hard constraint in their instructions. A request that needs another technology is flagged `out_of_scope` (no solution is drafted) and cannot be verified; partly-outside requests are flagged `unclear`.
 *   **Server-side backstop:** the model is not trusted alone. Keyword checks over the customer's words and over generated specs raise flags (and downgrade an `in_scope` verdict) when terms from a non-allowed stack appear; ticket pages show a warning banner for off-stack content.
 *   **Retrieval is stack-filtered:** embeddings can carry a stack tag, and Technical Spec generation only draws on generic assets and assets tagged with an allowed stack (SAP metadata is tagged `SAP`).
 *   **Project choice:** customers pick the project when starting a conversation; the conversation shows the project and its allowed stacks.

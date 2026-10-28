@@ -3,13 +3,13 @@ import cors from '@fastify/cors';
 import { z } from 'zod';
 import { pool } from './db.js';
 import { loadWorkflow, nextPhases, projectPhaseNames, typeFields, validateMetadata } from './workflow/service.js';
-import { createConversation, getConversationProject, getDraft, getMessages, canAccessConversation, listConversations } from './chat/service.js';
+import { createConversation, getConversation, getConversationProject, getDraft, getMessages, canAccessConversation, listConversations, personaOf } from './chat/service.js';
 import { registerDocRoutes, type DocDeps } from './docs/routes.js';
 import { DocError } from './docs/service.js';
 import { isDatabaseDown } from './errors.js';
 import { LlmGenerator, TemplateGenerator } from './docs/generator.js';
 import { OutboxMailer } from './docs/mailer.js';
-import { defaultLlm } from './chat/observer.js';
+import { defaultLlm } from './chat/llm.js';
 import { defaultEmbedder } from './etl/vectorize.js';
 import { createTicket, transitionTicket, TransitionError } from './tickets.js';
 import { inProject, need, needAny, registerAuth, ticketScope } from './rbac/auth.js';
@@ -153,13 +153,13 @@ export function buildApp(deps: Partial<DocDeps> & { planningAi?: PlanningAi } = 
   app.get('/api/conversations', { preHandler: needAny('chat.as_customer', 'chat.as_consultant', 'chat.view_all') }, async (req) => listConversations(req.user!));
   app.post('/api/conversations', { preHandler: needAny('chat.as_customer', 'chat.as_consultant') }, async (req, reply) => {
     const b = z.object({ title: z.string().optional() }).parse(req.body ?? {});
-    const owner = req.user!.perms.has('chat.as_customer') ? req.user!.id : null;
-    return reply.code(201).send(await createConversation(req.user!.projectId!, b.title, owner));
+    const u = req.user!;
+    return reply.code(201).send(await createConversation(u.projectId!, b.title, { id: u.id, persona: personaOf(u.perms), name: u.name }));
   });
   app.get('/api/conversations/:id', async (req, reply) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
     if (!(await canAccessConversation(req.user!, id))) return reply.code(404).send({ error: 'Conversation not found' });
-    return { messages: await getMessages(id), draft: await getDraft(id), project: await getConversationProject(id) };
+    return { messages: await getMessages(id), draft: await getDraft(id), project: await getConversationProject(id), conversation: await getConversation(id) };
   });
 
   const llm = defaultLlm();

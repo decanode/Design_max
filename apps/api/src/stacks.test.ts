@@ -4,7 +4,7 @@ import type { AddressInfo } from 'node:net';
 import { pool } from './db.js';
 import { buildApp } from './app.js';
 import { attachChat } from './chat/socket.js';
-import { LlmObserver, RuleBasedObserver } from './chat/observer.js';
+import { LlmChatAgent, ScriptedChatAgent, type ChatAgent } from './chat/agent.js';
 import { LlmGenerator, TemplateGenerator } from './docs/generator.js';
 import { HashEmbedder, similar, storeEmbeddings } from './etl/vectorize.js';
 import { assessFit, loadStackPolicy, matchKeywords, stackInstruction } from './stacks.js';
@@ -21,7 +21,7 @@ const call = async (u: typeof admin, method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 
 };
 
 beforeAll(async () => {
-  await app.ready(); attachChat(app.server, new RuleBasedObserver()); await app.listen({ port: 0 });
+  await app.ready(); attachChat(app.server, new ScriptedChatAgent()); await app.listen({ port: 0 });
   url = `http://localhost:${(app.server.address() as AddressInfo).port}`;
   sapProject = await makeProject(`SAP Rollout ${Date.now()}`);
   openProject = await makeProject(`Open ${Date.now()}`);
@@ -48,21 +48,27 @@ describe('keyword matching and fit', () => {
 });
 
 describe('the AI is confined to the project stack', () => {
-  it('observer prompt carries the restriction and the model verdict is respected', async () => {
+  it('the assistant prompt carries the restriction and the model verdict is respected', async () => {
     const policy = await loadStackPolicy(sapProject);
     let system = '';
-    const llm = { complete: async (s: string) => { system = s; return '{"title":"T","summary":"S","entities":{},"stackFit":"out_of_scope","stackNote":"Needs .NET"}'; } };
-    const d = await new LlmObserver(llm).draft([{ role: 'customer', name: 'A', body: 'build a thing' }], policy);
+    const turn = '{"reply":"That needs .NET, which this project does not use.","intent":"request","stage":"discovery","stackFit":"out_of_scope","stackNote":"Needs .NET"}';
+    const llm = { complete: async (s: string) => { system = s; return turn; } };
+    const ctx = { persona: 'customer' as const, userName: 'A', projectName: 'P', policy, ticketTypes: [], state: { stage: 'discovery' as const, intent: null } };
+    const t = await new LlmChatAgent(llm).turn([{ role: 'customer', name: 'A', body: 'build a thing' }], ctx);
     expect(system).toContain('restricted to: SAP');
     expect(system).toContain('Never recommend');
-    expect(d).toMatchObject({ stackFit: 'out_of_scope', stackNote: 'Needs .NET' });
+    expect(t).toMatchObject({ stackFit: 'out_of_scope', stackNote: 'Needs .NET' });
   });
-  it('a model that says in_scope cannot hide off-stack terms the customer actually used', async () => {
-    const policy = await loadStackPolicy(sapProject);
-    const llm = { complete: async () => '{"title":"T","summary":"S","entities":{},"stackFit":"in_scope"}' };
-    const d = await new LlmObserver(llm).draft([{ role: 'customer', name: 'A', body: 'Create a Blazor front end' }], policy);
-    expect(d?.stackFit).toBe('unclear');
-    expect(d?.stackNote).toMatch(/\.NET/);
+  it('a model that says in_scope cannot hide off-stack terms the person actually used', async () => {
+    const { runTurn, createConversation, addMessage, getDraft } = await import('./chat/service.js');
+    const c = (await createConversation(sapProject, undefined, customer.id)).id as string;
+    await addMessage(c, 'customer', 'A', 'Create a Blazor front end');
+    const agent: ChatAgent = { name: 'fake', turn: async () => ({ reply: 'Sure.', intent: 'request', stage: 'confirm', deliverable: 'ticket', quickReplies: [], scope: { title: 'Front end', markdown: '## Scope\nA front end' }, ticket: { typeKey: 'requirement', title: 'Front end', fields: {} }, ready: true, missing: [], outcome: null, stackFit: 'in_scope', stackNote: '', entities: { businessObjects: [], vendors: [], materialTypes: [] } }) };
+    const { runWithContext } = await import('./db.js');
+    await runWithContext({ projectId: sapProject }, () => runTurn(c, agent));
+    const d = await getDraft(c);
+    expect(d.stack_fit).toBe('unclear');
+    expect(d.stack_note).toMatch(/\.NET/);
   });
   it('no restriction text is added to unrestricted projects', async () => {
     expect(stackInstruction(null, 'observe')).toBe('');
@@ -97,16 +103,19 @@ describe('chat in a restricted project', () => {
     const bad = (await createConversation(sapProject, undefined, customer.id)).id as string;
     const joined = await emit(s, 'join', { conversationId: bad });
     expect(joined.project).toMatchObject({ stacks: ['SAP'] });
+    const say = async (sock: typeof s, cid: string, text: string) => { const answered = new Promise<void>((r) => sock.on('message', function f(m: any) { if (m.sender_role === 'assistant' && m.id > 0) { sock.off('message', f); r(); } })); await emit(sock, 'message', { conversationId: cid, body: text }); await answered; };
+    await say(s, bad, 'Please build a C# ASP.NET web API for vendor data');
     const flagged = new Promise<any>((r) => s.once('draft', r));
-    await emit(s, 'message', { conversationId: bad, body: 'Please build a C# ASP.NET web API for vendor data' });
+    await say(s, bad, 'It is for the finance team and it should be ready by June');
     expect((await flagged).stack_fit).toBe('out_of_scope');
     expect((await emit(s, 'verify', { conversationId: bad })).error).toMatch(/limited to SAP/);
     expect((await pool.query('SELECT count(*)::int c FROM tickets WHERE customer_id=$1 AND title ILIKE $2', [customer.id, '%C# ASP.NET%'])).rows[0].c).toBe(0);
 
     const good = (await createConversation(sapProject, undefined, customer.id)).id as string;
     await emit(s, 'join', { conversationId: good });
+    await say(s, good, 'Block vendor Acme in the purchase order BAPI');
     const ok = new Promise<any>((r) => s.once('draft', r));
-    await emit(s, 'message', { conversationId: good, body: 'Block vendor Acme in the purchase order BAPI' });
+    await say(s, good, 'The procurement team needs it before the next month end');
     expect((await ok).stack_fit).toBe('in_scope');
     expect((await emit(s, 'verify', { conversationId: good })).ok).toBe(true);
     s.close();
@@ -115,8 +124,10 @@ describe('chat in a restricted project', () => {
     const s2 = await openSock(openProject);
     const free = (await createConversation(openProject, undefined, customer.id)).id as string;
     await emit(s2, 'join', { conversationId: free });
+    const say2 = async (text: string) => { const answered = new Promise<void>((r) => s2.on('message', function f(m: any) { if (m.sender_role === 'assistant') { s2.off('message', f); r(); } })); await emit(s2, 'message', { conversationId: free, body: text }); await answered; };
+    await say2('Please build a C# ASP.NET web API');
     const d = new Promise<any>((r) => s2.once('draft', r));
-    await emit(s2, 'message', { conversationId: free, body: 'Please build a C# ASP.NET web API' });
+    await say2('Needed for the integration team next quarter');
     expect((await d).stack_fit).toBe('in_scope');
     s2.close();
   });

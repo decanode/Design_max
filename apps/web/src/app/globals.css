@@ -540,3 +540,13 @@ main:has(.settings-rail) { padding-left: calc(var(--rail-w) + 32px); }
 .field-list { display: grid; } .field-line { display: flex; gap: 16px; align-items: center; justify-content: space-between; padding: 10px 4px; border-bottom: 1px solid var(--line); } .field-line:last-child { border-bottom: 0; } .field-line select { min-width: 130px; }
 
 .drill-card .search-wrap { flex: none; max-width: none; } .nowrap, .status { white-space: nowrap; }
+
+.msg.assistant { align-self: flex-start; max-width: 88%; background: color-mix(in srgb, var(--accent) 7%, var(--bg)); }
+.msg.system { align-self: center; color: var(--muted); font-size: 13px; }
+.msg .md > :first-child { margin-top: 0; } .msg .md > :last-child { margin-bottom: 0; }
+.quick { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 16px 0; }
+.quick-reply { cursor: pointer; border: 1px solid var(--accent); background: var(--bg); color: var(--text); padding: 6px 12px; border-radius: 999px; font: inherit; }
+.quick-reply:hover, .quick-reply:focus-visible { background: color-mix(in srgb, var(--accent) 14%, var(--bg)); }
+.dots { display: inline-flex; gap: 4px; padding: 4px 0; } .dots i { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); animation: blink 1.2s infinite ease-in-out; }
+.dots i:nth-child(2) { animation-delay: .2s; } .dots i:nth-child(3) { animation-delay: .4s; }
+@keyframes blink { 0%, 80%, 100% { opacity: .25 } 40% { opacity: 1 } } @media (prefers-reduced-motion: reduce) { .dots i { animation: none; } }

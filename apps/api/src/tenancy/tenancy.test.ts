@@ -4,7 +4,7 @@ import type { AddressInfo } from 'node:net';
 import { pool } from '../db.js';
 import { buildApp } from '../app.js';
 import { attachChat } from '../chat/socket.js';
-import { RuleBasedObserver } from '../chat/observer.js';
+import { ScriptedChatAgent } from '../chat/agent.js';
 import { TemplateGenerator } from '../docs/generator.js';
 import { HashEmbedder, similar, storeEmbeddings } from '../etl/vectorize.js';
 import { createConversation } from '../chat/service.js';
@@ -28,7 +28,7 @@ const call = async (u: TestUser, method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DEL
 const roleId = async (name: string) => (await pool.query('SELECT id FROM roles WHERE name=$1', [name])).rows[0].id as number;
 
 beforeAll(async () => {
-  await app.ready(); attachChat(app.server, new RuleBasedObserver()); await app.listen({ port: 0 });
+  await app.ready(); attachChat(app.server, new ScriptedChatAgent()); await app.listen({ port: 0 });
   url = `http://localhost:${(app.server.address() as AddressInfo).port}`;
   alpha = await makeProject('Alpha'); beta = await makeProject('Beta');
   superAdmin = await makeUser('Super Admin', undefined, alpha);

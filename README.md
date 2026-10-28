@@ -1,6 +1,6 @@
 # Design Max
 
-Chat-first enterprise project lifecycle platform: intake chat with an AI observer, specifications with
+Chat-first enterprise project lifecycle platform: role-aware intake chat assistant, specifications with
 multi-level approvals, dashboards and reports, role-based access.
 
 ## Running locally

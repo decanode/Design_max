@@ -1,4 +1,4 @@
-import type { LlmClient } from '../chat/observer.js';
+import type { LlmClient } from '../chat/llm.js';
 import { stackInstruction, type StackPolicy } from '../stacks.js';
 
 import type { DocKind } from './kinds.js';

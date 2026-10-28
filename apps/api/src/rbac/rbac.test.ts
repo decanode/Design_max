@@ -4,7 +4,7 @@ import type { AddressInfo } from 'node:net';
 import { pool } from '../db.js';
 import { buildApp } from '../app.js';
 import { attachChat } from '../chat/socket.js';
-import { RuleBasedObserver } from '../chat/observer.js';
+import { ScriptedChatAgent } from '../chat/agent.js';
 import { TemplateGenerator } from '../docs/generator.js';
 import { HashEmbedder } from '../etl/vectorize.js';
 import { createConversation } from '../chat/service.js';
@@ -30,7 +30,7 @@ const ticketFor = async (o: { customer?: U; consultant?: U; title?: string } = {
 const roleId = async (name: string) => (await pool.query('SELECT id FROM roles WHERE name=$1', [name])).rows[0].id as number;
 
 beforeAll(async () => {
-  await app.ready(); attachChat(app.server, new RuleBasedObserver()); await app.listen({ port: 0 });
+  await app.ready(); attachChat(app.server, new ScriptedChatAgent()); await app.listen({ port: 0 });
   url = `http://localhost:${(app.server.address() as AddressInfo).port}`;
   projectId = await testProject();
   [admin, lead, manager, consultant, consultant2, customer, customer2] = await Promise.all(
@@ -169,7 +169,7 @@ describe('chat access', () => {
     const emit = (s: ReturnType<typeof sock>, ev: string, data: unknown) => new Promise<any>((r) => s.emit(ev, data, r));
     const open = async (u: U) => { const s = sock(u); await new Promise<void>((r) => s.once('connect', () => r())); return s; };
 
-    const mine = await open(customer), stranger = await open(customer2), staff = await open(consultant);
+    const mine = await open(customer), stranger = await open(customer2), staff = await open(consultant), boss = await open(manager);
     expect((await emit(mine, 'join', { conversationId: convo })).messages).toBeDefined();
     expect((await emit(stranger, 'join', { conversationId: convo })).error).toBeTruthy();
     expect((await emit(staff, 'join', { conversationId: convo })).messages).toBeDefined();
@@ -179,10 +179,10 @@ describe('chat access', () => {
     expect((await emit(stranger, 'message', { conversationId: convo, body: 'hi' })).error).toBeTruthy();
     expect((await emit(mine, 'message', { conversationId: convo, body: 'We need to block vendor Acme' })).ok).toBe(true);
     expect((await emit(staff, 'message', { conversationId: convo, body: 'Sure' })).ok).toBe(true);
-    expect((await emit(staff, 'verify', { conversationId: convo })).error).toMatch(/cannot verify/);
-    [mine, stranger, staff].forEach((s) => s.close());
+    expect((await emit(boss, 'verify', { conversationId: convo })).error).toMatch(/cannot confirm/);           // a Manager may read but not create tickets from a chat
+    [mine, stranger, staff, boss].forEach((s) => s.close());
 
-    const names = (await pool.query('SELECT sender_name FROM messages WHERE conversation_id=$1 ORDER BY id', [convo])).rows.map((r) => r.sender_name);
+    const names = (await pool.query('SELECT sender_name FROM messages WHERE conversation_id=$1 AND sender_role <> \'assistant\' ORDER BY id', [convo])).rows.map((r) => r.sender_name);
     expect(names[0]).toMatch(/^Customer /); expect(names[1]).toMatch(/^Consultant /);
 
     expect((await call(customer2, 'GET', `/api/conversations/${convo}`)).status).toBe(404);
