@@ -304,3 +304,10 @@ Request: chat must distinguish customers from consultants and other roles; greet
 ### Execution log — role-aware chat assistant (2026-10-28)
 - Done: migration 025; `chat/prompts.ts` (layered prompts + greetings), `chat/agent.ts` (LlmChatAgent + ScriptedChatAgent), `chat/llm.ts` (replaces observer.ts), service/socket rewritten (runTurn validation, verifyDraft exactly-once, typed "yes" confirmation, assistant only answers the opener). Frontend chat page: Markdown bubbles, quick replies, typing dots, Scope panel. Tests: API 255 passing; Playwright chat/stacks specs rewritten (customer, team, self-help).
 - Notes: e2e default user is an Admin (team persona), so customer specs use `.auth/Customer.json`. Not done: dedicated "Turn this into a ticket" button for solution-only chats (the assistant offers it via the "Create a ticket" quick reply); Platform → Users rebuild; dev DB debris cleanup awaiting user's yes.
+
+
+### Project-owned lifecycles (2026-10-29)
+- Request: let Super Admin and Project Admin change a project's flow/statuses per ticket type (e.g. ITIL Incident: New, Triage, In Progress, Pending…). Existing template builder only toggled phases of the shared methodology.
+- Built: migration 026 (project_flows/_phases/_edges with RLS; `phases.project_id` for project-owned statuses; `next_phases()` prefers a project flow), `workflow/flowRoutes.ts` (effective lifecycle, validated save: start, reachability, no dead ends, a Done status, stranded tickets, gated doc steps preserved; restore; create/delete own statuses), `boardPhases` for board columns, methodology change blocked while customised, Project settings → Lifecycles UI (`LifecycleAdmin.tsx`). Super Admin uses the same screen inside a project.
+- Tests: `workflow/lifecycle.test.ts` (12), `tests/e2e/lifecycles.spec.ts`. Not done: renaming a status; changing the platform-wide standard flow already exists under Platform → methodologies.
+- Note: `feature_process_guide.md` is now `FEATURE_PROCESS_GUIDE.md` in the working tree (renamed outside this session); docs edited there.

@@ -69,7 +69,7 @@ export function registerWorkflowAdminRoutes(app: FastifyInstance) {
   });
 
   // ------------------------------------------------------------ phases
-  app.get('/api/platform/workflow/phases', { preHandler: sup }, async () => (await pool.query('SELECT id, name, tone FROM phases ORDER BY id')).rows);
+  app.get('/api/platform/workflow/phases', { preHandler: sup }, async () => (await pool.query('SELECT id, name, tone FROM phases WHERE project_id IS NULL ORDER BY id')).rows);
   app.post('/api/platform/workflow/phases', { preHandler: sup }, async (req, reply) => {
     const b = z.object({ name: PhaseName, tone: Tone }).parse(req.body);
     if ((await pool.query('SELECT 1 FROM phases WHERE lower(name)=lower($1)', [b.name])).rowCount) throw new DocError('A phase with that name already exists', 409);

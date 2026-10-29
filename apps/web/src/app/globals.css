@@ -550,3 +550,9 @@ main:has(.settings-rail) { padding-left: calc(var(--rail-w) + 32px); }
 .dots { display: inline-flex; gap: 4px; padding: 4px 0; } .dots i { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); animation: blink 1.2s infinite ease-in-out; }
 .dots i:nth-child(2) { animation-delay: .2s; } .dots i:nth-child(3) { animation-delay: .4s; }
 @keyframes blink { 0%, 80%, 100% { opacity: .25 } 40% { opacity: 1 } } @media (prefers-reduced-motion: reduce) { .dots i { animation: none; } }
+
+.lc-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; } .lc-card { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; background: var(--panel-2); }
+.lc-statuses { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 8px; } .lc-actions { margin-left: auto; display: inline-flex; gap: 6px; }
+.lc-add { display: grid; gap: 10px; } .lc-add .row { gap: 8px; flex-wrap: wrap; } .lc-add input { flex: 1; min-width: 200px; }
+.lc-moves { border: 1px solid var(--line); border-radius: 12px; margin: 0 0 10px; padding: 8px 12px 10px; display: flex; flex-wrap: wrap; gap: 6px 14px; } .lc-moves legend { font-weight: 600; padding: 0 6px; }
+.lc-opt { display: inline-flex; align-items: center; gap: 6px; } .lc-opt.on { font-weight: 600; }

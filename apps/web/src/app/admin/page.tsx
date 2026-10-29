@@ -6,6 +6,7 @@ import { FieldAdmin } from '../../components/FieldAdmin';
 import { ModulesAdmin } from '../../components/ModulesAdmin';
 import { TemplateBuilder } from '../../components/TemplateBuilder';
 import { DocSettingsAdmin } from '../../components/DocSettingsAdmin';
+import { LifecycleAdmin } from '../../components/LifecycleAdmin';
 import { WorkflowAdmin } from '../../components/WorkflowAdmin';
 import { ActivityList, ProjectTech } from '../../components/consoleBits';
 import { RolesAdmin } from '../../components/people/RolesAdmin';
@@ -13,7 +14,7 @@ import { MembersAdmin } from '../../components/people/MembersAdmin';
 import { TeamsAdmin } from '../../components/people/TeamsAdmin';
 import { NoAccess, NoProject, useAuth } from '../../lib/auth';
 
-type Tab = 'members' | 'teams' | 'roles' | 'fields' | 'tech' | 'workflows' | 'template' | 'modules' | 'documents' | 'activity';
+type Tab = 'members' | 'teams' | 'roles' | 'fields' | 'tech' | 'lifecycles' | 'workflows' | 'template' | 'modules' | 'documents' | 'activity';
 
 /** Project settings: what a Project Admin (or anyone they delegate to) controls, for the project they are working in. */
 export default function ProjectSettings() {
@@ -29,6 +30,7 @@ export default function ProjectSettings() {
       { key: 'fields', label: 'Ticket fields', hint: 'Which ticket fields each role can see or edit.', show: can('admin.roles') }] },
     { label: 'How work flows', items: [
       { key: 'template', label: 'Template builder', hint: 'The project type, methodology, phases and the kinds of items people can create.', show: can('admin.projects') },
+      { key: 'lifecycles', label: 'Lifecycles', hint: 'The statuses each kind of item moves through, and which moves are allowed.', show: can('admin.projects') },
       { key: 'workflows', label: 'Approval workflows', hint: 'Who approves documents, and in what order.', show: can('admin.workflows') },
       { key: 'tech', label: 'Technology', hint: 'The technologies this project works in; the AI stays within them.', show: can('admin.projects') }] },
     { label: 'Features & content', items: [
@@ -55,6 +57,7 @@ export default function ProjectSettings() {
         {t === 'roles' && can('admin.roles') && <RolesAdmin mode="project" flash={flash} sub={sub} onSub={setSub} />}
         {t === 'fields' && can('admin.roles') && <FieldAdmin mode="project" flash={flash} />}
         {t === 'template' && can('admin.projects') && <TemplateBuilder flash={flash} />}
+        {t === 'lifecycles' && can('admin.projects') && <LifecycleAdmin flash={flash} sub={sub} onSub={setSub} />}
         {t === 'tech' && can('admin.projects') && <ProjectTech flash={flash} />}
         {t === 'workflows' && can('admin.workflows') && <WorkflowAdmin flash={flash} />}
         {t === 'modules' && can('admin.projects') && <ModulesAdmin flash={flash} />}

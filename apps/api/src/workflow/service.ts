@@ -22,14 +22,32 @@ export async function typeFields(db: Db = pool): Promise<Map<number, TypeField[]
   return m;
 }
 
+const TONE_RANK: Record<string, number> = { intake: 0, spec: 1, build: 2, review: 3, done: 4 };
+/**
+ * Every status the project's board can show, in order: the methodology's phases, plus any status that only a customised lifecycle uses
+ * (placed after the last phase of the same or an earlier kind, so the board still reads from intake to done).
+ */
+export async function boardPhases(projectId: string, db: Db = pool): Promise<PhaseInfo[]> {
+  const base: PhaseInfo[] = (await db.query(
+    `SELECT ph.id, ph.name, ph.tone, pp.position, pp.enabled FROM project_phases pp JOIN phases ph ON ph.id = pp.phase_id WHERE pp.project_id = $1 ORDER BY pp.position`, [projectId])).rows;
+  const have = new Set(base.map((p) => p.id));
+  const extra = (await db.query(
+    `SELECT ph.id, ph.name, ph.tone, min(fp.position)::int AS position FROM project_flow_phases fp JOIN phases ph ON ph.id = fp.phase_id WHERE fp.project_id = $1 GROUP BY ph.id ORDER BY min(fp.position), ph.id`, [projectId])).rows
+    .filter((r) => !have.has(r.id));
+  for (const r of extra) {
+    let at = -1; base.forEach((p, i) => { if ((TONE_RANK[p.tone] ?? 0) <= (TONE_RANK[r.tone] ?? 0)) at = i; });
+    base.splice(at + 1, 0, { id: r.id, name: r.name, tone: r.tone, position: 0, enabled: true });
+  }
+  return base.map((p, i) => ({ ...p, position: i + 1 }));
+}
+
 /** Everything that defines how a project behaves: its methodology, phases and ticket types (with their form fields). */
 export async function loadWorkflow(projectId: string, db: Db = pool): Promise<Workflow> {
   const p = (await db.query(
     `SELECT pt.id AS pt_id, pt.key AS pt_key, pt.name AS pt_name, tt.id AS tt_id, tt.key AS tt_key, tt.name AS tt_name
      FROM projects p LEFT JOIN project_types pt ON pt.id = p.project_type_id LEFT JOIN template_types tt ON tt.id = p.template_type_id WHERE p.id = $1`, [projectId])).rows[0];
   if (!p) throw new DocError('Project not found', 404);
-  const phases = (await db.query(
-    `SELECT ph.id, ph.name, ph.tone, pp.position, pp.enabled FROM project_phases pp JOIN phases ph ON ph.id = pp.phase_id WHERE pp.project_id = $1 ORDER BY pp.position`, [projectId])).rows;
+  const phases = await boardPhases(projectId, db);
   const fields = await typeFields(db);
   const types = (await db.query(
     `SELECT t.id, t.key, t.name, t.short, t.description, pt.enabled, pt.is_default FROM project_ticket_types pt JOIN ticket_types t ON t.id = pt.ticket_type_id WHERE pt.project_id = $1 ORDER BY t.sort`, [projectId])).rows;
@@ -95,7 +113,7 @@ export async function resolveTicketType(projectId: string, requested: number | u
 
 /** Names of every phase the project's tickets can be in, in board order (used by dashboards and reports). */
 export async function projectPhaseNames(projectId: string, db: Db = pool): Promise<string[]> {
-  return (await db.query(`SELECT ph.name FROM project_phases pp JOIN phases ph ON ph.id = pp.phase_id WHERE pp.project_id = $1 AND pp.enabled ORDER BY pp.position`, [projectId])).rows.map((r) => r.name as string);
+  return (await boardPhases(projectId, db)).filter((p) => p.enabled).map((p) => p.name);
 }
 
 /** SQL predicate for "this ticket is still open": it is not in a finishing phase. */

@@ -20,6 +20,7 @@ import { registerPlatformRoutes } from './platform/routes.js';
 import { registerPlanningRoutes } from './planning/routes.js';
 import { defaultPlanningAi, type PlanningAi } from './planning/ai.js';
 import { registerPeopleRoutes } from './project/peopleRoutes.js';
+import { registerFlowRoutes } from './workflow/flowRoutes.js';
 import { registerBuilderRoutes } from './workflow/builderRoutes.js';
 import { registerWorkflowAdminRoutes } from './workflow/platformRoutes.js';
 import { registerProjectRoutes } from './project/routes.js';
@@ -52,7 +53,9 @@ export function buildApp(deps: Partial<DocDeps> & { planningAi?: PlanningAi } = 
     const pid = req.user!.projectId!;
     const rows = (await pool.query(
       `SELECT ty.ticket_type_id AS ty, ph.name AS "from", n.to_phase AS "to", n.gated_reason AS gated
-       FROM project_ticket_types ty JOIN project_phases pp ON pp.project_id = ty.project_id JOIN phases ph ON ph.id = pp.phase_id CROSS JOIN LATERAL next_phases(ty.project_id, ty.ticket_type_id, ph.name) n WHERE ty.project_id = $1`, [pid])).rows;
+       FROM project_ticket_types ty
+       JOIN (SELECT project_id, phase_id FROM project_phases UNION SELECT project_id, phase_id FROM project_flow_phases) pp ON pp.project_id = ty.project_id
+       JOIN phases ph ON ph.id = pp.phase_id CROSS JOIN LATERAL next_phases(ty.project_id, ty.ticket_type_id, ph.name) n WHERE ty.project_id = $1`, [pid])).rows;
     const moves: Record<number, Record<string, { to: string; gated: string | null }[]>> = {};
     for (const r of rows) ((moves[r.ty] ??= {})[r.from] ??= []).push({ to: r.to, gated: r.gated });
     return { ...(await loadWorkflow(pid)), moves };       // moves: for each ticket type, where a ticket can go from each phase
@@ -172,6 +175,7 @@ export function buildApp(deps: Partial<DocDeps> & { planningAi?: PlanningAi } = 
   registerPlatformRoutes(app);
   registerProjectRoutes(app);
   registerBuilderRoutes(app);
+  registerFlowRoutes(app);
   registerPeopleRoutes(app);
   registerPlanningRoutes(app, { ai: deps.planningAi ?? defaultPlanningAi() });
   registerWorkflowAdminRoutes(app);

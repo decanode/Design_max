@@ -148,6 +148,17 @@ Open **Chat** and press **Start a conversation**. Design Max greets you by name 
 
 ---
 
+### Customising a lifecycle (Project Admin, or a Super Admin working in the project)
+The template gives every kind of item a standard lifecycle (for an ITIL Incident: New → Triage → In Progress ⇄ Pending → Resolved → Closed). A project that works differently can change it for one kind of item at a time: **Project settings → Lifecycles**.
+
+1. The list shows each item type with its current flow and whether it is *Standard* or *Customised*. Press **Edit lifecycle**.
+2. **Statuses:** reorder them (the order is the board order), remove ones you do not use, add a standard status from the list, or **create your own** (for example *Awaiting vendor*) and choose its **category** (Intake, Specification, Delivery, Review or Done). Only *Done* statuses finish a ticket.
+3. **Allowed moves:** for each status, tick where a ticket may go next, and where a new ticket starts.
+4. **Save lifecycle.** New and existing tickets of that type now follow it; the board gets a column for any new status. Other item types are not affected.
+5. **Restore standard** goes back to the methodology's flow for that type.
+
+Rules the system enforces and explains in plain words: a new ticket must have a starting status; every status must be reachable; a status that is not a *Done* status must lead somewhere (no dead ends); there must be at least one finishing status; a status that holds tickets cannot be removed; steps that need a document or an approval (for example FS → FS Approved) stay fixed and cannot be removed. You cannot change the project's methodology while a customised lifecycle exists; restore it first. Your own statuses belong to your project and are invisible to others; a status that tickets have passed through cannot be deleted, so history stays readable. (Renaming a status is not offered yet.)
+
 ## 6. Documents: Functional Spec, Technical Spec, Unit Test and Code Review
 
 **What it is.** Four documents per ticket, each drafted by the system, edited online by the team (several people at once), reviewed with comments, approved through the L1…Ln workflow, and downloaded as Word:

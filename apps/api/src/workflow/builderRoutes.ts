@@ -12,7 +12,7 @@ export async function builderCatalog() {
     pool.query('SELECT id, key, name, description FROM project_types ORDER BY sort'),
     pool.query('SELECT id, key, name, description FROM template_types ORDER BY sort'),
     pool.query('SELECT id, key, name, short, description FROM ticket_types ORDER BY sort'),
-    pool.query('SELECT id, name, tone FROM phases'),
+    pool.query('SELECT id, name, tone FROM phases WHERE project_id IS NULL'),
     pool.query('SELECT template_type_id, phase_id, position, default_on FROM template_phases ORDER BY position'),
     pool.query('SELECT template_type_id, ticket_type_id FROM template_ticket_types'),
     pool.query('SELECT project_type_id, ticket_type_id, default_on, is_default FROM project_type_ticket_defaults'),
@@ -91,6 +91,8 @@ export function registerBuilderRoutes(app: FastifyInstance) {
       // Existing tickets must still make sense under the new methodology.
       const cur = (await c.query('SELECT template_type_id FROM projects WHERE id=$1', [pid])).rows[0];
       if (cur.template_type_id !== b.templateTypeId) {
+        const custom = (await c.query('SELECT t.name FROM project_flows f JOIN ticket_types t ON t.id=f.ticket_type_id WHERE f.project_id=$1', [pid])).rows.map((r) => r.name as string);
+        if (custom.length) throw new DocError(`${custom.join(', ')} ${custom.length > 1 ? 'have' : 'has'} a customised lifecycle. Restore ${custom.length > 1 ? 'them' : 'it'} to the standard one under Lifecycles before changing the methodology.`, 409);
         const names = new Set(tplPhases.map((t) => t.name as string));
         const stranded = (await c.query('SELECT DISTINCT current_state FROM tickets WHERE project_id=$1', [pid])).rows.map((r) => r.current_state as string).filter((s) => !names.has(s));
         if (stranded.length) throw new DocError(`Tickets are currently in ${stranded.join(', ')}, which the new methodology does not have. Move them on or close them first.`, 409, { stranded });
