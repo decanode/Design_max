@@ -2,7 +2,7 @@ import type { Server as HttpServer } from 'node:http';
 import { Server } from 'socket.io';
 import { z } from 'zod';
 import type { ChatAgent } from './agent.js';
-import { addMessage, canAccessConversation, getConversation, getConversationProject, getDraft, getMessages, isConfirmation, runTurn, verifyDraft, VerifyError } from './service.js';
+import { addMessage, canAccessConversation, ensureGreeting, getConversation, getConversationProject, getDraft, getMessages, isConfirmation, runTurn, verifyDraft, VerifyError } from './service.js';
 import { userFromCookie, type SessionUser } from '../rbac/auth.js';
 import { runWithContext } from '../db.js';
 import type { Embedder } from '../etl/vectorize.js';
@@ -57,6 +57,7 @@ export function attachChat(http: HttpServer, agent: ChatAgent, embedder?: Embedd
       const p = Join.safeParse(raw);
       if (!p.success) return ack?.({ error: 'Invalid request' });
       if (!(await canAccessConversation(u, p.data.conversationId))) return ack?.({ error: 'Conversation not found' });
+      await ensureGreeting(p.data.conversationId, u.id, u.name);
       await socket.join(p.data.conversationId);
       ack?.({ messages: await getMessages(p.data.conversationId), draft: await getDraft(p.data.conversationId), project: await getConversationProject(p.data.conversationId), sendAs: await sendAs(u, p.data.conversationId), conversation: await getConversation(p.data.conversationId) });
     });

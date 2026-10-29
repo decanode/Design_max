@@ -31,6 +31,17 @@ export async function createConversation(projectId: string, title?: string, owne
   return (await getConversation(conv.id))!;
 }
 
+/** Chats opened before the assistant existed (or whose greeting failed) are empty: greet the person who opened them, once. */
+export async function ensureGreeting(conversationId: string, userId: string, name: string) {
+  const c = await getConversation(conversationId);
+  if (!c || c.opened_by !== userId || c.stage === 'done') return;
+  const has = (await pool.query('SELECT 1 FROM messages WHERE conversation_id=$1 LIMIT 1', [conversationId])).rowCount;
+  if (has) return;
+  const g = greeting(c.persona, name.split(' ')[0] ?? '');
+  await addMessage(conversationId, 'assistant', 'Design Max', g.text);
+  await pool.query(`UPDATE conversations SET suggestions=$2, stage='greeting' WHERE id=$1`, [conversationId, JSON.stringify(g.quickReplies)]);
+}
+
 export async function getConversation(id: string) {
   return (await pool.query('SELECT id, project_id, customer_id, opened_by, persona, intent, stage, outcome, suggestions, created_at FROM conversations WHERE id=$1', [id])).rows[0] ?? null;
 }
