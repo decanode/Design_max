@@ -9,54 +9,11 @@ import { ActivityList, api } from '../../components/consoleBits';
 import { RolesAdmin } from '../../components/people/RolesAdmin';
 import { ProjectsAdmin } from '../../components/platform/ProjectsAdmin';
 import { UsersAdmin } from '../../components/platform/UsersAdmin';
+import { TechCatalogAdmin } from '../../components/platform/TechCatalogAdmin';
 import { NoAccess, useAuth, j } from '../../lib/auth';
 
 type Tab = 'projects' | 'users' | 'roles' | 'fields' | 'stacks' | 'workflows' | 'documents' | 'activity';
 type Flash = (kind: 'ok' | 'err', text: string) => void;
-type Stack = { id: number; name: string; description: string; keywords: string[]; projects: number };
-
-function StackRow({ s, onSave, onDelete }: { s: Stack; onSave: (s: Stack, d: string, k: string) => void; onDelete: (s: Stack) => void }) {
-  const [d, setD] = useState(s.description);
-  const [k, setK] = useState(s.keywords.join(', '));
-  const dirty = d !== s.description || k !== s.keywords.join(', ');
-  const box = { width: '100%', padding: 6, borderRadius: 8, border: '1px solid var(--line)', background: 'var(--panel)', color: 'var(--text)' } as const;
-  return (
-    <tr>
-      <td><b>{s.name}</b></td>
-      <td><input aria-label={`${s.name} description`} value={d} onChange={(e) => setD(e.target.value)} style={box} /></td>
-      <td><input aria-label={`${s.name} keywords`} value={k} onChange={(e) => setK(e.target.value)} style={box} /></td>
-      <td>{s.projects}</td>
-      <td style={{ whiteSpace: 'nowrap' }}><button className="btn sm" disabled={!dirty} onClick={() => onSave(s, d, k)}>Save</button>{' '}<button className="link-btn" onClick={() => onDelete(s)} aria-label={`Delete stack ${s.name}`}>Delete</button></td>
-    </tr>
-  );
-}
-
-function Stacks({ flash }: { flash: Flash }) {
-  const [stacks, setStacks] = useState<Stack[]>([]);
-  const [form, setForm] = useState({ name: '', description: '', keywords: '' });
-  const load = useCallback(async () => setStacks(await api('/api/platform/stacks')), []);
-  useEffect(() => { load().catch((e) => flash('err', e.message)); }, [load, flash]);
-  const kw = (t: string) => t.split(',').map((x) => x.trim()).filter(Boolean);
-  async function create(e: React.FormEvent) { e.preventDefault(); try { await api('/api/platform/stacks', j({ name: form.name, description: form.description, keywords: kw(form.keywords) })); flash('ok', `Added the ${form.name} stack.`); setForm({ name: '', description: '', keywords: '' }); load(); } catch (er) { flash('err', (er as Error).message); } }
-  async function save(s: Stack, description: string, keywords: string) { try { await api(`/api/platform/stacks/${s.id}`, j({ description, keywords: kw(keywords) }, 'PATCH')); flash('ok', `Saved ${s.name}.`); load(); } catch (e) { flash('err', (e as Error).message); } }
-  async function del(s: Stack) { if (!confirm(`Delete the ${s.name} stack?`)) return; try { await api(`/api/platform/stacks/${s.id}`, { method: 'DELETE' }); flash('ok', `Deleted ${s.name}.`); load(); } catch (e) { flash('err', (e as Error).message); } }
-  return (
-    <>
-      <form className="pane build" onSubmit={create} aria-label="Add a technology stack">
-        <div className="row">
-          <label className="sr" htmlFor="sn">Stack name</label><input id="sn" placeholder="Stack name (e.g. Salesforce)" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
-          <label className="sr" htmlFor="sd">What it covers</label><input id="sd" placeholder="What it covers (told to the AI)" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} style={{ minWidth: 280 }} />
-          <label className="sr" htmlFor="sk">Keywords</label><input id="sk" placeholder="Keywords, comma separated" value={form.keywords} onChange={(e) => setForm({ ...form, keywords: e.target.value })} style={{ minWidth: 240 }} />
-          <button className="btn" type="submit" disabled={!form.name.trim()}>Add stack</button>
-        </div>
-      </form>
-      <div className="matrix-wrap"><table className="grid users">
-        <thead><tr><th scope="col">Stack</th><th scope="col">What it covers</th><th scope="col">Keywords that identify it</th><th scope="col">Projects</th><th /></tr></thead>
-        <tbody>{stacks.map((s) => <StackRow key={s.id} s={s} onSave={save} onDelete={del} />)}</tbody>
-      </table></div>
-    </>
-  );
-}
 
 export default function Platform() {
   const { me, isSuper, loading } = useAuth();
@@ -82,7 +39,7 @@ export default function Platform() {
         {tab === 'users' && <UsersAdmin flash={flash} sub={sub} onSub={setSub} />}
         {tab === 'roles' && <RolesAdmin mode="platform" flash={flash} sub={sub} onSub={setSub} />}
         {tab === 'fields' && <FieldAdmin mode="platform" flash={flash} />}
-        {tab === 'stacks' && <Stacks flash={flash} />}
+        {tab === 'stacks' && <TechCatalogAdmin flash={flash} sub={sub} onSub={setSub} />}
         {tab === 'workflows' && <WorkflowMasters flash={flash} />}
         {tab === 'documents' && <TemplateAdmin flash={flash} />}
         {tab === 'activity' && <ActivityList path="/api/platform/audit" flash={flash} showProject />}
