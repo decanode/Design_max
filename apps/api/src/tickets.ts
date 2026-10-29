@@ -65,6 +65,10 @@ export async function closingProblem(db: Pick<pg.Pool, 'query'>, ticketId: strin
     `SELECT d.kind FROM ticket_type_documents d WHERE d.ticket_type_id = $1 AND d.mode = 'required'
        AND NOT EXISTS (SELECT 1 FROM approval_requests r WHERE r.ticket_id = $2 AND r.kind = d.kind AND r.status = 'approved') ORDER BY d.kind`, [t.ticket_type_id, ticketId])).rows.map((r) => DOC_NAME[r.kind as string]);
   if (need.length) return `This ticket cannot be closed yet: ${need.join(', ')} must be approved first.`;
+  if (caps.work_gate) {
+    const open = (await db.query(`SELECT count(*)::int n FROM work_items WHERE ticket_id=$1 AND state <> 'done'`, [ticketId])).rows[0].n as number;
+    if (open) return `This ticket cannot be closed yet: ${open} work item${open === 1 ? ' is' : 's are'} not done.`;
+  }
   if (caps.customer_signoff && t.customer_id && !t.legacy_id) {
     const s = (await db.query('SELECT status FROM ticket_signoffs WHERE ticket_id=$1 ORDER BY requested_at DESC LIMIT 1', [ticketId])).rows[0]?.status;
     if (s !== 'approved') return s === 'pending' ? 'This ticket cannot be closed yet: the customer has been asked to confirm it and has not answered.'

@@ -11,6 +11,7 @@ import { TypeDetails } from '../../../components/TypeDetails';
 import { useWorkflow, type TypeField } from '../../../lib/workflow';
 import { TicketDetails, type DetailTicket } from '../../../components/TicketDetails';
 import Link from 'next/link';
+import { WorkItems } from '../../../components/ticket/WorkItems';
 import { SourceCard } from '../../../components/ticket/SourceCard';
 import { ActivityFeed } from '../../../components/ticket/ActivityFeed';
 import { ClosurePanel, type Signoff } from '../../../components/ticket/ClosurePanel';
@@ -151,6 +152,7 @@ export default function TicketPage() {
         <SourceCard t={o.ticket as never} />
         <TicketApproval o={o} meId={me.user.id} canResubmit={can('admin.workflows') || can('approval.request') || o.ticket.consultant_id === me.user.id || (o.ticket as { customer_id?: string }).customer_id === me.user.id} busy={busy} run={run} decision={decision} setDecision={setDecision} />
         {o.signoff && o.docRules && <ClosurePanel ticketId={id} docRules={o.docRules} approvedKinds={o.approvedKinds ?? []} signoff={o.signoff} canAsk={can('ticket.advance')} busy={busy} run={run} openDoc={(k) => { pick(k); document.getElementById('tk-docs')?.scrollIntoView({ behavior: 'smooth' }); }} />}
+        {(can('ticket.view_all') || can('ticket.advance') || can('ticket.claim')) && <WorkItems ticketId={id} people={people} canEdit={can('ticket.advance') || can('ticket.claim') || can('ticket.assign')} gate={!!me.project?.caps?.work_gate} onChanged={() => setActivityTick((n) => n + 1)} />}
         <TicketDetails ticket={o.ticket} fields={o.fields} onSaved={() => load()} />
         {o.ticketType && <TypeDetails ticketId={id} typeName={o.ticketType.name} fields={o.ticketType.fields} values={o.ticket.dynamic_metadata} access={o.fields.details} onSaved={() => load()} />}
 

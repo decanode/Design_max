@@ -8,7 +8,7 @@ import { makeUser } from '../testAuth.js';
 describe('the capability matrix', () => {
   it('Full is everything Design Max has always done', () => {
     const c = capabilitiesOf('full');
-    expect(Object.entries(c).filter(([, v]) => !v).map(([k]) => k)).toEqual(['writeback']);
+    expect(Object.entries(c).filter(([, v]) => !v).map(([k]) => k).sort()).toEqual(['work_gate', 'writeback']);
     expect(removedPermissions(c).size).toBe(0);
   });
   it('Connected pulls tickets in, cannot create its own, and may write back', () => {

@@ -203,7 +203,7 @@ function ModeSection({ p, flash, reload }: { p: Project; flash: Flash; reload: (
   const [busy, setBusy] = useState(false);
   useEffect(() => { setPick(p.operatingMode); }, [p.operatingMode]);
   const cur = MODE_LIST.find((m) => m.key === p.operatingMode)!, next = MODE_LIST.find((m) => m.key === pick)!;
-  const caps = { closing_gates: pick !== 'mirror', customer_signoff: pick !== 'mirror', planning_convert: pick === 'full', ...p.modeOverrides };
+  const caps = { closing_gates: pick !== 'mirror', customer_signoff: pick !== 'mirror', planning_convert: pick === 'full', work_gate: false, ...p.modeOverrides };
 
   async function apply() {
     const lines = [`Change ${p.name} from ${cur.name} to ${next.name}?`, '', 'Nothing is deleted.', ...(next.limits.length ? ['', 'From now on:', ...next.limits.map((l) => `• ${l}`)] : [])];

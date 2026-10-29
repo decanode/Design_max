@@ -23,6 +23,7 @@ export const CAPABILITIES = [
   'closing_gates',             // documents required to close a ticket
   'customer_signoff',          // the raising customer confirms before close
   'planning_convert',          // turn work packages into tickets
+  'work_gate',                 // all work items must be done before a ticket can close
   'connector',                 // a source system connection (pull sync)
   'writeback',                 // send outcomes back to the source system
 ] as const;
@@ -30,13 +31,13 @@ export type Capability = (typeof CAPABILITIES)[number];
 export type Caps = Record<Capability, boolean>;
 
 const DEFAULTS: Record<Mode, Caps> = {
-  full:      { native_ticket_create: true,  customer_intake: true,  ticket_creation_approval: true,  closing_gates: true,  customer_signoff: true,  planning_convert: true,  connector: true,  writeback: false },
-  connected: { native_ticket_create: false, customer_intake: false, ticket_creation_approval: false, closing_gates: true,  customer_signoff: true,  planning_convert: false, connector: true,  writeback: true },
-  mirror:    { native_ticket_create: false, customer_intake: false, ticket_creation_approval: false, closing_gates: false, customer_signoff: false, planning_convert: false, connector: true,  writeback: false },
+  full:      { native_ticket_create: true,  customer_intake: true,  ticket_creation_approval: true,  closing_gates: true,  customer_signoff: true,  planning_convert: true,  work_gate: false, connector: true,  writeback: false },
+  connected: { native_ticket_create: false, customer_intake: false, ticket_creation_approval: false, closing_gates: true,  customer_signoff: true,  planning_convert: false, work_gate: false, connector: true,  writeback: true },
+  mirror:    { native_ticket_create: false, customer_intake: false, ticket_creation_approval: false, closing_gates: false, customer_signoff: false, planning_convert: false, work_gate: false, connector: true,  writeback: false },
 };
 
 /** What a Super Admin may change for one project. Everything else is fixed by the mode: it would break what the mode means. */
-export const OVERRIDABLE: Capability[] = ['closing_gates', 'customer_signoff', 'planning_convert'];
+export const OVERRIDABLE: Capability[] = ['closing_gates', 'customer_signoff', 'planning_convert', 'work_gate'];
 
 export type Overrides = Partial<Record<Capability, boolean>>;
 
@@ -87,6 +88,7 @@ const MESSAGES: Record<Capability, (mode: string) => string> = {
   closing_gates: (m) => `Closing gates are off in ${m} mode.`,
   customer_signoff: (m) => `Customer sign-off is off in ${m} mode.`,
   planning_convert: (m) => `Turning work packages into tickets is not available in ${m} mode.`,
+  work_gate: (m) => `Requiring all work items to be done is off in ${m} mode.`,
   connector: (m) => `A source connection is not available in ${m} mode.`,
   writeback: (m) => `Sending changes back to the source system is not available in ${m} mode.`,
 };

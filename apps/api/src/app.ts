@@ -20,6 +20,7 @@ import { registerPlatformRoutes } from './platform/routes.js';
 import { registerPlanningRoutes } from './planning/routes.js';
 import { defaultPlanningAi, type PlanningAi } from './planning/ai.js';
 import { registerPeopleRoutes } from './project/peopleRoutes.js';
+import { registerWorkItemRoutes } from './tickets/workItemRoutes.js';
 import { registerIntegrationRoutes } from './integrations/routes.js';
 import { registerTicketWorkRoutes } from './tickets/workRoutes.js';
 import { registerFlowRoutes } from './workflow/flowRoutes.js';
@@ -32,7 +33,7 @@ import { registerWorkflowRoutes } from './approvals/adminRoutes.js';
 import { canWrite, sanitizeTicket } from './tickets/fields.js';
 import { ticketVisible } from './rbac/auth.js';
 
-export function buildApp(deps: Partial<DocDeps> & { planningAi?: PlanningAi; sourceFetch?: typeof fetch } = {}) {
+export function buildApp(deps: Partial<DocDeps> & { planningAi?: PlanningAi; sourceFetch?: typeof fetch; workLlm?: import('./chat/llm.js').LlmClient | null } = {}) {
   const app = Fastify();
   app.register(cors, { origin: true, credentials: true });
   registerAuth(app);
@@ -71,7 +72,7 @@ export function buildApp(deps: Partial<DocDeps> & { planningAi?: PlanningAi; sou
   app.get('/api/tickets', { preHandler: need('board.view') }, async (req) => {
     const s = ticketScope(req.user!, 1);
     const rows = (await pool.query(
-      `SELECT t.id, t.title, t.current_state, t.ai_summary, t.ticket_type_id, tt.name AS type_name, tt.short AS type_short, tt.key AS type_key, (ph.tone = 'done') AS is_done, t.approval_status, t.priority, t.due_date, t.seq, tt.short || '-' || t.seq AS key, t.customer_id, cu.display_name AS customer_name, (SELECT s.status FROM ticket_signoffs s WHERE s.ticket_id = t.id ORDER BY s.requested_at DESC LIMIT 1) AS signoff_status, t.team_id, tm.name AS team_name, t.dynamic_metadata, t.legacy_id, t.legacy_source, t.created_at, t.updated_at, t.consultant_id,
+      `SELECT t.id, t.title, t.current_state, t.ai_summary, t.ticket_type_id, tt.name AS type_name, tt.short AS type_short, tt.key AS type_key, (ph.tone = 'done') AS is_done, t.approval_status, t.priority, t.due_date, t.seq, tt.short || '-' || t.seq AS key, t.customer_id, cu.display_name AS customer_name, (SELECT s.status FROM ticket_signoffs s WHERE s.ticket_id = t.id ORDER BY s.requested_at DESC LIMIT 1) AS signoff_status, (SELECT count(*)::int FROM work_items w WHERE w.ticket_id = t.id) AS work_total, (SELECT count(*)::int FROM work_items w WHERE w.ticket_id = t.id AND w.state = 'done') AS work_done, t.connection_id, t.source_status, t.out_of_sync, t.team_id, tm.name AS team_name, t.dynamic_metadata, t.legacy_id, t.legacy_source, t.created_at, t.updated_at, t.consultant_id,
               c.display_name AS consultant, (t.consultant_id IS NOT NULL) AS is_assigned,
               EXISTS (SELECT 1 FROM approvals a WHERE a.ticket_id = t.id AND a.status = 'pending') AS awaiting_approval
        FROM tickets t LEFT JOIN users c ON c.id = t.consultant_id LEFT JOIN users cu ON cu.id = t.customer_id LEFT JOIN ticket_types tt ON tt.id = t.ticket_type_id LEFT JOIN phases ph ON ph.name = t.current_state LEFT JOIN teams tm ON tm.id = t.team_id
@@ -182,6 +183,7 @@ export function buildApp(deps: Partial<DocDeps> & { planningAi?: PlanningAi; sou
   registerFlowRoutes(app);
   registerTicketWorkRoutes(app, { mailer: deps.mailer, appUrl: deps.appUrl });
   registerIntegrationRoutes(app, { fetch: deps.sourceFetch });
+  registerWorkItemRoutes(app, { llm: deps.workLlm });
   registerPeopleRoutes(app);
   registerPlanningRoutes(app, { ai: deps.planningAi ?? defaultPlanningAi() });
   registerWorkflowAdminRoutes(app);

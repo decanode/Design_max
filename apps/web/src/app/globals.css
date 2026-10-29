@@ -701,3 +701,11 @@ main:has(.settings-rail) { padding-left: calc(var(--rail-w) + 32px); }
 /* ---------- Source tickets ---------- */
 .source-card { display: grid; gap: 10px; border-left: 4px solid var(--accent); } .src-grid { margin: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; } .src-grid div { display: grid; gap: 4px; } .src-grid dt { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; } .src-grid dd { margin: 0; font-size: 14px; }
 .state-pill.src { background: color-mix(in srgb, var(--warn) 14%, var(--panel)); border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); }
+
+/* ---------- Work items ---------- */
+.progress { height: 8px; border-radius: 999px; background: var(--line); overflow: hidden; } .progress i { display: block; height: 100%; background: var(--done); transition: width .2s; }
+.wi-list { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 8px; } .wi { display: grid; grid-template-columns: 110px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2); }
+.wi.done .wi-title { text-decoration: line-through; color: var(--muted); } .wi.blocked { border-color: var(--danger); } .wi.doing { border-color: var(--accent); }
+.wi-meta { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: flex-end; } .wi-meta .lc-select { width: auto; padding: 5px 28px 5px 8px; font-size: 12.5px; } .wi-num { width: 72px; padding: 5px 8px; font-size: 12.5px; } .wi-state { padding: 5px 28px 5px 8px; font-size: 12.5px; }
+@media (max-width: 760px) { .wi { grid-template-columns: 1fr; } .wi-meta { justify-content: flex-start; } }
+.suggest { display: grid; gap: 8px; margin: 10px 0; padding: 12px 14px; border: 1px dashed var(--accent); border-radius: 12px; background: color-mix(in srgb, var(--accent) 5%, var(--panel)); } .suggest ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }

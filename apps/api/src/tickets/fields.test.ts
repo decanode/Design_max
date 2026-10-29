@@ -75,7 +75,7 @@ describe('what each role sees', () => {
   it('a new custom role is closed by default: only title and phase, never the sensitive columns', async () => {
     const u = await customUser(['board.view', 'ticket.view_all']);
     const list = (await call(u, 'GET', '/api/tickets')).body.find((t: any) => t.id === ticketId);
-    expect(Object.keys(list).sort()).toEqual(['approval_status', 'awaiting_approval', 'created_at', 'current_state', 'due_date', 'id', 'is_assigned', 'is_done', 'key', 'priority', 'seq', 'signoff_status', 'ticket_type_id', 'title', 'type_key', 'type_name', 'type_short', 'updated_at']);
+    expect(Object.keys(list).sort()).toEqual(['approval_status', 'awaiting_approval', 'created_at', 'current_state', 'due_date', 'id', 'is_assigned', 'is_done', 'key', 'priority', 'seq', 'signoff_status', 'ticket_type_id', 'title', 'type_key', 'type_name', 'type_short', 'updated_at', 'work_done', 'work_total']);
     const t = (await call(u, 'GET', `/api/tickets/${ticketId}`)).body.ticket;
     for (const k of ['ai_summary', 'customer_id', 'customer_name', 'consultant_id', 'consultant_name', 'project_id', 'project_name', 'legacy_id', 'resolution_notes', 'acceptance_criteria'])
       expect(t, k).not.toHaveProperty(k);

@@ -17,7 +17,7 @@ type Ticket = {
   legacy_id?: string | null; legacy_source?: 'jira' | 'servicenow' | null;
   created_at: string; updated_at: string; awaiting_approval: boolean; is_assigned: boolean; is_done?: boolean; consultant?: string | null;
   ticket_type_id?: number; type_name?: string; type_short?: string; team_name?: string | null;
-  key?: string; priority?: string; due_date?: string | null; signoff_status?: string | null; consultant_id?: string | null; customer_name?: string | null; approval_status?: string;
+  work_total?: number; work_done?: number; out_of_sync?: boolean; key?: string; priority?: string; due_date?: string | null; signoff_status?: string | null; consultant_id?: string | null; customer_name?: string | null; approval_status?: string;
 };
 
 const ago = (iso: string) => {
@@ -35,7 +35,7 @@ export default function Board() {
   const [tickets, setTickets] = useState<Ticket[] | null>(null);
   const [q, setQ] = useState('');
   const [view, setView] = useState<'board' | 'list'>('board');
-  const [fType, setFType] = useState(0); const [fWho, setFWho] = useState<'all' | 'me' | 'none'>('all'); const [fPrio, setFPrio] = useState(''); const [fOpen, setFOpen] = useState(true); const [fWait, setFWait] = useState(false);
+  const [fType, setFType] = useState(0); const [fWho, setFWho] = useState<'all' | 'me' | 'none'>('all'); const [fPrio, setFPrio] = useState(''); const [fSrc, setFSrc] = useState(''); const [fOpen, setFOpen] = useState(true); const [fWait, setFWait] = useState(false);
   const [sort, setSort] = useState<{ k: 'key' | 'title' | 'state' | 'priority' | 'due' | 'updated'; dir: 1 | -1 }>({ k: 'updated', dir: -1 });
   useEffect(() => { try { const v = localStorage.getItem('dm-board-view'); if (v === 'list' || v === 'board') setView(v); } catch { /* no storage */ } }, []);
   const chooseView = (v: 'board' | 'list') => { setView(v); try { localStorage.setItem('dm-board-view', v); } catch { /* no storage */ } };
@@ -55,11 +55,11 @@ export default function Board() {
   const shown = useMemo(() => {
     const n = q.trim().toLowerCase();
     return (tickets ?? []).filter((t) => (!n || t.title.toLowerCase().includes(n) || (t.legacy_id ?? '').toLowerCase().includes(n) || (t.key ?? '').toLowerCase().includes(n))
-      && (!fType || t.ticket_type_id === fType) && (!fPrio || t.priority === fPrio)
+      && (!fType || t.ticket_type_id === fType) && (!fPrio || t.priority === fPrio) && (!fSrc || (fSrc === 'native' ? !t.legacy_source : t.legacy_source === fSrc))
       && (fWho === 'all' || (fWho === 'me' ? t.consultant_id === me?.user.id : !t.is_assigned))
       && (!fWait || t.awaiting_approval || t.signoff_status === 'pending' || t.approval_status === 'pending')
       && (view === 'list' ? (!fOpen || !t.is_done) : true));
-  }, [tickets, q, fType, fPrio, fWho, fWait, fOpen, view, me?.user.id]);
+  }, [tickets, q, fType, fPrio, fSrc, fWho, fWait, fOpen, view, me?.user.id]);
   const PR: Record<string, number> = { Critical: 0, High: 1, Medium: 2, Low: 3 };
   const rows = useMemo(() => {
     const v = (t: Ticket) => sort.k === 'key' ? (t.key ?? '') : sort.k === 'title' ? t.title.toLowerCase() : sort.k === 'state' ? t.current_state : sort.k === 'priority' ? (PR[t.priority ?? 'Medium'] ?? 2) : sort.k === 'due' ? (t.due_date ?? '9999') : t.updated_at;
@@ -117,9 +117,11 @@ export default function Board() {
           <select id="f-who" className="lc-select" value={fWho} onChange={(e) => setFWho(e.target.value as typeof fWho)}><option value="all">Anyone</option><option value="me">Assigned to me</option><option value="none">Unassigned</option></select>
           <label className="sr" htmlFor="f-prio">Priority</label>
           <select id="f-prio" className="lc-select" value={fPrio} onChange={(e) => setFPrio(e.target.value)}><option value="">Any priority</option>{['Critical', 'High', 'Medium', 'Low'].map((p) => <option key={p}>{p}</option>)}</select>
+          {(tickets ?? []).some((t) => t.legacy_source) && (<><label className="sr" htmlFor="f-src">Source</label>
+            <select id="f-src" className="lc-select" value={fSrc} onChange={(e) => setFSrc(e.target.value)}><option value="">All sources</option><option value="native">Created here</option><option value="jira">Jira</option><option value="servicenow">ServiceNow</option></select></>)}
           <label className="check"><input type="checkbox" checked={fWait} onChange={(e) => setFWait(e.target.checked)} /> Waiting on someone</label>
           {view === 'list' && <label className="check"><input type="checkbox" checked={fOpen} onChange={(e) => setFOpen(e.target.checked)} /> Open only</label>}
-          {(fType || fPrio || fWho !== 'all' || fWait || q) && <button type="button" className="linklike" onClick={() => { setFType(0); setFPrio(''); setFWho('all'); setFWait(false); setQ(''); }}>Clear filters</button>}
+          {(fType || fPrio || fSrc || fWho !== 'all' || fWait || q) && <button type="button" className="linklike" onClick={() => { setFType(0); setFPrio(''); setFSrc(''); setFWho('all'); setFWait(false); setQ(''); }}>Clear filters</button>}
         </div>
 
         {error && <p role="alert" className="err">{error}</p>}
@@ -163,6 +165,7 @@ export default function Board() {
                                   {t.signoff_status === 'pending' && <span className="tag warn" title="The customer has been asked to confirm">Awaiting customer</span>}
                                   {t.due_date && !t.is_done && new Date(t.due_date) < new Date(new Date().toDateString()) && <span className="tag bad" title="Past its due date">Overdue</span>}
                                   {t.legacy_source && <span className="tag src">{t.legacy_source === 'jira' ? 'Jira' : 'ServiceNow'} · {t.legacy_id}</span>}
+                                  {!!t.work_total && <span className="tag" title="Tasks done">☑ {t.work_done}/{t.work_total}</span>}
                                   {t.consultant && <span className="who card-who" title="Assigned consultant"><Avatar name={t.consultant} size={20} />{t.consultant}</span>}
                                   {t.team_name && <span className="tag team" title="Assigned team">{t.team_name}</span>}
                                   <span>{ago(t.updated_at)}</span>
