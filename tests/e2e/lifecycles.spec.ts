@@ -28,8 +28,8 @@ test('a Project Admin gives Incidents their own status and moves, and tickets fo
   await card.getByRole('button', { name: 'Edit the Incident lifecycle' }).click();
 
   // a status of the project's own, placed in the flow
-  await u.getByLabel('New status name').fill('Awaiting Vendor');
-  await u.getByLabel('Category').selectOption({ label: 'Delivery' });
+  await u.getByLabel('Create a new status').fill('Awaiting Vendor');
+  await u.getByLabel('Category', { exact: true }).selectOption({ label: 'Delivery' });
   await u.getByRole('button', { name: 'Create status' }).click();
   await expect(u.getByRole('list').filter({ hasText: 'Awaiting Vendor' }).first()).toBeVisible();
 

@@ -553,6 +553,16 @@ main:has(.settings-rail) { padding-left: calc(var(--rail-w) + 32px); }
 
 .lc-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; } .lc-card { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; background: var(--panel-2); }
 .lc-statuses { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 8px; } .lc-actions { margin-left: auto; display: inline-flex; gap: 6px; }
-.lc-add { display: grid; gap: 10px; } .lc-add .row { gap: 8px; flex-wrap: wrap; } .lc-add input { flex: 1; min-width: 200px; }
+
+.lc-add { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+.lc-add-card { display: grid; gap: 8px; align-content: start; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel-2); }
+.lc-add-card > label { display: grid; gap: 2px; } .lc-new-row { display: flex; gap: 8px; flex-wrap: wrap; } .lc-new-row .lc-input { flex: 1 1 160px; }
+.lc-select, .lc-input { padding: 9px 12px; border-radius: 10px; border: 1px solid var(--line); background-color: var(--panel); color: var(--text); font: inherit; min-width: 0; }
+.lc-select { appearance: none; -webkit-appearance: none; cursor: pointer; padding-right: 34px; width: 100%; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%238a94a8' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 12px center; }
+.lc-new-row .lc-select { width: auto; flex: 0 0 auto; }
+.lc-select:hover, .lc-input:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+.lc-select:focus-visible, .lc-input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-color: transparent; }
+.lc-select:disabled { opacity: .6; cursor: not-allowed; }
+.lc-select option { background: var(--panel); color: var(--text); }
 .lc-moves { border: 1px solid var(--line); border-radius: 12px; margin: 0 0 10px; padding: 8px 12px 10px; display: flex; flex-wrap: wrap; gap: 6px 14px; } .lc-moves legend { font-weight: 600; padding: 0 6px; }
 .lc-opt { display: inline-flex; align-items: center; gap: 6px; } .lc-opt.on { font-weight: 600; }

@@ -110,17 +110,21 @@ function Editor({ lc, catalog, flash, back, reload }: { lc: Lifecycle; catalog: 
           })}
         </ol>
         <div className="lc-add">
-          <label htmlFor="lc-pick" className="sr">Add an existing status</label>
-          <select id="lc-pick" value={pick} onChange={(e) => { const c = cat.find((x) => String(x.id) === e.target.value); if (c) add(c); setPick(''); }}>
-            <option value="">+ Add an existing status…</option>
-            {addable.map((c) => <option key={c.id} value={c.id}>{c.name} ({TONE_LABEL[c.tone]}){c.own ? ' · yours' : ''}</option>)}
-          </select>
-          <form onSubmit={createStatus} className="row" style={{ margin: 0 }} aria-label="Create a status">
-            <label className="sr" htmlFor="lc-new">New status name</label>
-            <input id="lc-new" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="New status, for example Awaiting vendor" maxLength={60} />
-            <label className="sr" htmlFor="lc-tone">Category</label>
-            <select id="lc-tone" value={newTone} onChange={(e) => setNewTone(e.target.value as Tone)}>{(Object.keys(TONE_LABEL) as Tone[]).map((t) => <option key={t} value={t}>{TONE_LABEL[t]}</option>)}</select>
-            <button className="btn ghost" type="submit" disabled={!newName.trim()}>Create status</button>
+          <div className="lc-add-card">
+            <label htmlFor="lc-pick"><b>Add an existing status</b><span className="note">Standard statuses and ones you created before.</span></label>
+            <select id="lc-pick" className="lc-select" value={pick} onChange={(e) => { const c = cat.find((x) => String(x.id) === e.target.value); if (c) add(c); setPick(''); }} disabled={addable.length === 0}>
+              <option value="">{addable.length ? 'Choose a status…' : 'Every status is already in this lifecycle'}</option>
+              {addable.map((c) => <option key={c.id} value={c.id}>{c.name} · {TONE_LABEL[c.tone]}{c.own ? ' · yours' : ''}</option>)}
+            </select>
+          </div>
+          <form onSubmit={createStatus} className="lc-add-card" aria-label="Create a status">
+            <label htmlFor="lc-new"><b>Create a new status</b><span className="note">Your own name and category, for example Awaiting vendor.</span></label>
+            <div className="lc-new-row">
+              <input id="lc-new" className="lc-input" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Status name" maxLength={60} />
+              <label className="sr" htmlFor="lc-tone">Category</label>
+              <select id="lc-tone" className="lc-select" value={newTone} onChange={(e) => setNewTone(e.target.value as Tone)}>{(Object.keys(TONE_LABEL) as Tone[]).map((t) => <option key={t} value={t}>{TONE_LABEL[t]}</option>)}</select>
+              <button className="btn" type="submit" disabled={!newName.trim()}>Create status</button>
+            </div>
           </form>
         </div>
       </section>
