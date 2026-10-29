@@ -193,4 +193,25 @@ export function registerWorkflowAdminRoutes(app: FastifyInstance) {
     });
     return reply.code(201).send({ id });
   });
+
+  /** How much each building block is used, so the console can say what a change would touch. */
+  app.get('/api/platform/workflow/usage', { preHandler: sup }, async () => {
+    const [ty, tpl, pt, ph] = await Promise.all([
+      pool.query(`SELECT t.id, (SELECT count(DISTINCT x.project_id)::int FROM project_ticket_types x WHERE x.ticket_type_id = t.id AND x.enabled) AS projects, (SELECT count(*)::int FROM tickets k WHERE k.ticket_type_id = t.id) AS tickets FROM ticket_types t`),
+      pool.query(`SELECT t.id, (SELECT count(*)::int FROM projects p WHERE p.template_type_id = t.id) AS projects FROM template_types t`),
+      pool.query(`SELECT t.id, (SELECT count(*)::int FROM projects p WHERE p.project_type_id = t.id) AS projects FROM project_types t`),
+      pool.query(`SELECT p.id, (SELECT count(*)::int FROM template_phases x WHERE x.phase_id = p.id) AS methodologies, (SELECT count(*)::int FROM tickets k WHERE k.current_state = p.name) AS tickets FROM phases p WHERE p.project_id IS NULL`),
+    ]);
+    const by = (rows: { id: number }[]) => Object.fromEntries(rows.map((r) => [r.id, r]));
+    return { ticketTypes: by(ty.rows), templates: by(tpl.rows), projectTypes: by(pt.rows), phases: by(ph.rows) };
+  });
+
+  app.delete('/api/platform/workflow/project-types/:id', { preHandler: sup }, async (req) => {
+    const { id } = IdP.parse(req.params);
+    if ((await pool.query('SELECT 1 FROM projects WHERE project_type_id=$1 LIMIT 1', [id])).rowCount) throw new DocError('Projects use this project type, so it cannot be deleted', 409);
+    const r = await pool.query('DELETE FROM project_types WHERE id=$1 RETURNING name', [id]);
+    if (!r.rowCount) throw new DocError('Project type not found', 404);
+    await audit(req, 'platform.project_type.delete', { id, name: r.rows[0].name }, null);
+    return { ok: true };
+  });
 }

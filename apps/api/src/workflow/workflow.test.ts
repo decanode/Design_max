@@ -274,3 +274,19 @@ describe('platform management of the masters', () => {
     expect(r.status).toBe(409); expect(r.body.error).toMatch(/documents and approvals/);
   });
 });
+
+describe('platform usage figures', () => {
+  it('says how much each building block is used, and refuses to delete a used project type', async () => {
+    const r = await call(sup, 'GET', '/api/platform/workflow/usage');
+    expect(r.status).toBe(200);
+    const incident = await id('ticket_types', 'incident'); const itil = await id('template_types', 'itil'); const support = await id('project_types', 'support');
+    expect(r.body.ticketTypes[incident]).toMatchObject({ projects: expect.any(Number), tickets: expect.any(Number) });
+    expect(r.body.templates[itil].projects).toBeGreaterThanOrEqual(0);
+    expect(r.body.phases).toBeTruthy();
+    await newProject('support');
+    expect((await call(sup, 'GET', '/api/platform/workflow/usage')).body.projectTypes[support].projects).toBeGreaterThan(0);
+    const del = await app.inject({ method: 'DELETE', url: `/api/platform/workflow/project-types/${support}`, headers: { cookie: sup.cookie } });
+    expect(del.statusCode).toBe(409);
+    expect((await app.inject({ method: 'GET', url: '/api/platform/workflow/usage', headers: { cookie: (await makeUser('Consultant')).cookie } })).statusCode).toBe(403);
+  });
+});

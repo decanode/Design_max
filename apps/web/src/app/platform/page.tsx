@@ -1,6 +1,6 @@
 'use client';
 import { SettingsShell, useSectionHash, type SettingsGroup } from '../../components/SettingsShell';
-import { WorkflowMasters } from '../../components/WorkflowMasters';
+import { WorkflowStudio } from '../../components/platform/WorkflowStudio';
 import { TemplateAdmin } from '../../components/TemplateAdmin';
 import { useCallback, useEffect, useState } from 'react';
 import { Nav } from '../../components/Nav';
@@ -40,7 +40,7 @@ export default function Platform() {
         {tab === 'roles' && <RolesAdmin mode="platform" flash={flash} sub={sub} onSub={setSub} />}
         {tab === 'fields' && <FieldAdmin mode="platform" flash={flash} />}
         {tab === 'stacks' && <TechCatalogAdmin flash={flash} sub={sub} onSub={setSub} />}
-        {tab === 'workflows' && <WorkflowMasters flash={flash} />}
+        {tab === 'workflows' && <WorkflowStudio flash={flash} sub={sub} onSub={setSub} />}
         {tab === 'documents' && <TemplateAdmin flash={flash} />}
         {tab === 'activity' && <ActivityList path="/api/platform/audit" flash={flash} showProject />}
         </SettingsShell>

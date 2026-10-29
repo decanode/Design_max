@@ -175,23 +175,25 @@ test('Scenario 5: a Super Admin defines a new ticket type and the methodology th
   await sup.getByRole('tab', { name: 'Workflows' }).click();
 
   // a new ticket type with a required choice field
-  await sup.getByRole('button', { name: 'New ticket type' }).click();
+  await sup.getByRole('button', { name: '+ New ticket type' }).click();
   const form = sup.getByRole('form', { name: 'New ticket type' });
-  await form.getByLabel('Name', { exact: true }).fill(name);
-  await form.getByLabel('Short tag').fill('RSK');
+  await form.getByLabel(/^Name/).fill(name);
+  await form.getByLabel(/^Short tag/).fill('RSK');
   await form.getByRole('button', { name: 'Add a field' }).click();
   await form.getByLabel('Field 1 label').fill('Likelihood');
   await form.getByLabel('Field 1 kind').selectOption('select');
   await form.getByLabel('Field 1 options').fill('Rare, Likely, Certain');
   await form.getByRole('group', { name: 'Field 1' }).getByLabel('Required').check();
-  await form.getByRole('button', { name: 'Save ticket type' }).click();
+  await expect(form.getByLabel('Form preview')).toContainText('Likelihood');          // the live preview of the form
+  await form.getByRole('button', { name: 'Create ticket type' }).click();
   await expect(sup.getByRole('status')).toContainText('Ticket type saved');
 
   // Agile can carry it (its general flow applies)
-  const methods = sup.getByRole('region', { name: 'Methodologies' });
-  await methods.getByRole('tab', { name: 'Agile' }).click();
-  await methods.getByLabel(name).check();
-  await methods.getByRole('button', { name: 'Save methodology' }).click();
+  await sup.getByRole('navigation', { name: 'Breadcrumb' }).getByRole('button', { name: 'Ticket types' }).click();
+  await sup.getByRole('tab', { name: /^Methodologies/ }).click();
+  await sup.getByRole('button', { name: 'Open methodology Agile' }).click();
+  await sup.getByRole('group', { name: 'Ticket types it can carry' }).getByLabel(name).check();
+  await sup.getByRole('button', { name: 'Save methodology' }).click();
   await expect(sup.getByRole('status')).toContainText('Methodology saved');
 
   // a DevOps project (Agile) can now allow it, and the create dialog renders its field
@@ -210,4 +212,19 @@ test('Scenario 5: a Super Admin defines a new ticket type and the methodology th
   await dialog(u).getByLabel(/^Likelihood/).selectOption('Likely');
   await dialog(u).getByRole('button', { name: `Create ${name}` }).click();
   await expect(u.getByRole('region', { name: 'Backlog', exact: true }).locator('article', { hasText: `Vendor delay ${stamp}` })).toBeVisible();
+});
+
+test('Scenario 6: the methodology page shows when a flow is incomplete, and a ticket type can have its own flow', async ({ browser }) => {
+  const sup = await (await browser.newContext({ storageState: '.auth/Super Admin.json' })).newPage();
+  await sup.goto('/platform#workflows');
+  await sup.getByRole('tab', { name: /^Methodologies/ }).click();
+  await sup.getByRole('button', { name: 'Open methodology ITIL' }).click();
+  await expect(sup.getByText('This flow is complete')).toBeVisible();
+  // Incident has no flow of its own yet; give it one (a copy of the general flow) and break it on screen without saving
+  await sup.getByRole('tab', { name: /^Incident/ }).click();
+  await sup.getByRole('button', { name: /Give it its own flow/ }).click();
+  await sup.getByLabel('Start to New', { exact: true }).uncheck();
+  await expect(sup.getByText('No starting phase')).toBeVisible();
+  await sup.getByRole('button', { name: 'Discard' }).click();
+  await expect(sup.getByText('Everything is saved.')).toBeVisible();
 });

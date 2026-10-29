@@ -640,3 +640,21 @@ main:has(.settings-rail) { padding-left: calc(var(--rail-w) + 32px); }
 .kw-editor { display: grid; gap: 10px; } .kw-list { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
 .kw-list li:not(.note) { display: inline-flex; align-items: center; gap: 4px; padding: 3px 4px 3px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel-2); font-size: 13px; }
 .kw-list button { all: unset; cursor: pointer; width: 20px; height: 20px; display: grid; place-items: center; border-radius: 50%; color: var(--muted); } .kw-list button:hover, .kw-list button:focus-visible { background: color-mix(in srgb, var(--danger) 15%, var(--panel)); color: var(--danger); }
+
+/* ---------- Platform → Workflows ---------- */
+.wfs { display: grid; gap: 14px; } .wfs-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); flex-wrap: wrap; } .wfs-tabs.sm { border-bottom: 0; margin-bottom: 8px; gap: 6px; }
+.wfs-tab { all: unset; cursor: pointer; padding: 9px 14px; border-bottom: 3px solid transparent; font-weight: 600; color: var(--muted); display: inline-flex; gap: 8px; align-items: center; } .wfs-tab:hover { color: var(--text); } .wfs-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 6px; }
+.wfs-tab[aria-selected='true'] { color: var(--text); border-bottom-color: var(--accent); } .wfs-tab .count { font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 999px; background: color-mix(in srgb, var(--accent) 12%, var(--panel)); color: var(--muted); }
+.wfs-tabs.sm .wfs-tab { border: 1px solid var(--line); border-radius: 999px; padding: 5px 12px; } .wfs-tabs.sm .wfs-tab[aria-selected='true'] { background: var(--accent); color: #fff; border-color: var(--accent); }
+.wfs-intro { display: flex; align-items: center; gap: 16px; justify-content: space-between; flex-wrap: wrap; } .wfs-intro .note { margin: 0; max-width: 70ch; }
+.type-tag.big { font-size: 15px; padding: 8px 12px; }
+.flow-mini { display: flex; gap: 3px; } .flow-mini i { flex: 1; height: 6px; border-radius: 3px; background: var(--muted); max-width: 28px; } .flow-mini i[data-tone='intake'] { background: var(--accent); } .flow-mini i[data-tone='spec'] { background: #a78bfa; } .flow-mini i[data-tone='build'] { background: var(--warn); } .flow-mini i[data-tone='review'] { background: #38bdf8; } .flow-mini i[data-tone='done'] { background: var(--done); }
+.fld-list, .mp-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.fld { display: grid; gap: 8px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel-2); } .fld-top { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; } .fld-top > .lc-input { flex: 1 1 200px; } .fld-top > .lc-select { width: auto; }
+.fld-actions { margin-left: auto; display: inline-flex; gap: 4px; } .fld-key code { font-size: 12px; }
+.form-preview { display: grid; gap: 10px; padding: 14px; border: 1px dashed var(--line); border-radius: 12px; background: var(--panel-2); } .fp-row { display: grid; gap: 4px; font-size: 13px; } .fp-req { color: var(--danger); }
+.fp-box { display: block; min-height: 30px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--muted); font-size: 12px; } .fp-box.tall { min-height: 56px; } .fp-box.sel { display: flex; justify-content: space-between; } .fp-check { width: 18px; height: 18px; border: 1.5px solid var(--line); border-radius: 5px; background: var(--panel); }
+.mp-list .tb-phase { padding: 8px 12px; } .mp-list .tb-phase .switch { margin-left: auto; }
+.flow-health { display: grid; gap: 4px; margin: 4px 0 10px; }
+.moves-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; align-items: start; } .moves-grid .lc-moves { margin: 0; }
+.tone-dot::before { content: ''; display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; background: var(--muted); } .tone-dot[data-tone='intake']::before { background: var(--accent); } .tone-dot[data-tone='spec']::before { background: #a78bfa; } .tone-dot[data-tone='build']::before { background: var(--warn); } .tone-dot[data-tone='review']::before { background: #38bdf8; } .tone-dot[data-tone='done']::before { background: var(--done); }
