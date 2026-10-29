@@ -4,8 +4,10 @@ import { motion } from 'framer-motion';
 import { api, type Flash } from '../consoleBits';
 import { j, useAuth } from '../../lib/auth';
 import { Avatar, Field } from '../people/shared';
+import { MODE_LIST, modeName, type Mode } from '../../lib/modes';
+import { ModeCards, OverrideSwitches } from './ModeCards';
 
-export type Project = { id: string; name: string; status: 'active' | 'archived'; members: number; tickets: number; admins: { id: string; name: string; canCreateRoles?: boolean }[]; stacks: string[] };
+export type Project = { id: string; name: string; operatingMode: Mode; modeOverrides: Record<string, boolean>; status: 'active' | 'archived'; members: number; tickets: number; admins: { id: string; name: string; canCreateRoles?: boolean }[]; stacks: string[] };
 type Stack = { id: number; name: string };
 type Catalog = { projectTypes: { id: number; key: string; name: string; description?: string; defaultTemplateId: number | null }[]; templates: { id: number; name: string; description?: string }[] };
 
@@ -39,13 +41,14 @@ function ProjectList({ list, open }: { list: Project[]; open: (id: string | null
       <div className="data-wrap">
         <table className="data-table">
           <caption className="sr">Projects. Select a project to see and change it.</caption>
-          <thead><tr><th scope="col">Project</th><th scope="col">Project Admins</th><th scope="col" style={{ textAlign: 'right' }}>Members</th><th scope="col" style={{ textAlign: 'right' }}>Tickets</th><th scope="col">Technology</th><th scope="col"><span className="sr">Actions</span></th></tr></thead>
+          <thead><tr><th scope="col">Project</th><th scope="col">Mode</th><th scope="col">Project Admins</th><th scope="col" style={{ textAlign: 'right' }}>Members</th><th scope="col" style={{ textAlign: 'right' }}>Tickets</th><th scope="col">Technology</th><th scope="col"><span className="sr">Actions</span></th></tr></thead>
           <tbody>
             {shown.map((p) => (
               <tr key={p.id} className={`clickable ${p.status === 'archived' ? 'inactive' : ''}`} onClick={() => open(p.id)}>
                 <td><button type="button" className="person" onClick={(e) => { e.stopPropagation(); open(p.id); }} aria-label={`Open project ${p.name}`}>
                   <span className="team-badge" aria-hidden>{p.name[0]?.toUpperCase()}</span>
                   <span className="person-text"><b>{p.name}</b><span className="note">{p.status === 'archived' ? 'Archived' : me?.project?.id === p.id ? 'You are working here' : 'Active'}</span></span></button></td>
+                <td><span className={`mode-chip ${p.operatingMode}`}>{modeName(p.operatingMode)}</span></td>
                 <td>{p.admins.length ? <span className="chips">{p.admins.slice(0, 2).map((a) => <span key={a.id} className="chip">{a.name}</span>)}{p.admins.length > 2 && <span className="chip more">+{p.admins.length - 2}</span>}</span> : <span className="err">none yet</span>}</td>
                 <td className="num">{p.members}</td><td className="num">{p.tickets}</td>
                 <td>{p.stacks.length ? <span className="chips">{p.stacks.map((s) => <span key={s} className="chip">{s}</span>)}</span> : <span className="note">Any</span>}</td>
@@ -54,7 +57,7 @@ function ProjectList({ list, open }: { list: Project[]; open: (id: string | null
                   {p.status === 'active' && me?.project?.id === p.id && <span className="role-badge" data-role="Manager">Working here</span>}
                 </td>
               </tr>))}
-            {shown.length === 0 && <tr><td colSpan={6} className="empty-row">{list.length === 0 ? 'No projects yet. Create the first one.' : 'No project matches.'}</td></tr>}
+            {shown.length === 0 && <tr><td colSpan={7} className="empty-row">{list.length === 0 ? 'No projects yet. Create the first one.' : 'No project matches.'}</td></tr>}
           </tbody>
         </table>
       </div>
@@ -101,6 +104,8 @@ function ProjectPage({ id, list, flash, back, reload }: { id: string; list: Proj
         <div className="pj-tech"><span className="note">Technology</span>{p.stacks.length ? <span className="chips">{p.stacks.map((s) => <span key={s} className="chip">{s}</span>)}</span> : <span>Any technology</span>}</div>
       </div>
 
+      <ModeSection p={p} flash={flash} reload={reload} />
+
       <div className="drill-grid">
         <section className="pane drill-card" aria-labelledby="pj-admins">
           <h4 id="pj-admins">Project Admins</h4>
@@ -132,7 +137,7 @@ function ProjectPage({ id, list, flash, back, reload }: { id: string; list: Proj
 function NewProject({ flash, back, done }: { flash: Flash; back: () => void; done: () => Promise<void> }) {
   const [stacks, setStacks] = useState<Stack[]>([]);
   const [cat, setCat] = useState<Catalog | null>(null);
-  const [f, setF] = useState({ name: '', email: '', adminName: '', stackIds: [] as number[], projectTypeId: 0, templateTypeId: 0 });
+  const [f, setF] = useState({ name: '', email: '', adminName: '', stackIds: [] as number[], projectTypeId: 0, templateTypeId: 0, operatingMode: 'full' as Mode });
   const [busy, setBusy] = useState(false);
   useEffect(() => {
     Promise.all([api('/api/platform/stacks'), api('/api/platform/workflow/catalog')]).then(([s, c]) => { setStacks(s); setCat(c); setF((x) => (x.projectTypeId ? x : { ...x, projectTypeId: c.projectTypes[0]?.id ?? 0 })); }).catch((e) => flash('err', e.message));
@@ -145,7 +150,7 @@ function NewProject({ flash, back, done }: { flash: Flash; back: () => void; don
   async function create(e: React.FormEvent) {
     e.preventDefault(); setBusy(true);
     try {
-      await api('/api/platform/projects', j({ name: f.name, stackIds: f.stackIds, projectTypeId: f.projectTypeId || undefined, templateTypeId: f.templateTypeId || undefined, admin: f.email ? { email: f.email, name: f.adminName || f.email.split('@')[0] } : undefined }));
+      await api('/api/platform/projects', j({ name: f.name, stackIds: f.stackIds, projectTypeId: f.projectTypeId || undefined, templateTypeId: f.templateTypeId || undefined, operatingMode: f.operatingMode, admin: f.email ? { email: f.email, name: f.adminName || f.email.split('@')[0] } : undefined }));
       flash('ok', `Project “${f.name}” created${f.email ? ` and ${f.email} appointed Project Admin` : ''}. It starts with its own copy of the standard approval workflow.`);
       await done();
     } catch (er) { flash('err', (er as Error).message); } finally { setBusy(false); }
@@ -179,10 +184,45 @@ function NewProject({ flash, back, done }: { flash: Flash; back: () => void; don
           </div>
         </section>
       </div>
+      <section className="pane drill-card" aria-labelledby="np-mode" style={{ marginTop: 14 }}>
+        <h4 id="np-mode">5 · How much of the lifecycle runs here?</h4>
+        <p className="note" style={{ marginTop: 0 }}>You can change this later. Nothing is deleted when you do.</p>
+        <ModeCards value={f.operatingMode} onChange={(m) => setF({ ...f, operatingMode: m })} />
+      </section>
       <div className="tb-bar drill-bar" role="region" aria-label="Create project">
         <span className="note">The project is created when you press Create project.</span>
         <button type="button" className="btn ghost" onClick={leave} disabled={busy}>Cancel</button>
         <button className="btn" type="submit" disabled={busy || f.name.trim().length < 2}>{busy ? 'Creating…' : 'Create project'}</button>
       </div>
     </motion.form>);
+}
+
+/** The project's operating mode: pick it, see exactly what changes, confirm, and adjust the few things that may differ. */
+function ModeSection({ p, flash, reload }: { p: Project; flash: Flash; reload: () => Promise<void> }) {
+  const [pick, setPick] = useState<Mode>(p.operatingMode);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { setPick(p.operatingMode); }, [p.operatingMode]);
+  const cur = MODE_LIST.find((m) => m.key === p.operatingMode)!, next = MODE_LIST.find((m) => m.key === pick)!;
+  const caps = { closing_gates: pick !== 'mirror', customer_signoff: pick !== 'mirror', planning_convert: pick === 'full', ...p.modeOverrides };
+
+  async function apply() {
+    const lines = [`Change ${p.name} from ${cur.name} to ${next.name}?`, '', 'Nothing is deleted.', ...(next.limits.length ? ['', 'From now on:', ...next.limits.map((l) => `• ${l}`)] : [])];
+    if (p.operatingMode === 'connected') lines.push('', 'Anything still waiting to be sent back to the source tool is cancelled.');
+    if (!confirm(lines.join('\n'))) return;
+    setBusy(true);
+    try { await api(`/api/platform/projects/${p.id}`, j({ operatingMode: pick }, 'PATCH')); flash('ok', `${p.name} now runs in ${next.name} mode.`); await reload(); } catch (e) { flash('err', (e as Error).message); } finally { setBusy(false); }
+  }
+  async function override(key: string, on: boolean) {
+    try { await api(`/api/platform/projects/${p.id}`, j({ modeOverrides: { ...p.modeOverrides, [key]: on } }, 'PATCH')); flash('ok', 'Saved.'); await reload(); } catch (e) { flash('err', (e as Error).message); }
+  }
+  return (
+    <section className="pane drill-card" aria-labelledby="pj-mode">
+      <h4 id="pj-mode">Operating mode <span className={`mode-chip ${p.operatingMode}`}>{cur.short}</span></h4>
+      <ModeCards value={pick} onChange={setPick} />
+      {pick !== p.operatingMode && <div className="row"><button type="button" className="btn" disabled={busy} onClick={apply}>Change to {next.name}</button><button type="button" className="btn ghost" onClick={() => setPick(p.operatingMode)}>Keep {cur.short}</button></div>}
+      {p.operatingMode !== 'full' && (<>
+        <h4 style={{ marginTop: 14 }}>Adjustments for this project</h4>
+        <OverrideSwitches mode={p.operatingMode} caps={caps} onChange={override} />
+      </>)}
+    </section>);
 }

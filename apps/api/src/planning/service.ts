@@ -4,6 +4,7 @@ import { DocError } from '../errors.js';
 import { markdownToPm, type PmNode } from '../docgen/pm.js';
 import { normTitle, splitSections } from '../docgen/sections.js';
 import { createTicket } from '../tickets.js';
+import { assertCap } from '../rbac/modes.js';
 import { loadStackPolicy } from '../stacks.js';
 import { loadWorkflow, typeFields, validateMetadata, type TicketTypeInfo } from '../workflow/service.js';
 import { SECTION_TITLES, charterSections, type Charter, type CharterIntake, type PlanningAi, type SectionKey, type WbsPlan } from './ai.js';
@@ -233,6 +234,7 @@ export async function defaultConvertType(projectId: string): Promise<TicketTypeI
 const fill = (v: unknown, vars: Record<string, string>) => (typeof v === 'string' ? v.replace(/\{(title|description|phase|deliverable)\}/g, (_, k) => vars[k] ?? '') : v);
 
 export async function convertToTickets(user: Actor, opts: { elementIds?: string[]; ticketTypeId?: number; fields?: Record<string, unknown> }): Promise<ConvertResult> {
+  await assertCap(user.projectId, 'planning_convert');
   const wf = await loadWorkflow(user.projectId);
   const type = opts.ticketTypeId ? wf.ticketTypes.find((t) => t.id === opts.ticketTypeId && t.enabled) : await defaultConvertType(user.projectId);
   if (!type) throw new DocError('This project does not allow that kind of ticket', 400);
@@ -255,7 +257,7 @@ export async function convertToTickets(user: Actor, opts: { elementIds?: string[
   for (const t of todo) t.meta = validateMetadata(defs, t.meta);           // every ticket is checked before the first one is created
   const created: ConvertResult['created'] = [];
   for (const t of todo) {
-    const ticket = await createTicket(user.projectId, t.el.title, t.summary, { ticketTypeId: type.id, dynamicMetadata: t.meta, requesterId: user.id });
+    const ticket = await createTicket(user.projectId, t.el.title, t.summary, { ticketTypeId: type.id, dynamicMetadata: t.meta, requesterId: user.id, via: 'planning' });
     await pool.query('UPDATE wbs_elements SET ticket_id=$2 WHERE id=$1', [t.el.id, ticket.id]);
     created.push({ elementId: t.el.id, ticketId: ticket.id });
   }

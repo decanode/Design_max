@@ -184,6 +184,7 @@ export class ScriptedChatAgent implements ChatAgent {
       if (f.key === 'priority') fields.priority = urgency; else if (f.key === 'impact') fields.impact = impact; else if (f.key === 'steps_to_reproduce') fields.steps_to_reproduce = first;
       else if (f.key === 'requested_for') fields.requested_for = ctx.userName; else if (f.key === 'catalog_item') fields.catalog_item = title;
     }
+    if (ctx.noTickets) return out({ reply: `Here is the full scope as I understand it:\n\n${markdown}\n\nThis project's tickets live in your own tracking tool, so I have not created anything. You can copy this scope into a ticket there.`, intent, stage: 'done', outcome: 'solution_given', deliverable: 'solution', scope: { title, markdown }, ticket: null, ready: false });
     const reply = `Here is the full scope as I understand it:\n\n${markdown}\n\n**Proposed ticket:** ${type ? type.name : 'Ticket'}: *${title}*\n\n**Shall I create this ticket?** Reply **yes** to confirm, or tell me what to change.`;
     return out({ reply, intent, stage: 'confirm', deliverable: 'ticket', scope: { title, markdown }, ticket: type ? { typeKey: type.key, title, fields } : null, ready: base.stackFit !== 'out_of_scope', quickReplies: ['Yes, create the ticket', 'I want to change something'] });
   }

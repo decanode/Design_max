@@ -3,6 +3,7 @@ import { assessFit, loadStackPolicy } from '../stacks.js';
 import { similar, type Embedder } from '../etl/vectorize.js';
 import { DocError } from '../errors.js';
 import { priorityFromMeta } from '../tickets.js';
+import { assertCap, projectMode } from '../rbac/modes.js';
 import { findTicketWorkflow, openTicketApproval } from '../approvals/engine.js';
 import { OutboxMailer, type Mail } from '../docs/mailer.js';
 import { loadWorkflow, typeFields, validateMetadata, type TypeField } from '../workflow/service.js';
@@ -119,7 +120,7 @@ export async function runTurn(conversationId: string, agent: ChatAgent, embedder
     try { knowledge = (await similar(pool, embedder, userText.slice(-1500), 4, policy?.allowed.map((a) => a.name), project.id)).map((h) => `[${h.source_type}] ${h.source_ref}: ${String(h.content).slice(0, 500)}`); } catch { /* the assistant works without it */ }
   }
   const ctx: PromptContext = {
-    persona: conv.persona, userName: opener, projectName: project.name, policy, ticketTypes: types.map(brief), knowledge,
+    persona: conv.persona, userName: opener, projectName: project.name, policy, ticketTypes: types.map(brief), knowledge, noTickets: !(await projectMode(project.id)).caps.native_ticket_create,
     state: { stage: conv.stage as Stage, intent: (conv.intent as Intent | null), deliverable: draft?.deliverable, scopeMarkdown: draft?.scope_md ?? null, ticket: draft?.ticket_type_key ? { typeKey: draft.ticket_type_key, title: draft.title, fields: draft.ticket_fields ?? {} } : null },
   };
   const turn: Turn = await agent.turn(history, ctx);
@@ -133,7 +134,7 @@ export async function runTurn(conversationId: string, agent: ChatAgent, embedder
   const check = assessFit(userText, policy);
   const stackFit = turn.stackFit === 'in_scope' && check.fit !== 'in_scope' ? (check.fit === 'out_of_scope' ? 'unclear' : check.fit) : turn.stackFit;
   const stackNote = turn.stackNote || (stackFit !== 'in_scope' ? check.note : '');
-  const ready = turn.ready && turn.stage === 'confirm' && !!turn.scope && !!type && turn.deliverable !== 'solution' && missing.length === 0 && stackFit !== 'out_of_scope';
+  const ready = !ctx.noTickets && turn.ready && turn.stage === 'confirm' && !!turn.scope && !!type && turn.deliverable !== 'solution' && missing.length === 0 && stackFit !== 'out_of_scope';
 
   const message = await addMessage(conversationId, 'assistant', 'Design Max', turn.reply);
   const outcome = turn.outcome ?? conv.outcome ?? null;
@@ -167,6 +168,7 @@ export async function verifyDraft(conversationId: string) {
     if (d.stack_fit === 'out_of_scope') throw new VerifyError(d.stack_note || 'This request is outside the project\'s allowed technology. Rephrase it, or raise it in the right project.');
     if (!d.ready) throw new VerifyError(d.missing?.length ? `The ticket still needs: ${(d.missing as string[]).join(', ')}. Keep chatting and I will ask for it.` : 'The scope is not final yet. Keep chatting until I have shown you the full scope and asked you to confirm it.');
     const conv = (await client.query('SELECT project_id, customer_id, opened_by, persona FROM conversations WHERE id=$1', [conversationId])).rows[0];
+    try { await assertCap(conv.project_id, 'native_ticket_create', client); } catch (e) { throw e instanceof DocError ? new VerifyError(e.message) : e; }
     const wf = await loadWorkflow(conv.project_id, client);
     const types = wf.ticketTypes.filter((t) => t.enabled);
     const type = types.find((t) => t.key === d.ticket_type_key) ?? types.find((t) => t.isDefault) ?? types[0];

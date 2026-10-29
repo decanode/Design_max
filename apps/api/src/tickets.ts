@@ -3,6 +3,7 @@ import { pool } from './db.js';
 import { qaGateProblem } from './docs/settings.js';
 import { DocError } from './errors.js';
 import { findTicketWorkflow, openTicketApproval } from './approvals/engine.js';
+import { assertCap, projectMode } from './rbac/modes.js';
 import { OutboxMailer, type Mail, type Mailer } from './docs/mailer.js';
 import { nextPhases, resolveTicketType, typeFields, validateMetadata } from './workflow/service.js';
 
@@ -15,13 +16,14 @@ export const priorityFromMeta = (meta: Record<string, unknown>): 'Low' | 'Medium
   return m ? (['Critical', 'High', 'Medium', 'Low'] as const)[Number(m[1]) - 1] : null;
 };
 
-export interface CreateOpts { ticketTypeId?: number; dynamicMetadata?: unknown; requesterId?: string | null; mailer?: Mailer; appUrl?: string }
+export interface CreateOpts { ticketTypeId?: number; dynamicMetadata?: unknown; requesterId?: string | null; mailer?: Mailer; appUrl?: string; via?: 'planning' }
 
 /**
  * Creates a ticket. If the project has an approval workflow for this kind of ticket, the ticket and its approval request are created
  * together and the ticket waits (approval_status 'pending') until every level signs off.
  */
 export async function createTicket(projectId: string, title: string, aiSummary?: string, opts: CreateOpts = {}) {
+  await assertCap(projectId, opts.via === 'planning' ? 'planning_convert' : 'native_ticket_create');   // tickets come from the source system in Connected and Mirror projects
   const type = await resolveTicketType(projectId, opts.ticketTypeId);
   if (!(await nextPhases(projectId, type.id, null)).length) throw new DocError(`${type.name} tickets have no starting phase in this project's workflow`, 409);
   const metadata = validateMetadata((await typeFields()).get(type.id) ?? [], opts.dynamicMetadata ?? {});   // checked against the type's form definition
@@ -56,13 +58,14 @@ const DOC_NAME: Record<string, string> = { FS: 'Functional Specification', TS: '
 export async function closingProblem(db: Pick<pg.Pool, 'query'>, ticketId: string, from: string, to: string): Promise<string | null> {
   const tones = (await db.query('SELECT name, tone FROM phases WHERE name = ANY($1)', [[from, to]])).rows as { name: string; tone: string }[];
   if (tones.find((t) => t.name === to)?.tone !== 'done' || tones.find((t) => t.name === from)?.tone === 'done') return null;
-  const t = (await db.query('SELECT ticket_type_id, customer_id, legacy_id FROM tickets WHERE id=$1', [ticketId])).rows[0];
+  const t = (await db.query('SELECT ticket_type_id, customer_id, legacy_id, project_id FROM tickets WHERE id=$1', [ticketId])).rows[0];
   if (!t) return null;
-  const need = (await db.query(
+  const { caps } = await projectMode(t.project_id, db);
+  const need = !caps.closing_gates ? [] : (await db.query(
     `SELECT d.kind FROM ticket_type_documents d WHERE d.ticket_type_id = $1 AND d.mode = 'required'
        AND NOT EXISTS (SELECT 1 FROM approval_requests r WHERE r.ticket_id = $2 AND r.kind = d.kind AND r.status = 'approved') ORDER BY d.kind`, [t.ticket_type_id, ticketId])).rows.map((r) => DOC_NAME[r.kind as string]);
   if (need.length) return `This ticket cannot be closed yet: ${need.join(', ')} must be approved first.`;
-  if (t.customer_id && !t.legacy_id) {
+  if (caps.customer_signoff && t.customer_id && !t.legacy_id) {
     const s = (await db.query('SELECT status FROM ticket_signoffs WHERE ticket_id=$1 ORDER BY requested_at DESC LIMIT 1', [ticketId])).rows[0]?.status;
     if (s !== 'approved') return s === 'pending' ? 'This ticket cannot be closed yet: the customer has been asked to confirm it and has not answered.'
       : 'This ticket cannot be closed without the approval of the customer who raised it. Ask them to confirm the resolution from the ticket page.';

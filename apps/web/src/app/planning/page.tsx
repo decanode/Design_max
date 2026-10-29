@@ -19,7 +19,7 @@ const ago = (iso: string) => new Date(iso).toLocaleString([], { dateStyle: 'medi
 export default function Planning() {
   const { me, can, loading } = useAuth();
   const mods = me?.project?.modules ?? {};
-  const charterOn = !!mods.project_charter, wbsOn = !!mods.wbs, ritmOn = !!mods.ritm_prep;      // each Planning section is switched on separately under Project settings → Modules
+  const charterOn = !!mods.project_charter, wbsOn = !!mods.wbs, ritmOn = !!mods.ritm_prep && me?.project?.caps?.planning_convert !== false;      // each Planning section is switched on separately under Project settings → Modules
   const enabled = charterOn || wbsOn || ritmOn;
   const steps = useMemo(() => (Object.keys(STEP_LABEL) as Step[]).filter((s) => (s === 'intake' || s === 'charter' ? charterOn : s === 'wbs' ? wbsOn : ritmOn)), [charterOn, wbsOn, ritmOn]);
   const [data, setData] = useState<PlanningState | null>(null);

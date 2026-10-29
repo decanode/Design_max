@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { pool } from '../db.js';
 import { needSuper } from '../rbac/auth.js';
 import { audit } from '../rbac/audit.js';
+import { MODES, capabilitiesOf, validateOverrides, type Mode } from '../rbac/modes.js';
 import { CATALOG, PROJECT_ADMIN_ROLE, PROJECT_KEYS, isKnownKey } from '../rbac/permissions.js';
 import { DocError } from '../errors.js';
 import { ALL_WRITE, FIELDS, FIELD_KEYS, LEVELS, resolveFieldAccess, validateFieldAccess } from '../tickets/fields.js';
@@ -109,7 +110,7 @@ export function registerPlatformRoutes(app: FastifyInstance) {
 
   app.get('/api/platform/projects', { preHandler: sup }, async () =>
     (await pool.query(
-      `SELECT p.id, p.name, p.status, p.created_at,
+      `SELECT p.id, p.name, p.status, p.created_at, p.operating_mode AS "operatingMode", p.mode_overrides AS "modeOverrides",
               (SELECT count(*)::int FROM project_members m WHERE m.project_id = p.id) AS members,
               (SELECT count(*)::int FROM tickets t WHERE t.project_id = p.id) AS tickets,
               COALESCE((SELECT json_agg(json_build_object('id', u.id, 'name', u.display_name, 'canCreateRoles', m.can_create_roles) ORDER BY u.display_name) FROM project_members m JOIN users u ON u.id = m.user_id JOIN roles r ON r.id = m.role_id
@@ -119,14 +120,14 @@ export function registerPlatformRoutes(app: FastifyInstance) {
 
   app.post('/api/platform/projects', { preHandler: sup }, async (req, reply) => {
     const b = z.object({
-      name: z.string().trim().min(2).max(80), stackIds: z.array(z.number().int()).default([]), projectTypeId: z.number().int().positive().optional(), templateTypeId: z.number().int().positive().optional(),
+      name: z.string().trim().min(2).max(80), stackIds: z.array(z.number().int()).default([]), projectTypeId: z.number().int().positive().optional(), templateTypeId: z.number().int().positive().optional(), operatingMode: z.enum(MODES).default('full'),
       admin: z.object({ email: z.string().email(), name: z.string().trim().max(80).optional() }).optional(),
     }).parse(req.body);
     if ((await pool.query('SELECT 1 FROM projects WHERE lower(name)=lower($1)', [b.name])).rowCount) throw new DocError('A project with that name already exists', 409);
     const c = await pool.connect();
     try {
       await c.query('BEGIN');
-      const id = (await c.query('INSERT INTO projects (name, created_by) VALUES ($1,$2) RETURNING id', [b.name, req.user!.id])).rows[0].id as string;
+      const id = (await c.query('INSERT INTO projects (name, created_by, operating_mode) VALUES ($1,$2,$3) RETURNING id', [b.name, req.user!.id, b.operatingMode])).rows[0].id as string;
       if (b.projectTypeId || b.templateTypeId) {       // the project starts with its type's methodology, phases and ticket types
         const tt = b.templateTypeId ?? (b.projectTypeId ? (await c.query('SELECT template_type_id FROM project_type_template_defaults WHERE project_type_id=$1', [b.projectTypeId])).rows[0]?.template_type_id : null);
         if (!tt) throw new DocError('Unknown project type or methodology', 400);
@@ -140,7 +141,7 @@ export function registerPlatformRoutes(app: FastifyInstance) {
         await c.query(`INSERT INTO project_members (project_id, user_id, role_id, added_by) SELECT $1,$2,id,$3 FROM roles WHERE name=$4`, [id, adminId, req.user!.id, PROJECT_ADMIN_ROLE]);
       }
       await c.query('COMMIT');
-      await audit(req, 'project.create', { id, name: b.name, admin: b.admin?.email ?? null }, id);
+      await audit(req, 'project.create', { id, name: b.name, mode: b.operatingMode, admin: b.admin?.email ?? null }, id);
       return reply.code(201).send({ id, adminId });
     } catch (e) { await c.query('ROLLBACK'); throw e; } finally { c.release(); }
   });
@@ -158,11 +159,15 @@ export function registerPlatformRoutes(app: FastifyInstance) {
 
   app.patch('/api/platform/projects/:id', { preHandler: sup }, async (req) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
-    const b = z.object({ name: z.string().trim().min(2).max(80).optional(), status: z.enum(['active', 'archived']).optional() }).parse(req.body);
+    const b = z.object({ name: z.string().trim().min(2).max(80).optional(), status: z.enum(['active', 'archived']).optional(), operatingMode: z.enum(MODES).optional(), modeOverrides: z.unknown().optional() }).parse(req.body);
+    const overrides = b.modeOverrides === undefined ? undefined : validateOverrides(b.modeOverrides);
     if (b.name && (await pool.query('SELECT 1 FROM projects WHERE lower(name)=lower($1) AND id<>$2', [b.name, id])).rowCount) throw new DocError('A project with that name already exists', 409);
-    const r = await pool.query('UPDATE projects SET name=COALESCE($2,name), status=COALESCE($3,status) WHERE id=$1 RETURNING name', [id, b.name ?? null, b.status ?? null]);
+    const before = (await pool.query('SELECT operating_mode FROM projects WHERE id=$1', [id])).rows[0];
+    if (!before) throw new DocError('Project not found', 404);
+    const r = await pool.query('UPDATE projects SET name=COALESCE($2,name), status=COALESCE($3,status), operating_mode=COALESCE($4,operating_mode), mode_overrides=COALESCE($5::jsonb,mode_overrides) WHERE id=$1 RETURNING name, operating_mode', [id, b.name ?? null, b.status ?? null, b.operatingMode ?? null, overrides ? JSON.stringify(overrides) : null]);
     if (!r.rowCount) throw new DocError('Project not found', 404);
-    await audit(req, 'project.update', { id, ...b }, id);
+    await audit(req, 'project.update', { id, name: b.name, status: b.status }, id);
+    if (b.operatingMode || overrides) await audit(req, 'project.mode', { id, from: before.operating_mode as Mode, to: r.rows[0].operating_mode as Mode, overrides: overrides ?? null, capabilities: capabilitiesOf(r.rows[0].operating_mode, overrides ?? {}) }, id);
     return { ok: true };
   });
 

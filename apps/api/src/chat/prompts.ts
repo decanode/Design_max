@@ -21,6 +21,7 @@ export interface TicketTypeBrief { key: string; name: string; description: strin
 export interface WorkingState { stage: Stage; intent: Intent | null; scopeMarkdown?: string | null; ticket?: { typeKey: string; title: string; fields: Record<string, unknown> } | null; deliverable?: string }
 export interface PromptContext {
   persona: Persona; userName: string; projectName: string; policy: StackPolicy | null; ticketTypes: TicketTypeBrief[]; knowledge?: string[]; state: WorkingState; today?: string;
+  noTickets?: boolean;      // this project's tickets live in another tool, so the assistant must not offer to create one
 }
 
 /* ------------------------------------------------------------------ 1. who the assistant is */
@@ -137,6 +138,7 @@ export function buildSystemPrompt(c: PromptContext): string {
     c.persona === 'customer' ? PERSONA_CUSTOMER : PERSONA_TEAM,
     STAGES,
     `PROJECT CONTEXT\n- Project: ${c.projectName}\n- Speaking with: ${c.userName} (${c.persona === 'customer' ? 'customer' : 'team member'})\n- Today: ${c.today ?? new Date().toISOString().slice(0, 10)}`,
+    c.noTickets ? `TICKETS ARE NOT CREATED HERE\nThis project's tickets live in the customer's own tracking tool, so you cannot create tickets. Never offer to create or raise one and never ask for confirmation to create one. Help the person understand the problem, scope the work and design the solution; present the full scope in your final answer so they can copy it into their tool. Set "deliverable" to "solution", "ready" to false, and finish with stage "done" and outcome "solution_given" once you have given the scope or solution.` : '',
     stackInstruction(c.policy, 'observe'),
     ticketBlock(c.ticketTypes),
     c.knowledge?.length ? `PROJECT KNOWLEDGE (similar past tickets and assets; use only where it genuinely fits, say so when it does, and never present it as certain for this case)\n${c.knowledge.map((k) => `- ${k}`).join('\n')}` : '',

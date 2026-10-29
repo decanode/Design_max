@@ -1,4 +1,5 @@
 'use client';
+import { modeName } from '../lib/modes';
 import Link from 'next/link';
 import { useAuth } from '../lib/auth';
 
@@ -23,6 +24,7 @@ export function Nav({ current }: { current: Key }) {
           </select>
         </div>)}
       {me && me.projects.length === 1 && !isSuper && <span className="proj-name" title="Your project">{me.project?.name}</span>}
+      {me?.project && me.project.operatingMode && me.project.operatingMode !== 'full' && <span className={`mode-chip ${me.project.operatingMode}`} title={me.project.operatingMode === 'connected' ? 'Tickets come from the customer’s tool; chosen outcomes are sent back' : 'Read-only: tickets come from the customer’s tool and nothing is sent back'}>{modeName(me.project.operatingMode)}</span>}
       <nav aria-label="Primary">
         {inProject && link('/', 'board', 'Board', can('board.view'))}
         {inProject && link('/planning', 'planning', 'Planning', !!me?.project?.modules?.planning_module && can('planning.manage'))}

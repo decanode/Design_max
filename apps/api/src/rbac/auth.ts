@@ -3,6 +3,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { pool, runWithContext, type DbContext } from '../db.js';
 import { ALL_KEYS, PROJECT_ADMIN_ROLE } from './permissions.js';
 import { effectiveFields, effectivePerms } from './effective.js';
+import { capabilitiesOf, removedPermissions, type Caps, type Mode } from './modes.js';
 import { ALL_WRITE, resolveFieldAccess, type FieldAccess } from '../tickets/fields.js';
 
 /**
@@ -16,6 +17,7 @@ export interface SessionUser {
   roleId: number | null; roleName: string;
   canCreateRoles: boolean;                                // may create roles of their own for the project (Super Admins always; a Project Admin when a Super Admin allowed it)
   perms: Set<string>; fields: FieldAccess;
+  operatingMode: Mode; caps: Caps;                         // how much of the lifecycle this project runs here (rbac/modes.ts)
 }
 declare module 'fastify' { interface FastifyRequest { user: SessionUser | null } }
 
@@ -85,14 +87,18 @@ export async function loadUser(id: string, requestedProject?: string): Promise<S
   }
   if (!projectId && ms.length) { member = ms[0]; projectId = member.projectId; projectName = member.projectName; }   // default: first membership
 
-  const base = { id: u.id, email: u.email, name: u.display_name, isSuper: !!u.is_super_admin, projectId, projectName };
-  if (u.is_super_admin) return { ...base, roleId: member?.roleId ?? null, roleName: member?.roleName ?? 'Super Admin', canCreateRoles: true, perms: new Set(ALL_KEYS), fields: ALL_WRITE };
+  const pm = projectId ? (await pool.query('SELECT operating_mode, mode_overrides FROM projects WHERE id=$1', [projectId])).rows[0] : null;
+  const operatingMode: Mode = pm?.operating_mode ?? 'full';
+  const caps = capabilitiesOf(operatingMode, pm?.mode_overrides ?? {});
+  const gone = removedPermissions(caps);                  // permissions the mode takes away (for example creating tickets in a Connected project)
+  const base = { id: u.id, email: u.email, name: u.display_name, isSuper: !!u.is_super_admin, projectId, projectName, operatingMode, caps };
+  if (u.is_super_admin) return { ...base, roleId: member?.roleId ?? null, roleName: member?.roleName ?? 'Super Admin', canCreateRoles: true, perms: new Set([...ALL_KEYS].filter((k) => !gone.has(k))), fields: ALL_WRITE };
   if (!member) return { ...base, roleId: null, roleName: 'No project', canCreateRoles: false, perms: new Set(), fields: resolveFieldAccess([]) };
   const [perms, fields] = await Promise.all([
     effectivePerms(pool, member.projectId, member.roleId, member.roleName),
     effectiveFields(pool, member.projectId, member.roleId, member.roleName),
   ]);
-  return { ...base, roleId: member.roleId, roleName: member.roleName, canCreateRoles: member.canCreateRoles && member.roleName === PROJECT_ADMIN_ROLE, perms: new Set(perms), fields };
+  return { ...base, roleId: member.roleId, roleName: member.roleName, canCreateRoles: member.canCreateRoles && member.roleName === PROJECT_ADMIN_ROLE, perms: new Set(perms.filter((k) => !gone.has(k))), fields };
 }
 
 /** Resolves the session cookie (and the chosen-project cookie) from a raw Cookie header. */
