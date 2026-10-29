@@ -7,8 +7,9 @@ test('a Project Admin limits the project to SAP: off-stack requests are flagged 
     // The Project Admin ticks SAP for their project
     await pa.goto('/admin');
     await pa.getByRole('tab', { name: 'Technology' }).click();
-    await pa.getByLabel('SAP').check();
-    await expect(pa.getByRole('status')).toContainText('only in the ticked technologies');
+    await pa.getByLabel('SAP', { exact: true }).check();
+    await pa.getByRole('button', { name: 'Save technology' }).click();
+    await expect(pa.getByRole('status').filter({ hasText: 'Saved' })).toContainText('only in the ticked technologies');
 
     // The customer asks for something that needs another technology
     const cp = await custCtx.newPage();
@@ -38,8 +39,9 @@ test('a Project Admin limits the project to SAP: off-stack requests are flagged 
   } finally {
     await pa.reload();
     await pa.getByRole('tab', { name: 'Technology' }).click();
-    await pa.getByLabel('SAP').uncheck();
-    await expect(pa.getByRole('status')).toContainText('no technology restriction');
+    await pa.getByLabel('SAP', { exact: true }).uncheck();
+    await pa.getByRole('button', { name: 'Save technology' }).click();
+    await expect(pa.getByRole('status').filter({ hasText: 'Saved' })).toContainText('no technology restriction');
     await Promise.all([paCtx, custCtx].map((c) => c.close()));
   }
 });

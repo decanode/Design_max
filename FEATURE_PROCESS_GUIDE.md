@@ -103,6 +103,12 @@ Open **Chat** and press **Start a conversation**. Design Max greets you by name 
 
 ---
 
+### The Technology screen (Project Admin)
+**Project settings → Technology** is a set of cards, one per technology, each showing what the system recognises it by. Tick the ones this project works in and press **Save technology** (nothing changes until you save; **Discard** goes back). The banner at the top says whether the project is limited or unrestricted, with **Select all** and **Clear (no restriction)**.
+- **What this means for existing tickets:** as you tick, it counts how many existing tickets already mention technology outside your choice, with links to examples. They are not changed; it is a heads-up.
+- **Try a request:** paste something a customer might ask for and press **Check it** to see whether it would be *In scope*, *Check the scope* or *Outside the technology* under your current (unsaved) choice, and which terms triggered it.
+- **Where this applies:** the chat assistant, the specification and document drafts, and the warning on ticket pages.
+
 ## 5. The board, ticket types and the project template (dynamic workflows)
 
 **What it is.** How a project works is configured, not hard-coded. Each project has a **project type** (Implementation, Support, DevOps, Conversion), a **methodology** (Waterfall, Agile, Hybrid, ITIL), a set of **phases** it uses and a set of **ticket types** its people may create (Incident, Problem, Change Request, Request Item, WRICEF, Epic, Feature, Bug, Requirement). The board, the create form and the allowed moves all follow that configuration, so a Support project and an SAP implementation behave differently without any code change.

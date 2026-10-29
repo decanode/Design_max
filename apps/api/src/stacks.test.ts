@@ -207,3 +207,21 @@ describe('database-down detection', () => {
     expect(isDatabaseDown(null)).toBe(false);
   });
 });
+
+describe('technology screen helpers', () => {
+  it('"try a request" and "existing tickets" judge a choice without saving it', async () => {
+    const app = buildApp(); await app.ready();
+    const { makeUser } = await import('./testAuth.js');
+    const admin = await makeUser('Admin');
+    const call = async (url: string, payload: unknown) => (await app.inject({ method: 'POST', url, payload: payload as any, headers: { cookie: admin.cookie } }));
+    const sap = (await pool.query("SELECT id FROM tech_stacks WHERE name='SAP'")).rows[0].id as number;
+    const bad = (await call('/api/project/stacks/check', { text: 'Build a C# ASP.NET web API', stackIds: [sap] })).json();
+    expect(bad).toMatchObject({ fit: 'out_of_scope', restricted: true, allowedNames: ['SAP'] });
+    expect((await call('/api/project/stacks/check', { text: 'Block vendor in the BAPI', stackIds: [sap] })).json().fit).toBe('in_scope');
+    expect((await call('/api/project/stacks/check', { text: 'Build a C# API', stackIds: [] })).json()).toMatchObject({ fit: 'in_scope', restricted: false });
+    expect((await call('/api/project/stacks/check', { text: 'x', stackIds: [99999] })).statusCode).toBe(400);
+    expect((await call('/api/project/stacks/impact', { stackIds: [] })).json()).toEqual({ checked: 0, flagged: 0, examples: [] });
+    expect((await call('/api/project/stacks/impact', { stackIds: [sap] })).statusCode).toBe(200);
+    await app.close();
+  });
+});

@@ -8,7 +8,8 @@ import { TemplateBuilder } from '../../components/TemplateBuilder';
 import { DocSettingsAdmin } from '../../components/DocSettingsAdmin';
 import { LifecycleAdmin } from '../../components/LifecycleAdmin';
 import { WorkflowAdmin } from '../../components/WorkflowAdmin';
-import { ActivityList, ProjectTech } from '../../components/consoleBits';
+import { TechnologyAdmin } from '../../components/TechnologyAdmin';
+import { ActivityList } from '../../components/consoleBits';
 import { RolesAdmin } from '../../components/people/RolesAdmin';
 import { MembersAdmin } from '../../components/people/MembersAdmin';
 import { TeamsAdmin } from '../../components/people/TeamsAdmin';
@@ -58,7 +59,7 @@ export default function ProjectSettings() {
         {t === 'fields' && can('admin.roles') && <FieldAdmin mode="project" flash={flash} />}
         {t === 'template' && can('admin.projects') && <TemplateBuilder flash={flash} />}
         {t === 'lifecycles' && can('admin.projects') && <LifecycleAdmin flash={flash} sub={sub} onSub={setSub} />}
-        {t === 'tech' && can('admin.projects') && <ProjectTech flash={flash} />}
+        {t === 'tech' && can('admin.projects') && <TechnologyAdmin flash={flash} />}
         {t === 'workflows' && can('admin.workflows') && <WorkflowAdmin flash={flash} />}
         {t === 'modules' && can('admin.projects') && <ModulesAdmin flash={flash} />}
         {t === 'documents' && can('admin.projects') && <DocSettingsAdmin flash={flash} />}

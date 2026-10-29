@@ -7,7 +7,7 @@ import { CATALOG, PROJECT_ADMIN_ROLE, PROJECT_KEYS, isKnownKey } from '../rbac/p
 import { effectiveFields, effectivePerms, overrideFlags } from '../rbac/effective.js';
 import { DocError } from '../errors.js';
 import { FIELDS, FIELD_KEYS, LEVELS, validateFieldAccess } from '../tickets/fields.js';
-import { setProjectStacks } from '../stacks.js';
+import { assessFit, setProjectStacks, type StackDef } from '../stacks.js';
 import { pickTemplate, stackKey } from '../docgen/templateLibrary.js';
 import { sampleDocument } from '../docgen/sample.js';
 import { KINDS } from '../docs/kinds.js';
@@ -175,7 +175,7 @@ export function registerProjectRoutes(app: FastifyInstance) {
 
   // ---------------- technology
   app.get('/api/project/stacks', { preHandler: settings }, async (req) => ({
-    catalog: (await pool.query('SELECT id, name, description FROM tech_stacks ORDER BY name')).rows,
+    catalog: (await pool.query('SELECT id, name, description, keywords FROM tech_stacks ORDER BY name')).rows,
     selected: (await pool.query('SELECT stack_id FROM project_stacks WHERE project_id=$1', [pid(req)])).rows.map((r) => r.stack_id as number),
   }));
 
@@ -189,6 +189,30 @@ export function registerProjectRoutes(app: FastifyInstance) {
     } catch (e) { await c.query('ROLLBACK'); throw e; } finally { c.release(); }
     await audit(req, 'project.stacks', { stackIds });
     return { ok: true };
+  });
+
+  /** The policy a set of stacks would give (null = no restriction), without saving anything: lets the screen try a choice before committing to it. */
+  const policyFor = async (stackIds: number[]) => {
+    const all = (await pool.query('SELECT id, name, description, keywords FROM tech_stacks ORDER BY name')).rows as StackDef[];
+    if (stackIds.some((id) => !all.some((a) => a.id === id))) throw new DocError('Unknown technology stack', 400);
+    const allowed = all.filter((a) => stackIds.includes(a.id));
+    return allowed.length ? { allowed, others: all.filter((a) => !stackIds.includes(a.id)) } : null;
+  };
+  /** "Try it": how a piece of text would be judged under the chosen technologies. */
+  app.post('/api/project/stacks/check', { preHandler: settings }, async (req) => {
+    const b = z.object({ text: z.string().trim().min(1).max(4000), stackIds: z.array(z.number().int()).max(50) }).parse(req.body);
+    const policy = await policyFor(b.stackIds);
+    const r = assessFit(b.text, policy);
+    return { ...r, restricted: !!policy, allowedNames: policy?.allowed.map((a) => a.name) ?? [] };
+  });
+  /** What a choice would mean for the tickets that already exist: how many mention technology outside it. */
+  app.post('/api/project/stacks/impact', { preHandler: settings }, async (req) => {
+    const b = z.object({ stackIds: z.array(z.number().int()).max(50) }).parse(req.body);
+    const policy = await policyFor(b.stackIds);
+    if (!policy) return { checked: 0, flagged: 0, examples: [] };
+    const rows = (await pool.query('SELECT id, title, ai_summary FROM tickets WHERE project_id=$1 ORDER BY updated_at DESC LIMIT 500', [pid(req)])).rows;
+    const hits = rows.map((t) => ({ id: t.id as string, title: t.title as string, ...assessFit(`${t.title}\n${t.ai_summary ?? ''}`, policy) })).filter((h) => h.fit !== 'in_scope');
+    return { checked: rows.length, flagged: hits.length, examples: hits.slice(0, 5).map((h) => ({ id: h.id, title: h.title, fit: h.fit, stacks: h.foreign.map((f) => f.stack) })) };
   });
 
   // ---------------- activity
