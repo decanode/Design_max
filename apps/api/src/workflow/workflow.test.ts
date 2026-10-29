@@ -19,6 +19,8 @@ const newProject = async (type?: string, template?: string) => {
   const admin = await makeUser('Admin', undefined, r.body.id);
   return { pid: r.body.id as string, admin };
 };
+/** Records an approved document approval, as the approval engine would have left it. */
+const approveDoc = (ticketId: string, kind: string) => pool.query(`INSERT INTO approval_requests (ticket_id, kind, version_number, workflow_name, levels, status, completed_at) VALUES ($1,$2,1,'test','[]','approved',now())`, [ticketId, kind]);
 const typeOf = async (key: string) => id('ticket_types', key);
 const move = (who: { cookie: string }, tid: string, to: string) => call(who, 'POST', `/api/tickets/${tid}/transition`, { to });
 
@@ -71,7 +73,11 @@ describe('Support project with ITIL phases', () => {
     expect(next.options).toEqual([{ to: 'Triage', gated: null }]);
     const skip = await move(admin, t.body.id, 'Closed');
     expect(skip.status).toBe(409); expect(skip.body.error).toMatch(/Illegal transition: New -> Closed/);
-    for (const to of ['Triage', 'In Progress', 'Pending', 'In Progress', 'Resolved', 'In Progress', 'Resolved', 'Closed']) expect((await move(admin, t.body.id, to)).status).toBe(200);
+    for (const to of ['Triage', 'In Progress', 'Pending', 'In Progress', 'Resolved', 'In Progress', 'Resolved']) expect((await move(admin, t.body.id, to)).status).toBe(200);
+    const blocked = await move(admin, t.body.id, 'Closed');                // an incident needs only its Unit Test, approved, to close
+    expect(blocked.status).toBe(409); expect(blocked.body.error).toMatch(/Unit Test must be approved/);
+    await approveDoc(t.body.id, 'TUT');
+    expect((await move(admin, t.body.id, 'Closed')).status).toBe(200);
     expect((await move(admin, t.body.id, 'Triage')).status).toBe(409);     // Closed is final
     expect((await pool.query('SELECT count(*)::int c FROM ticket_transitions WHERE ticket_id=$1', [t.body.id])).rows[0].c).toBe(9);
   });
@@ -80,7 +86,10 @@ describe('Support project with ITIL phases', () => {
     const t = (await call(admin, 'POST', '/api/tickets', { title: 'Patch', ticketTypeId: await typeOf('change'), dynamicMetadata: { change_type: 'Normal', risk: 'Low', implementation_plan: 'Apply', rollback_plan: 'Revert' } })).body;
     expect(t.current_state).toBe('New');
     expect((await move(admin, t.id, 'Triage')).status).toBe(409);        // incidents triage; changes are assessed
-    for (const to of ['Assessment', 'Change Approved', 'Implementation', 'Review', 'Closed']) expect((await move(admin, t.id, to)).status).toBe(200);
+    for (const to of ['Assessment', 'Change Approved', 'Implementation', 'Review']) expect((await move(admin, t.id, to)).status).toBe(200);
+    expect((await move(admin, t.id, 'Closed')).body.error).toMatch(/Code Review Checklist, Functional Specification, Technical Specification, Unit Test must be approved/);   // a change needs every document
+    for (const k of ['FS', 'TS', 'TUT', 'CRC']) await approveDoc(t.id, k);
+    expect((await move(admin, t.id, 'Closed')).status).toBe(200);
   });
 
   it('the database refuses an illegal move even when the application is bypassed', async () => {

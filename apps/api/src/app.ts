@@ -20,6 +20,7 @@ import { registerPlatformRoutes } from './platform/routes.js';
 import { registerPlanningRoutes } from './planning/routes.js';
 import { defaultPlanningAi, type PlanningAi } from './planning/ai.js';
 import { registerPeopleRoutes } from './project/peopleRoutes.js';
+import { registerTicketWorkRoutes } from './tickets/workRoutes.js';
 import { registerFlowRoutes } from './workflow/flowRoutes.js';
 import { registerBuilderRoutes } from './workflow/builderRoutes.js';
 import { registerWorkflowAdminRoutes } from './workflow/platformRoutes.js';
@@ -69,10 +70,10 @@ export function buildApp(deps: Partial<DocDeps> & { planningAi?: PlanningAi } = 
   app.get('/api/tickets', { preHandler: need('board.view') }, async (req) => {
     const s = ticketScope(req.user!, 1);
     const rows = (await pool.query(
-      `SELECT t.id, t.title, t.current_state, t.ai_summary, t.ticket_type_id, tt.name AS type_name, tt.short AS type_short, tt.key AS type_key, (ph.tone = 'done') AS is_done, t.approval_status, t.team_id, tm.name AS team_name, t.dynamic_metadata, t.legacy_id, t.legacy_source, t.created_at, t.updated_at, t.consultant_id,
+      `SELECT t.id, t.title, t.current_state, t.ai_summary, t.ticket_type_id, tt.name AS type_name, tt.short AS type_short, tt.key AS type_key, (ph.tone = 'done') AS is_done, t.approval_status, t.priority, t.due_date, t.seq, tt.short || '-' || t.seq AS key, t.customer_id, cu.display_name AS customer_name, (SELECT s.status FROM ticket_signoffs s WHERE s.ticket_id = t.id ORDER BY s.requested_at DESC LIMIT 1) AS signoff_status, t.team_id, tm.name AS team_name, t.dynamic_metadata, t.legacy_id, t.legacy_source, t.created_at, t.updated_at, t.consultant_id,
               c.display_name AS consultant, (t.consultant_id IS NOT NULL) AS is_assigned,
               EXISTS (SELECT 1 FROM approvals a WHERE a.ticket_id = t.id AND a.status = 'pending') AS awaiting_approval
-       FROM tickets t LEFT JOIN users c ON c.id = t.consultant_id LEFT JOIN ticket_types tt ON tt.id = t.ticket_type_id LEFT JOIN phases ph ON ph.name = t.current_state LEFT JOIN teams tm ON tm.id = t.team_id
+       FROM tickets t LEFT JOIN users c ON c.id = t.consultant_id LEFT JOIN users cu ON cu.id = t.customer_id LEFT JOIN ticket_types tt ON tt.id = t.ticket_type_id LEFT JOIN phases ph ON ph.name = t.current_state LEFT JOIN teams tm ON tm.id = t.team_id
        WHERE ${s.sql} ORDER BY t.updated_at DESC LIMIT 500`, s.params)).rows;
     return rows.map((r) => sanitizeTicket(r, req.user!.fields));      // column-level security: hidden fields never leave the server
   });
@@ -103,6 +104,7 @@ export function buildApp(deps: Partial<DocDeps> & { planningAi?: PlanningAi } = 
     title: { field: 'title', column: 'title' }, aiSummary: { field: 'ai_summary', column: 'ai_summary' },
     resolutionNotes: { field: 'resolution_notes', column: 'resolution_notes' }, acceptanceCriteria: { field: 'acceptance_criteria', column: 'acceptance_criteria' },
     dynamicMetadata: { field: 'details', column: 'dynamic_metadata' },
+    priority: { field: 'title', column: 'priority' }, dueDate: { field: 'title', column: 'due_date' },
   };
   app.patch('/api/tickets/:id', async (req, reply) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
@@ -110,6 +112,7 @@ export function buildApp(deps: Partial<DocDeps> & { planningAi?: PlanningAi } = 
       title: z.string().trim().min(1).max(200).optional(), aiSummary: z.string().max(20000).nullable().optional(),
       resolutionNotes: z.string().max(20000).nullable().optional(), acceptanceCriteria: z.string().max(20000).nullable().optional(),
       dynamicMetadata: z.record(z.string(), z.unknown()).optional(),
+      priority: z.enum(['Low', 'Medium', 'High', 'Critical']).optional(), dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
     }).strict().parse(req.body);
     const keys = Object.keys(b) as (keyof typeof b)[];
     if (!keys.length) return reply.code(400).send({ error: 'Nothing to change' });
@@ -176,6 +179,7 @@ export function buildApp(deps: Partial<DocDeps> & { planningAi?: PlanningAi } = 
   registerProjectRoutes(app);
   registerBuilderRoutes(app);
   registerFlowRoutes(app);
+  registerTicketWorkRoutes(app, { mailer: deps.mailer, appUrl: deps.appUrl });
   registerPeopleRoutes(app);
   registerPlanningRoutes(app, { ai: deps.planningAi ?? defaultPlanningAi() });
   registerWorkflowAdminRoutes(app);

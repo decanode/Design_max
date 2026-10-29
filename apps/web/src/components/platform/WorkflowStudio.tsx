@@ -7,7 +7,10 @@ import { Field } from '../people/shared';
 import { TONE_LABEL, type FieldKind } from '../../lib/workflow';
 
 type TField = { key: string; label: string; kind: FieldKind; options: string[]; required: boolean; help: string };
-type CType = { id: number; key: string; name: string; short: string; description: string; fields: TField[] };
+type DocMode = 'off' | 'optional' | 'required';
+type CType = { id: number; key: string; name: string; short: string; description: string; fields: TField[]; documents?: Record<string, DocMode> };
+const DOCS: { kind: string; label: string }[] = [{ kind: 'FS', label: 'Functional Specification' }, { kind: 'TS', label: 'Technical Specification' }, { kind: 'TUT', label: 'Unit Test' }, { kind: 'CRC', label: 'Code Review Checklist' }];
+const DEFAULT_DOCS: Record<string, DocMode> = { FS: 'optional', TS: 'optional', TUT: 'optional', CRC: 'optional' };
 type CPhase = { id: number; name: string; tone: keyof typeof TONE_LABEL; position: number; defaultOn: boolean; locked: boolean };
 type Edge = { ticketTypeId: number | null; from: number | null; to: number; gated: string | null };
 type Template = { id: number; key: string; name: string; description: string; phases: CPhase[]; ticketTypeIds: number[]; edges: Edge[] };
@@ -82,7 +85,7 @@ function TypesList({ ctx, open }: { ctx: Ctx; open: (s: string) => void }) {
 function TypePage({ id, ctx, back, open }: { id: string; ctx: Ctx; back: () => void; open: (s: string) => void }) {
   const isNew = id === 'new';
   const cur = ctx.cat.ticketTypes.find((t) => String(t.id) === id);
-  const start = useMemo(() => ({ name: cur?.name ?? '', short: cur?.short ?? '', description: cur?.description ?? '', fields: (cur?.fields ?? []).map((f) => ({ ...f, options: [...f.options] })) }), [cur]);
+  const start = useMemo(() => ({ name: cur?.name ?? '', short: cur?.short ?? '', description: cur?.description ?? '', fields: (cur?.fields ?? []).map((f) => ({ ...f, options: [...f.options] })), documents: { ...DEFAULT_DOCS, ...(cur?.documents ?? {}) } as Record<string, DocMode> }), [cur]);
   const [d, setD] = useState(start);
   const [busy, setBusy] = useState(false);
   useEffect(() => { setD(start); }, [start]);
@@ -96,13 +99,13 @@ function TypePage({ id, ctx, back, open }: { id: string; ctx: Ctx; back: () => v
   async function save(e: React.FormEvent) {
     e.preventDefault(); setBusy(true);
     try {
-      const body = { name: d.name, short: d.short, description: d.description, fields: d.fields };
+      const body = { name: d.name, short: d.short, description: d.description, fields: d.fields, documents: d.documents };
       if (isNew) { const r = await P('ticket-types', 'POST', { ...body, key: slug(d.name) }); ctx.flash('ok', 'Ticket type saved.'); await ctx.reload(); open(`type:${r.id}`); }
       else { await P(`ticket-types/${cur!.id}`, 'PUT', body); ctx.flash('ok', 'Ticket type saved.'); await ctx.reload(); }
     } catch (er) { ctx.flash('err', (er as Error).message); } finally { setBusy(false); }
   }
   async function duplicate() {
-    try { const r = await P('ticket-types', 'POST', { key: slug(`${d.name} copy ${Date.now() % 1000}`), name: `${d.name} copy`, short: d.short, description: d.description, fields: d.fields }); ctx.flash('ok', `Created “${d.name} copy”. Rename it and choose which methodologies carry it.`); await ctx.reload(); open(`type:${r.id}`); }
+    try { const r = await P('ticket-types', 'POST', { key: slug(`${d.name} copy ${Date.now() % 1000}`), name: `${d.name} copy`, short: d.short, description: d.description, fields: d.fields, documents: d.documents }); ctx.flash('ok', `Created “${d.name} copy”. Rename it and choose which methodologies carry it.`); await ctx.reload(); open(`type:${r.id}`); }
     catch (er) { ctx.flash('err', (er as Error).message); }
   }
   async function remove() {
@@ -132,6 +135,17 @@ function TypePage({ id, ctx, back, open }: { id: string; ctx: Ctx; back: () => v
                 {f.help && <span className="note">{f.help}</span>}</div>))}
             {d.fields.length === 0 && <p className="note" style={{ margin: 0 }}>No extra fields yet: people only give a title.</p>}
           </div>
+        </section>
+        <section className="pane drill-card wide" aria-labelledby="tt-docs">
+          <h4 id="tt-docs">Documents this kind of ticket uses</h4>
+          <p className="note" style={{ marginTop: 0 }}>An incident usually needs only evidence that it was tested; a change or a new requirement needs the full set. <b>Required</b> documents must be approved before a ticket of this kind can be closed. <b>Off</b> hides the document from these tickets.</p>
+          <ul className="doc-modes">
+            {DOCS.map((x) => (
+              <li key={x.kind}><span>{x.label}</span>
+                <span className="seg" role="radiogroup" aria-label={`${x.label} for ${d.name || 'this ticket type'}`}>
+                  {(['off', 'optional', 'required'] as DocMode[]).map((m) => <button key={m} type="button" role="radio" aria-checked={d.documents[x.kind] === m} onClick={() => setD({ ...d, documents: { ...d.documents, [x.kind]: m } })}>{m === 'off' ? 'Off' : m === 'optional' ? 'Optional' : 'Required to close'}</button>)}
+                </span></li>))}
+          </ul>
         </section>
         <section className="pane drill-card wide" aria-labelledby="tt-fields">
           <div className="row" style={{ justifyContent: 'space-between', margin: '0 0 8px' }}><h4 id="tt-fields" style={{ margin: 0 }}>Fields <span className="note">{d.fields.length}</span></h4>

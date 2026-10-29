@@ -10,14 +10,19 @@ import { ApprovalPanel, Timeline, type ApprovalRequest } from '../../../componen
 import { TypeDetails } from '../../../components/TypeDetails';
 import { useWorkflow, type TypeField } from '../../../lib/workflow';
 import { TicketDetails, type DetailTicket } from '../../../components/TicketDetails';
+import Link from 'next/link';
+import { ActivityFeed } from '../../../components/ticket/ActivityFeed';
+import { ClosurePanel, type Signoff } from '../../../components/ticket/ClosurePanel';
+import { DetailsSidebar, PriorityBadge } from '../../../components/ticket/DetailsSidebar';
 import { NoAccess, NoProject, useAuth } from '../../../lib/auth';
 
 const API = '';
 type Ver = { version: number; author: string | null; note: string | null; at: string };
 type Overview = {
   ticketType?: { id: number; key: string; name: string; short: string; fields: TypeField[] } | null;
-  ticket: DetailTicket & { dynamic_metadata?: Record<string, unknown>; type_short?: string; type_name?: string; team_id?: string | null; team_name?: string | null; current_state: string; approval_status?: 'none' | 'pending' | 'approved' | 'rejected'; customer_name?: string | null; consultant_name?: string | null; consultant_id?: string | null; is_assigned?: boolean };
+  ticket: DetailTicket & { dynamic_metadata?: Record<string, unknown>; type_short?: string; type_name?: string; team_id?: string | null; team_name?: string | null; current_state: string; approval_status?: 'none' | 'pending' | 'approved' | 'rejected'; key?: string; priority?: string; due_date?: string | null; created_at: string; updated_at: string; customer_name?: string | null; consultant_name?: string | null; consultant_id?: string | null; is_assigned?: boolean };
   fields: Record<string, 'hidden' | 'read' | 'write'>;
+  docRules?: Record<string, 'off' | 'optional' | 'required'>; approvedKinds?: string[]; signoff?: Signoff;
   docs: Record<Kind, { latest: { version_number: number; content_md: string }; versions: Ver[] } | null>;
   stacks?: string[]; stackWarnings?: { kind: Kind; stack: string; terms: string[] }[];
   approvals: { id: string; approver_id: string; kind: Kind | 'TICKET'; version_number: number; status: string; comment: string | null; approver: string; level_name: string | null }[];
@@ -49,19 +54,21 @@ export default function TicketPage() {
   const [diff, setDiff] = useState<DiffLine[] | null>(null);
   const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [activityTick, setActivityTick] = useState(0);
 
   const load = useCallback(async () => {
     const r = await fetch(`${API}/api/tickets/${id}`);
     if (!r.ok) return setMsg({ kind: 'err', text: 'Ticket not found.' });
     const data: Overview = await r.json();
-    setO(data);
+    setO(data); setActivityTick((n) => n + 1);
     return data;
   }, [id]);
 
   useEffect(() => { if (can('ticket.assign')) { fetch(`${API}/api/users/assignable`).then((r) => r.ok && r.json()).then((d) => d && setPeople(d)); fetch(`${API}/api/project/team-options`).then((r) => r.ok && r.json()).then((d) => d && setTeamOptions(d)); } }, [can]);
   useEffect(() => { if (!me) return; load().then((d) => {
     if (!d) return;
-    setKind(([...KINDS].reverse().find((k) => d.docs[k]) ?? 'FS') as Kind);
+    const usable = KINDS.filter((k) => d.docRules?.[k] !== 'off');
+    setKind(([...usable].reverse().find((k) => d.docs[k]) ?? usable[0] ?? 'FS') as Kind);
   }); }, [load, me]);
 
   const doc = o?.docs[kind] ?? null;
@@ -123,21 +130,12 @@ export default function TicketPage() {
   return (
     <>
       <Nav current="none" />
-      <main id="main">
-        <h2 style={{ marginTop: 0 }}>{o.ticket.type_short && <span className="type-tag" title={o.ticket.type_name} style={{ marginRight: 8, verticalAlign: 'middle' }}>{o.ticket.type_short}</span>}{o.ticket.title}</h2>
-        <div className="row" style={{ marginTop: -4 }}>
-          {o.fields.customer !== 'hidden' && <span className="note">Customer: {o.ticket.customer_name ?? '—'}</span>}
-          {o.fields.consultant !== 'hidden' && <span className="note">{o.fields.customer !== 'hidden' ? '· ' : ''}Consultant: {o.ticket.consultant_name ?? 'Unassigned'}</span>}
-          {o.fields.consultant === 'write' && !o.ticket.is_assigned && can('ticket.claim') && <button className="btn sm" disabled={busy} onClick={claim}>Claim this ticket</button>}
-          {o.fields.consultant === 'write' && can('ticket.assign') && (
-            <select aria-label="Assign consultant" value={o.ticket.consultant_id ?? ''} onChange={(e) => assign(e.target.value)}>
-              <option value="">Unassigned</option>{people.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </select>)}
-          {o.fields.consultant !== 'hidden' && (o.fields.consultant === 'write' && can('ticket.assign') && teamOptions.length > 0
-            ? <select aria-label="Assign team" value={o.ticket.team_id ?? ''} onChange={(e) => assignTeam(e.target.value)}><option value="">No team</option>{teamOptions.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</select>
-            : o.ticket.team_name ? <span className="note">· Team: {o.ticket.team_name}</span> : null)}
-        </div>
-        {(o.stacks?.length ?? 0) > 0 && <p className="note" style={{ marginTop: 0 }}>Project technology: <span className="stack-chips">{o.stacks!.map((t) => <span key={t} className="chip">{t}</span>)}</span></p>}
+      <main id="main" className="tk">
+        <nav className="crumbs" aria-label="Breadcrumb"><Link href="/" className="linklike">Board</Link><span aria-hidden> › </span><span aria-current="page">{o.ticket.key ?? o.ticket.title}</span></nav>
+        <header className="tk-head">
+          <h2>{o.ticket.type_short && <span className="type-tag" title={o.ticket.type_name} style={{ marginRight: 8, verticalAlign: 'middle' }}>{o.ticket.type_short}</span>}{o.ticket.key && <span className="tk-key">{o.ticket.key}</span>}{o.ticket.title}</h2>
+          <div className="tk-badges"><PriorityBadge p={o.ticket.priority} />{o.ticket.approval_status === 'pending' && <span className="tag warn">Awaiting approval</span>}{o.signoff?.latest?.status === 'pending' && <span className="tag warn">Awaiting customer</span>}</div>
+        </header>
         {(o.stackWarnings?.length ?? 0) > 0 && (
           <div className="scope-warn unclear" role="alert" style={{ marginBottom: 14 }}>
             <b>Possible off-stack content</b>
@@ -147,15 +145,17 @@ export default function TicketPage() {
           {STATES.map((s, i) => <li key={s} className={i < idx ? 'done' : i === idx ? 'cur' : ''} aria-current={i === idx ? 'step' : undefined}>{s}</li>)}
         </ol>
 
+        <div className="tk-grid">
+        <div className="tk-main">
         <TicketApproval o={o} meId={me.user.id} canResubmit={can('admin.workflows') || can('approval.request') || o.ticket.consultant_id === me.user.id || (o.ticket as { customer_id?: string }).customer_id === me.user.id} busy={busy} run={run} decision={decision} setDecision={setDecision} />
-        <PhaseMoves next={next} state={state} can={can('ticket.advance') && (o.ticket.approval_status ?? 'none') !== 'pending' && o.ticket.approval_status !== 'rejected'} busy={busy} onMove={(to) => run(() => fetch(`${API}/api/tickets/${id}/transition`, j({ to })), `Moved to ${to}.`)} />
+        {o.signoff && o.docRules && <ClosurePanel ticketId={id} docRules={o.docRules} approvedKinds={o.approvedKinds ?? []} signoff={o.signoff} canAsk={can('ticket.advance')} busy={busy} run={run} openDoc={(k) => { pick(k); document.getElementById('tk-docs')?.scrollIntoView({ behavior: 'smooth' }); }} />}
         <TicketDetails ticket={o.ticket} fields={o.fields} onSaved={() => load()} />
         {o.ticketType && <TypeDetails ticketId={id} typeName={o.ticketType.name} fields={o.ticketType.fields} values={o.ticket.dynamic_metadata} access={o.fields.details} onSaved={() => load()} />}
 
-        {!can('spec.view') ? <NoAccess what="the specifications" /> : (<>
+        {!can('spec.view') ? null : (<section id="tk-docs" className="tk-docs" aria-label="Documents">
         <div className="tabs" role="tablist" aria-label="Specification">
-          {KINDS.map((k) => (
-            <button key={k} role="tab" className="tab" aria-selected={kind === k} onClick={() => pick(k)}>
+          {KINDS.filter((k) => o.docRules?.[k] !== 'off').map((k) => (
+            <button key={k} role="tab" className="tab" data-required={o.docRules?.[k] === 'required' ? 'true' : undefined} aria-selected={kind === k} onClick={() => pick(k)}>
               {LABEL[k]}{o.docs[k] ? ` · v${o.docs[k]!.latest.version_number}` : ''}{k === kind && unresolved > 0 ? ` · ${unresolved} open` : ''}
             </button>
           ))}
@@ -217,7 +217,13 @@ export default function TicketPage() {
             </aside>
           </div>
         )}
-        </>)}
+        </section>)}
+        <ActivityFeed ticketId={id} version={activityTick} staff={can('ticket.view_all') || can('ticket.advance')} onPosted={() => load()} />
+        </div>
+        <DetailsSidebar t={{ ...o.ticket, id }} fields={o.fields} stacks={o.stacks} can={can} people={people} teamOptions={teamOptions} busy={busy} run={run}>
+          <PhaseMoves next={next} state={state} can={can('ticket.advance') && (o.ticket.approval_status ?? 'none') !== 'pending' && o.ticket.approval_status !== 'rejected'} busy={busy} onMove={(to) => run(() => fetch(`${API}/api/tickets/${id}/transition`, j({ to })), `Moved to ${to}.`)} />
+        </DetailsSidebar>
+        </div>
       </main>
     </>
   );

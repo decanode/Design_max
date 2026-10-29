@@ -321,3 +321,9 @@ Request: chat must distinguish customers from consultants and other roles; greet
 
 ### Module tiles (2026-10-29)
 - Modules screen is one grouped container (Project set-up / Planning & estimation / Governance & control). The single "AI Project Planning" switch is replaced by `project_charter`, `wbs`, `ritm_prep` (real, gate Planning steps and routes, dependencies enforced in `setModule`), plus eight "Coming soon" keys stored server-side. `planning_module` is kept true while any part is on (Nav + legacy API). Migration 028 gives existing Planning projects all three. Tests: `planning.test.ts` (+2), `planning.spec.ts` step updated.
+
+
+### Ticket work rewrite (2026-10-29)
+- Request: board too simple, ticket page awkward for IT people; incidents need only a test doc to close, CR/requirements all docs; a ticket cannot be closed without the creating customer's approval.
+- Built: migration 029 (ticket keys per project `seq`, `priority`, `due_date`; `ticket_type_documents` off/optional/required; `ticket_notes` (the old `ticket_comments` is the Jira/ServiceNow import); `ticket_signoffs`). `closingProblem()` in tickets.ts gates entering a Done phase (required docs approved + customer sign-off when customer_id and not legacy). Routes in tickets/workRoutes.ts (activity, notes, signoff request/decision/cancel); PATCH priority/dueDate. UI: ticket page (header, Details sidebar, Closing checklist, Activity), board List view + filters + richer cards, Documents card on the platform ticket type page.
+- Seeds: incident TUT required; change all four required; problem TUT optional; ritm all off; others unchanged (so existing waterfall flows are not newly blocked). Tests: tickets/work.test.ts, workflow.test.ts updated, e2e ticket-work.spec.ts and dynamic-workflow Scenario 1 updated.

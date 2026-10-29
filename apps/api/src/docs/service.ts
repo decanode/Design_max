@@ -72,6 +72,8 @@ async function buildContext(ticketId: string, kind: DocKind, embedder?: Embedder
 export async function generateDocument(ticketId: string, kind: DocKind, gen: DocGenerator, embedder?: Embedder) {
   const t = await getTicket(ticketId);
   const rule = RULES[kind];
+  const mode = (await pool.query('SELECT mode FROM ticket_type_documents WHERE ticket_type_id=$1 AND kind=$2', [t.ticket_type_id, kind])).rows[0]?.mode;
+  if (mode === 'off') throw new DocError(`${LABEL[kind]} is not used for this kind of ticket.`, 409);
   const ap = (await pool.query('SELECT approval_status FROM tickets WHERE id=$1', [ticketId])).rows[0]?.approval_status;
   if (ap === 'pending' || ap === 'rejected') throw new DocError(ap === 'pending' ? 'This ticket is waiting for approval. Documents can be generated once it is approved.' : 'This ticket was not approved. Send it for approval again first.', 409);
   if (!rule.generateIn.includes(t.current_state)) throw new DocError(`The ${kind} can only be generated ${generateHint(kind)} (ticket is in "${t.current_state}")`);
@@ -150,7 +152,7 @@ export async function viewApproval(token: string) {
   };
 }
 
-export async function ticketOverview(id: string, fields: FieldAccess) {
+export async function ticketOverview(id: string, fields: FieldAccess, userId?: string) {
   const base = await getTicket(id);
   const names = (await pool.query(
     `SELECT cu.display_name AS customer_name, co.display_name AS consultant_name, p.name AS project_name, (t.consultant_id IS NOT NULL) AS is_assigned, tm.name AS team_name FROM tickets t LEFT JOIN teams tm ON tm.id = t.team_id
@@ -170,7 +172,13 @@ export async function ticketOverview(id: string, fields: FieldAccess) {
     return latest ? assessFit(latest, policy).foreign.map((f) => ({ kind: k, ...f })) : [];
   });
   const stacks = policy?.allowed.map((a) => a.name) ?? [];
-  return { ticket, ticketType: ty && { ...ty, fields: typeDefs }, docs, approvals, requests: await requestsForTicket(id), stacks, stackWarnings, fields };
+  const docRules = Object.fromEntries(KINDS.map((k) => [k, 'optional'])) as Record<string, string>;
+  for (const r of (await pool.query('SELECT kind, mode FROM ticket_type_documents WHERE ticket_type_id=$1', [base.ticket_type_id])).rows) docRules[r.kind] = r.mode;
+  const approvedKinds = (await pool.query(`SELECT DISTINCT kind FROM approval_requests WHERE ticket_id=$1 AND status='approved'`, [id])).rows.map((r) => r.kind as string);
+  const signoff = await signoffOf(id, base, userId);
+  if (fields.customer === 'hidden' && signoff.latest) signoff.latest.customer = null;
+  const key = ty ? `${ty.short}-${base.seq}` : `T-${base.seq}`;
+  return { ticket: { ...ticket, key }, ticketType: ty && { ...ty, fields: typeDefs }, docRules, approvedKinds, signoff, docs, approvals, requests: await requestsForTicket(id), stacks, stackWarnings, fields };
 }
 
 /** Why the shared draft cannot be edited right now, or null when it can. */
@@ -210,4 +218,10 @@ async function ticketAsDocument(ticketId: string) {
   const fields = Object.entries((t.dynamic_metadata ?? {}) as Record<string, unknown>).map(([k, v]) => `- **${k.replace(/_/g, ' ')}:** ${String(v)}`).join('\n');
   const md = `# ${t.title}\n\n**Type:** ${t.type_name ?? 'Ticket'}\n\n${fields ? `## Details\n${fields}\n\n` : ''}${t.ai_summary ? `## Scope\n${t.ai_summary}\n` : ''}`;
   return { content_json: null, content_md: md, content_text: md };
+}
+
+/** Where the customer's sign-off stands: whether this ticket needs one, and the latest request. */
+export async function signoffOf(ticketId: string, t: { customer_id: string | null; legacy_id: string | null }, userId?: string) {
+  const last = (await pool.query('SELECT s.id, s.status, s.requested_at, s.decided_at, s.comment, u.display_name AS customer FROM ticket_signoffs s JOIN users u ON u.id = s.customer_id WHERE s.ticket_id=$1 ORDER BY s.requested_at DESC LIMIT 1', [ticketId])).rows[0] ?? null;
+  return { required: !!t.customer_id && !t.legacy_id, mine: !!userId && t.customer_id === userId, latest: last };
 }

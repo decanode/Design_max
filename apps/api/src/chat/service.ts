@@ -2,6 +2,7 @@ import { pool } from '../db.js';
 import { assessFit, loadStackPolicy } from '../stacks.js';
 import { similar, type Embedder } from '../etl/vectorize.js';
 import { DocError } from '../errors.js';
+import { priorityFromMeta } from '../tickets.js';
 import { findTicketWorkflow, openTicketApproval } from '../approvals/engine.js';
 import { OutboxMailer, type Mail } from '../docs/mailer.js';
 import { loadWorkflow, typeFields, validateMetadata, type TypeField } from '../workflow/service.js';
@@ -175,8 +176,8 @@ export async function verifyDraft(conversationId: string) {
     catch (e) { throw new VerifyError(e instanceof DocError ? `The ticket still needs details: ${Object.values((e.extra as { fieldErrors?: Record<string, string> })?.fieldErrors ?? {}).join('; ') || e.message}` : 'The ticket details are incomplete'); }
     // A customer's request belongs to the customer; a team member's ticket starts with that team member.
     const t = await client.query(
-      'INSERT INTO tickets (project_id, title, ai_summary, customer_id, consultant_id, ticket_type_id, dynamic_metadata) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id',
-      [conv.project_id, d.title, d.scope_md ?? d.summary, conv.persona === 'customer' ? conv.customer_id : null, conv.persona === 'team' ? conv.opened_by : null, type.id, JSON.stringify(meta)]);
+      'INSERT INTO tickets (project_id, title, ai_summary, customer_id, consultant_id, ticket_type_id, dynamic_metadata, priority) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id',
+      [conv.project_id, d.title, d.scope_md ?? d.summary, conv.persona === 'customer' ? conv.customer_id : null, conv.persona === 'team' ? conv.opened_by : null, type.id, JSON.stringify(meta), priorityFromMeta(meta) ?? 'Medium']);
     // If the project approves this kind of ticket, the ticket waits for sign-off; it and its approval request are created together.
     let approval: { workflow: string } | null = null; let mails: Mail[] = [];
     const wfa = await findTicketWorkflow(client, conv.project_id, type.id);

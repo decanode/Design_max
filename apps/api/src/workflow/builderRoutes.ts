@@ -22,6 +22,8 @@ export async function builderCatalog() {
   ]);
   const phases = new Map(ph.rows.map((p) => [p.id as number, p]));
   const fields = await typeFields();
+  const docRows = (await pool.query('SELECT ticket_type_id, kind, mode FROM ticket_type_documents')).rows;
+  const docsOf = (id: number) => Object.fromEntries(['FS', 'TS', 'TUT', 'CRC'].map((k) => [k, docRows.find((r) => r.ticket_type_id === id && r.kind === k)?.mode ?? 'optional']));
   return {
     projectTypes: pt.rows.map((p) => ({
       ...p, defaultTemplateId: ptt.rows.find((x) => x.project_type_id === p.id)?.template_type_id ?? null,
@@ -38,7 +40,7 @@ export async function builderCatalog() {
         edges: e.map((x) => ({ ticketTypeId: x.ticket_type_id, from: x.from_phase_id, to: x.to_phase_id, gated: x.gated_reason })),
       };
     }),
-    ticketTypes: ty.rows.map((t) => ({ ...t, fields: fields.get(t.id) ?? [] })),
+    ticketTypes: ty.rows.map((t) => ({ ...t, fields: fields.get(t.id) ?? [], documents: docsOf(t.id) })),
   };
 }
 

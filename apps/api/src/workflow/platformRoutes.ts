@@ -18,10 +18,15 @@ const FieldDef = z.object({
   if (f.kind === 'select' && !f.options.length) ctx.addIssue({ code: 'custom', message: `${f.label}: a choice field needs at least one option` });
   if (f.kind === 'select' && new Set(f.options).size !== f.options.length) ctx.addIssue({ code: 'custom', message: `${f.label}: options must be different` });
 });
-const TypeShape = z.object({ key: Key.optional(), name: z.string().trim().min(2).max(60), short: z.string().trim().min(2).max(6).transform((s) => s.toUpperCase()), description: z.string().trim().max(300).default(''), fields: z.array(FieldDef).max(30).default([]) });
+const TypeShape = z.object({ key: Key.optional(), name: z.string().trim().min(2).max(60), short: z.string().trim().min(2).max(6).transform((s) => s.toUpperCase()), description: z.string().trim().max(300).default(''), fields: z.array(FieldDef).max(30).default([]), documents: z.record(z.enum(['FS', 'TS', 'TUT', 'CRC']), z.enum(['off', 'optional', 'required'])).optional() });
 const uniqueKeys = (b: { fields: { key: string }[] }, ctx: z.RefinementCtx) => { if (new Set(b.fields.map((f) => f.key)).size !== b.fields.length) ctx.addIssue({ code: 'custom', message: 'Two fields share a key' }); };
 const TypeBody = TypeShape.superRefine(uniqueKeys);
 
+async function replaceDocuments(c: pg.PoolClient, typeId: number, docs?: Record<string, string>) {
+  if (!docs) return;
+  await c.query('DELETE FROM ticket_type_documents WHERE ticket_type_id=$1', [typeId]);
+  for (const [k, m] of Object.entries(docs)) if (m !== 'optional') await c.query('INSERT INTO ticket_type_documents (ticket_type_id, kind, mode) VALUES ($1,$2,$3)', [typeId, k, m]);
+}
 async function replaceFields(c: pg.PoolClient, typeId: number, fields: z.infer<typeof FieldDef>[]) {
   await c.query('DELETE FROM ticket_type_fields WHERE ticket_type_id=$1', [typeId]);
   let i = 0;
@@ -43,7 +48,7 @@ export function registerWorkflowAdminRoutes(app: FastifyInstance) {
     if ((await pool.query('SELECT 1 FROM ticket_types WHERE key=$1', [b.key])).rowCount) throw new DocError('A ticket type with that key already exists', 409);
     const id = await tx(async (c) => {
       const id = (await c.query('INSERT INTO ticket_types (key, name, short, description, sort) VALUES ($1,$2,$3,$4,(SELECT coalesce(max(sort),0)+1 FROM ticket_types)) RETURNING id', [b.key, b.name, b.short, b.description])).rows[0].id as number;
-      await replaceFields(c, id, b.fields); return id;
+      await replaceFields(c, id, b.fields); await replaceDocuments(c, id, b.documents); return id;
     });
     await audit(req, 'platform.ticket_type', { id, key: b.key }, null);
     return reply.code(201).send({ id });
@@ -52,7 +57,7 @@ export function registerWorkflowAdminRoutes(app: FastifyInstance) {
     const { id } = IdP.parse(req.params); const b = TypeBody.parse(req.body);
     await tx(async (c) => {
       if (!(await c.query('UPDATE ticket_types SET name=$2, short=$3, description=$4 WHERE id=$1', [id, b.name, b.short, b.description])).rowCount) throw new DocError('Ticket type not found', 404);
-      await replaceFields(c, id, b.fields);
+      await replaceFields(c, id, b.fields); await replaceDocuments(c, id, b.documents);
     });
     await audit(req, 'platform.ticket_type', { id }, null);
     return { ok: true };

@@ -58,11 +58,16 @@ test('Scenario 1: a Support project runs on ITIL phases, allows only Incident an
   await expect(u.getByRole('list', { name: 'Ticket lifecycle' })).toContainText('Triage');
   const next = u.getByRole('region', { name: 'Next phase' });
   await expect(next.getByRole('button')).toHaveCount(1);                       // from New the only move is Triage
-  for (const step of ['Triage', 'In Progress', 'Resolved', 'Closed']) {
+  for (const step of ['Triage', 'In Progress', 'Resolved']) {
     await next.getByRole('button', { name: `Move to ${step}` }).click();
     await expect(u.getByRole('listitem').filter({ hasText: new RegExp(`^${step}$`) })).toHaveAttribute('aria-current', 'step');
   }
-  await expect(u.getByText('Closed is the last phase of this ticket')).toBeVisible();
+  // an incident needs no specifications, only its Unit Test, approved, before it can be closed
+  const checklist = u.getByRole('region', { name: 'Closing checklist' });
+  await expect(checklist).toContainText('Unit Test approved');
+  await expect(u.getByRole('tab', { name: /Functional Spec/ })).toHaveCount(0);
+  await next.getByRole('button', { name: 'Move to Closed' }).click();
+  await expect(u.getByRole('alert').filter({ hasText: 'Unit Test must be approved' })).toBeVisible();
 });
 
 test('Scenario 2: an Implementation project offers WRICEF, renders its fields and saves them to dynamic_metadata', async ({ browser }) => {

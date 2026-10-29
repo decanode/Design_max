@@ -109,6 +109,20 @@ Open **Chat** and press **Start a conversation**. Design Max greets you by name 
 - **Try a request:** paste something a customer might ask for and press **Check it** to see whether it would be *In scope*, *Check the scope* or *Outside the technology* under your current (unsaved) choice, and which terms triggered it.
 - **Where this applies:** the chat assistant, the specification and document drafts, and the warning on ticket pages.
 
+## 4a. Working a ticket (the ticket page and the board)
+
+**The board** has two views, **Board** (columns per phase) and **List** (a sortable table; *Open only* by default). Filter by type, assignee (anyone, mine, unassigned), priority, and *Waiting on someone* (an approval or the customer). Each card shows the ticket key (for example INC-42), its priority, who has it, and flags such as *Awaiting approval*, *Awaiting customer* and *Overdue*.
+
+**The ticket page** is laid out like the tools IT teams know:
+- **Header:** type, key, title, priority, and the lifecycle strip.
+- **Details column (right):** Status with the moves allowed from here, Priority, Assignee (or *Claim this ticket*), Team, Reporter, Due date, Type, technology, project, created and updated. Each is editable where your role allows.
+- **Main column:** the ticket approval card (if the project approves new tickets), the **closing checklist**, the description and the type's own fields, the documents, and **Activity**.
+- **Activity** is one timeline of comments, phase moves, approvals and customer confirmations. Add a comment; team members can tick *Internal note* so the customer never sees it.
+
+**Documents depend on the kind of ticket.** Platform → Workflows → Ticket types → *Documents this kind of ticket uses* sets each of FS, TS, Unit Test and Code Review to **Off**, **Optional** or **Required to close**. Out of the box an **Incident** uses only its Unit Test (required to close), a **Change Request** uses and requires all four, a **Problem** has an optional Unit Test, and a **Request Item** uses none. Other kinds are unchanged. Documents set to Off disappear from those tickets.
+
+**Closing a ticket** (moving it into a finishing phase) is refused until: every document its type requires is approved, and, for a ticket raised by a customer, **that customer has confirmed it is resolved**. The team presses **Ask the customer to confirm** (the customer gets an email and a prompt on the ticket); the customer answers *Yes, it is resolved* or *No, it is not resolved* with a reason, and a refusal keeps the ticket open until it is asked again. Only the customer who raised the ticket can answer. Tickets raised internally, or migrated from Jira or ServiceNow, need no customer confirmation.
+
 ## 5. The board, ticket types and the project template (dynamic workflows)
 
 **What it is.** How a project works is configured, not hard-coded. Each project has a **project type** (Implementation, Support, DevOps, Conversion), a **methodology** (Waterfall, Agile, Hybrid, ITIL), a set of **phases** it uses and a set of **ticket types** its people may create (Incident, Problem, Change Request, Request Item, WRICEF, Epic, Feature, Bug, Requirement). The board, the create form and the allowed moves all follow that configuration, so a Support project and an SAP implementation behave differently without any code change.
