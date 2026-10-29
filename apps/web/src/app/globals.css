@@ -709,3 +709,7 @@ main:has(.settings-rail) { padding-left: calc(var(--rail-w) + 32px); }
 .wi-meta { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: flex-end; } .wi-meta .lc-select { width: auto; padding: 5px 28px 5px 8px; font-size: 12.5px; } .wi-num { width: 72px; padding: 5px 8px; font-size: 12.5px; } .wi-state { padding: 5px 28px 5px 8px; font-size: 12.5px; }
 @media (max-width: 760px) { .wi { grid-template-columns: 1fr; } .wi-meta { justify-content: flex-start; } }
 .suggest { display: grid; gap: 8px; margin: 10px 0; padding: 12px 14px; border: 1px dashed var(--accent); border-radius: 12px; background: color-mix(in srgb, var(--accent) 5%, var(--panel)); } .suggest ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+
+/* ---------- Write-back rules ---------- */
+.rule-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; } .rule { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel-2); } .rule.off { opacity: .6; }
+.rule .lc-select, .rule .lc-input { width: auto; padding: 6px 28px 6px 10px; font-size: 13.5px; } .rule-w { font-weight: 650; color: var(--muted); font-size: 13px; } .rule .fld-actions { align-items: center; }

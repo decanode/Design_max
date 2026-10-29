@@ -1,10 +1,12 @@
 'use client';
 
-type T = { legacy_source?: string | null; legacy_id?: string | null; source_url?: string | null; source_status?: string | null; source_updated_at?: string | null; source_removed_at?: string | null; current_state: string };
+import { j } from '../../lib/auth';
+
+type T = { id?: string; writeback_paused?: boolean; out_of_sync?: boolean; legacy_source?: string | null; legacy_id?: string | null; source_url?: string | null; source_status?: string | null; source_updated_at?: string | null; source_removed_at?: string | null; current_state: string };
 const NAME: Record<string, string> = { jira: 'Jira', servicenow: 'ServiceNow' };
 
 /** Where a mirrored ticket comes from, what the source says about it, and how that differs from our own status. */
-export function SourceCard({ t }: { t: T }) {
+export function SourceCard({ t, canPause, onChanged }: { t: T; canPause?: boolean; onChanged?: () => void }) {
   if (!t.legacy_source || !t.source_status) return null;
   const same = t.source_status.toLowerCase() === t.current_state.toLowerCase();
   return (
@@ -19,6 +21,8 @@ export function SourceCard({ t }: { t: T }) {
         <div><dt>Last read from source</dt><dd>{t.source_updated_at ? new Date(t.source_updated_at).toLocaleString() : '—'}</dd></div>
       </dl>
       <p className="note" style={{ margin: 0 }}>{same ? 'Both agree.' : 'Our status is our own working status. It is never sent to the source tool unless your project is set up to do so.'}</p>
+      {t.out_of_sync && <p className="scope-warn unclear" role="note" style={{ margin: 0 }}><b>Out of sync.</b> Someone changed this ticket in the source tool after we last read it, so a change from here was not sent.</p>}
+      {canPause && t.id && <label className="check"><input type="checkbox" checked={!!t.writeback_paused} onChange={async (e) => { await fetch(`/api/tickets/${t.id}/writeback-pause`, j({ paused: e.target.checked })); onChanged?.(); }} /> Do not send anything about this ticket to {NAME[t.legacy_source] ?? 'the source tool'}</label>}
       {t.source_removed_at && <p className="scope-warn unclear" role="note" style={{ margin: 0 }}><b>No longer found in the source.</b> It was missing from the last full read ({new Date(t.source_removed_at).toLocaleDateString()}). It may have been deleted or moved.</p>}
     </section>);
 }

@@ -5,6 +5,7 @@ import { applyTransition } from '../tickets.js';
 import type { TicketState } from '../tickets.js';
 import { DocError } from '../errors.js';
 import type { Mail, Mailer } from '../docs/mailer.js';
+import { enqueueEvent } from '../integrations/writeback.js';
 
 /**
  * Multi-level approval engine. A request freezes a copy of the workflow (levels, rules, approvers).
@@ -236,6 +237,7 @@ async function decide(lookup: (c: pg.PoolClient) => Promise<any>, decision: Deci
           await c.query(`UPDATE approval_requests SET status='approved', completed_at=now() WHERE id=$1`, [req.id]);
           const to = req.kind === 'TICKET' ? undefined : RULES[req.kind as DocKind].onApprove;
           if (req.kind === 'TICKET') await c.query(`UPDATE tickets SET approval_status='approved' WHERE id=$1`, [req.ticket_id]);
+          else await enqueueEvent(c, { type: 'document_approved', ticketId: req.ticket_id, docKind: req.kind, eventKey: `a${req.id}`, actorId: task.approver_id });
           if (to) await applyTransition(c, req.ticket_id, to, task.approver_id);
           mails.push(...await requesterMail(c, req, `Approved: ${NAME(req.kind as Kind)} – ${title}`, `All ${levels.length} approval level${levels.length > 1 ? 's' : ''} signed off.${req.kind === 'TICKET' ? ' Work on the ticket can now begin.' : to ? ` The ticket has moved to ${to}.` : ' The document is now locked.'}`));
         }

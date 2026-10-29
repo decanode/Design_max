@@ -167,6 +167,10 @@ export function registerPlatformRoutes(app: FastifyInstance) {
     const r = await pool.query('UPDATE projects SET name=COALESCE($2,name), status=COALESCE($3,status), operating_mode=COALESCE($4,operating_mode), mode_overrides=COALESCE($5::jsonb,mode_overrides) WHERE id=$1 RETURNING name, operating_mode', [id, b.name ?? null, b.status ?? null, b.operatingMode ?? null, overrides ? JSON.stringify(overrides) : null]);
     if (!r.rowCount) throw new DocError('Project not found', 404);
     await audit(req, 'project.update', { id, name: b.name, status: b.status }, id);
+    if (before.operating_mode === 'connected' && b.operatingMode && b.operatingMode !== 'connected') {           // leaving Connected: nothing waiting may leave afterwards
+      await pool.query(`UPDATE outbound_queue SET status='cancelled', last_error='The project left Connected mode' WHERE project_id=$1 AND status IN ('pending','failed')`, [id]);
+      await pool.query('UPDATE integration_connections SET writeback_enabled=false WHERE project_id=$1', [id]);
+    }
     if (b.operatingMode || overrides) await audit(req, 'project.mode', { id, from: before.operating_mode as Mode, to: r.rows[0].operating_mode as Mode, overrides: overrides ?? null, capabilities: capabilitiesOf(r.rows[0].operating_mode, overrides ?? {}) }, id);
     return { ok: true };
   });

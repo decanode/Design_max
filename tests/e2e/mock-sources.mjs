@@ -4,6 +4,9 @@ import { createServer } from 'node:http';
 
 const PORT = Number(process.env.MOCK_SOURCES_PORT ?? 4310);
 const requests = [];
+const state = { 1: 'In Progress', 2: 'Done' };
+const bodies = [];
+const readBody = (req) => new Promise((res) => { const c = []; req.on('data', (x) => c.push(x)); req.on('end', () => res(Buffer.concat(c).toString())); });
 const adf = (t) => ({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: t }] }] });
 const issue = (n, status, summary) => ({
   key: `PAY-${n}`,
@@ -13,13 +16,22 @@ const issue = (n, status, summary) => ({
   changelog: { histories: [{ created: '2024-03-02T10:00:00.000+0000', author: { displayName: 'Al Assignee' }, items: [{ field: 'status', fromString: 'To Do', toString: status }] }] },
 });
 
-createServer((req, res) => {
+createServer(async (req, res) => {
   const url = new URL(req.url, `http://localhost:${PORT}`);
   if (url.pathname === '/health') return res.end('ok');
+  if (url.pathname === '/__bodies') { res.setHeader('content-type', 'application/json'); return res.end(JSON.stringify(bodies)); }
   if (url.pathname === '/__requests') { res.setHeader('content-type', 'application/json'); return res.end(JSON.stringify(requests)); }
   requests.push(`${req.method} ${url.pathname}`);
   res.setHeader('content-type', 'application/json');
   if (url.pathname === '/rest/api/3/myself') return res.end(JSON.stringify({ displayName: 'Mock Jira bot' }));
-  if (url.pathname === '/rest/api/3/search/jql') return res.end(JSON.stringify({ issues: [issue(1, 'In Progress', 'Payment run fails on weekends'), issue(2, 'Done', 'Wrong currency on invoices')], isLast: true }));
+  if (url.pathname === '/rest/api/3/search/jql') return res.end(JSON.stringify({ issues: [issue(1, state[1], 'Payment run fails on weekends'), issue(2, state[2], 'Wrong currency on invoices')], isLast: true }));
+  const m = /^\/rest\/api\/3\/issue\/PAY-(\d)(\/.*)?$/.exec(url.pathname);
+  if (m) {
+    const n = Number(m[1]);
+    if (req.method === 'GET' && !m[2]) return res.end(JSON.stringify({ fields: { status: { name: state[n] }, updated: `2024-03-0${n + 1}T09:00:00.000+0000` } }));
+    if (req.method === 'GET' && m[2] === '/transitions') return res.end(JSON.stringify({ transitions: [{ id: '31', name: 'Finish', to: { name: 'Done' } }] }));
+    if (req.method === 'POST' && m[2] === '/transitions') { const b = JSON.parse(await readBody(req)); bodies.push({ path: url.pathname, b }); state[n] = 'Done'; res.statusCode = 204; return res.end(); }
+    if (req.method === 'POST' && m[2] === '/comment') { bodies.push({ path: url.pathname, b: JSON.parse(await readBody(req)) }); res.statusCode = 201; return res.end('{}'); }
+  }
   res.statusCode = 404; res.end('{}');
 }).listen(PORT, () => console.log(`mock sources on ${PORT}`));

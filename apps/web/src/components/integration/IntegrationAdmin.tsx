@@ -7,7 +7,7 @@ import { Field } from '../people/shared';
 import { modeName } from '../../lib/modes';
 
 type Run = { status: 'running' | 'ok' | 'error'; started_at: string; finished_at: string | null; created: number; updated: number; unchanged: number; failed: number; removed: number; error: string | null; full_scan: boolean };
-type Conn = { id: string; kind: 'jira' | 'servicenow'; name: string; baseUrl: string; username: string; config: Record<string, any>; enabled: boolean; syncIntervalMin: number; lastSyncAt: string | null; health: 'new' | 'ok' | 'error'; hasSecret: boolean; tickets: number; lastRun: Run | null };
+type Conn = { writebackEnabled: boolean; dryRun: boolean; queue: { pending: number; failed: number }; id: string; kind: 'jira' | 'servicenow'; name: string; baseUrl: string; username: string; config: Record<string, any>; enabled: boolean; syncIntervalMin: number; lastSyncAt: string | null; health: 'new' | 'ok' | 'error'; hasSecret: boolean; tickets: number; lastRun: Run | null };
 const KIND = { jira: { name: 'Jira', icon: '🔷' }, servicenow: { name: 'ServiceNow', icon: '🟩' } } as const;
 const when = (iso?: string | null) => (iso ? new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'never');
 const HEALTH = { new: ['Not synced yet', 'off'], ok: ['Healthy', 'ok'], error: ['Needs attention', 'bad'] } as const;
@@ -25,6 +25,7 @@ export function IntegrationAdmin({ flash, sub, onSub }: { flash: Flash; sub: str
   if (kind === 'conn' && (id === 'new' || conn)) return <ConnPage key={id} c={id === 'new' ? null : conn!} isSuper={isSuper} flash={flash} back={() => onSub(null)} done={async (newId) => { await load(); if (newId) onSub(`conn:${newId}`); }} />;
   if (kind === 'map' && conn) return <StatusMap key={id} c={conn} flash={flash} back={() => onSub(null)} />;
   if (kind === 'runs' && conn) return <Runs key={id} c={conn} back={() => onSub(null)} />;
+  if (kind === 'send' && conn) return <SendBack key={id} c={conn} isSuper={isSuper} flash={flash} back={async () => { await load(); onSub(null); }} reload={load} />;
   return <ConnList list={list} isSuper={isSuper} mode={me?.project?.operatingMode} open={onSub} flash={flash} reload={load} />;
 }
 
@@ -56,6 +57,7 @@ function ConnList({ list, isSuper, mode, open, flash, reload }: { list: Conn[]; 
                 <button type="button" className="btn ghost sm" onClick={() => open(`conn:${c.id}`)} aria-label={`Edit connection ${c.name}`}>Edit</button>
                 <button type="button" className="btn ghost sm" onClick={() => open(`map:${c.id}`)} aria-label={`Status mapping for ${c.name}`}>Status mapping</button>
                 <button type="button" className="btn ghost sm" onClick={() => open(`runs:${c.id}`)} aria-label={`Sync history for ${c.name}`}>Sync history</button>
+                {mode === 'connected' && <button type="button" className="btn ghost sm" onClick={() => open(`send:${c.id}`)} aria-label={`Send back settings for ${c.name}`}>Send back{c.queue.failed ? ` · ${c.queue.failed} failed` : c.queue.pending ? ` · ${c.queue.pending} waiting` : ''}</button>}
               </span>
             </div>
           </li>))}
@@ -183,5 +185,96 @@ function Runs({ c, back }: { c: Conn; back: () => void }) {
           {runs && runs.length === 0 && <tr><td colSpan={8} className="empty-row">No syncs yet.</td></tr>}
         </tbody></table></div>
       {open && <section className="pane drill-card" aria-label="Failed tickets"><h4>Tickets that could not be mirrored</h4><ul>{fails.map((f) => <li key={f.source_key + f.error}><b>{f.source_key}</b> <span className="note">{f.error}</span></li>)}</ul></section>}
+    </div>);
+}
+
+
+type Rule = { event: 'phase_entered' | 'document_approved' | 'signoff_approved' | 'ticket_closed'; action: 'status' | 'comment' | 'attach'; enabled: boolean; params: { phase?: string; docKind?: string; status?: string; template?: string; docKinds?: string[] } };
+type QItem = { id: string; action: string; payload: any; status: 'pending' | 'sent' | 'failed' | 'skipped' | 'cancelled'; dryRun: boolean; attempts: number; lastError: string | null; result: any; createdAt: string; sentAt: string | null; ticketId: string; ticketKey: string; title: string };
+const EVENTS: Record<Rule['event'], string> = { phase_entered: 'a ticket enters a phase', document_approved: 'a document is approved', signoff_approved: 'the customer confirms it is resolved', ticket_closed: 'a ticket is closed here' };
+const ACTIONS: Record<Rule['action'], string> = { status: 'set the status in the source tool to', comment: 'add a comment saying', attach: 'attach the approved document' };
+const DOCS: Record<string, string> = { FS: 'Functional Specification', TS: 'Technical Specification', TUT: 'Unit Test', CRC: 'Code Review Checklist' };
+const QSTATE = { pending: ['Waiting', 'off'], sent: ['Sent', 'ok'], failed: ['Failed', 'bad'], skipped: ['Not sent', 'off'], cancelled: ['Cancelled', 'off'] } as const;
+
+/** What a Connected project sends back to the source tool: the switches, the rules, and everything that is waiting or was sent. */
+function SendBack({ c, isSuper, flash, back, reload }: { c: Conn; isSuper: boolean; flash: Flash; back: () => void; reload: () => Promise<void> }) {
+  const [rules, setRules] = useState<Rule[] | null>(null);
+  const [saved, setSaved] = useState('');
+  const [phases, setPhases] = useState<string[]>([]);
+  const [queue, setQueue] = useState<QItem[]>([]);
+  const [busy, setBusy] = useState(false);
+  const loadQueue = useCallback(async () => setQueue(await api(`/api/project/integrations/${c.id}/queue`)), [c.id]);
+  useEffect(() => {
+    Promise.all([api(`/api/project/integrations/${c.id}/rules`), api(`/api/project/integrations/${c.id}/status-map`), loadQueue()])
+      .then(([r, m]) => { const list = r.map((x: Rule & { id: string }) => ({ event: x.event, action: x.action, enabled: x.enabled, params: x.params })); setRules(list); setSaved(JSON.stringify(list)); setPhases(m.phases.map((p: { name: string }) => p.name)); })
+      .catch((e) => flash('err', e.message));
+  }, [c.id, flash, loadQueue]);
+  if (!rules) return <div className="skeleton" style={{ height: 160 }} aria-busy="true" />;
+  const dirty = JSON.stringify(rules) !== saved;
+  const set = (i: number, patch: Partial<Rule>) => setRules(rules.map((r, k) => (k === i ? { ...r, ...patch } : r)));
+  const setParams = (i: number, p: Rule['params']) => set(i, { params: { ...rules[i].params, ...p } });
+
+  async function saveRules() { setBusy(true); try { await api(`/api/project/integrations/${c.id}/rules`, j({ rules }, 'PUT')); setSaved(JSON.stringify(rules)); flash('ok', 'Rules saved.'); } catch (e) { flash('err', (e as Error).message); } finally { setBusy(false); } }
+  async function toggle(body: object, ok: string) { try { await api(`/api/project/integrations/${c.id}/writeback`, j(body, 'PUT')); flash('ok', ok); await reload(); } catch (e) { flash('err', (e as Error).message); } }
+  async function act(path: string, ok: string) { try { await api(path, j({})); flash('ok', ok); await loadQueue(); await reload(); } catch (e) { flash('err', (e as Error).message); } }
+  async function sendNow() { setBusy(true); try { const r = await api(`/api/project/integrations/${c.id}/send`, j({})); flash('ok', `Sent ${r.sent}, not sent ${r.skipped}, failed ${r.failed}, will retry ${r.retry}.`); await loadQueue(); await reload(); } catch (e) { flash('err', (e as Error).message); } finally { setBusy(false); } }
+
+  return (
+    <div className="drill" role="region" aria-label={`Send back settings for ${c.name}`}>
+      <nav className="crumbs" aria-label="Breadcrumb"><button type="button" className="linklike" onClick={back}>Connections</button><span aria-hidden> › </span><span aria-current="page">{c.name}: send back</span></nav>
+      <section className="pane drill-card" aria-labelledby="sb-sw">
+        <h4 id="sb-sw">Sending</h4>
+        <label className="ds-rule"><span className="ds-rule-text"><b>Send changes back to {c.name}</b><span className="note">The master switch. Anyone who manages the project can switch it off; a Super Admin switches it on.</span></span>
+          <span className="switch"><input type="checkbox" role="switch" aria-label="Send changes back" checked={c.writebackEnabled} disabled={!isSuper && !c.writebackEnabled} onChange={(e) => toggle({ enabled: e.target.checked }, e.target.checked ? 'Sending is on.' : 'Sending is off. Nothing leaves while it is off.')} /><span className="track" aria-hidden /></span></label>
+        <label className="ds-rule"><span className="ds-rule-text"><b>Trial run</b><span className="note">While on, nothing is sent: each item is recorded with what would have been sent, so you can check the rules first. Only a Super Admin can turn it off.</span></span>
+          <span className="switch"><input type="checkbox" role="switch" aria-label="Trial run" checked={c.dryRun} disabled={!isSuper && c.dryRun} onChange={(e) => toggle({ dryRun: e.target.checked }, e.target.checked ? 'Trial run is on: nothing is sent.' : 'Trial run is off: matching changes are sent for real.')} /><span className="track" aria-hidden /></span></label>
+        {c.writebackEnabled && !c.dryRun && <p className="scope-warn unclear" role="note" style={{ margin: 0 }}><b>Live.</b> Changes matching the rules below are sent to {c.name}.</p>}
+      </section>
+
+      <section className="pane drill-card" aria-labelledby="sb-rules">
+        <div className="row" style={{ justifyContent: 'space-between', margin: '0 0 8px' }}><h4 id="sb-rules" style={{ margin: 0 }}>What to send</h4>
+          <button type="button" className="btn ghost sm" onClick={() => setRules([...rules, { event: 'phase_entered', action: 'status', enabled: true, params: {} }])}>+ Add a rule</button></div>
+        <p className="note" style={{ marginTop: 0 }}>Only what you list here is ever sent. Internal notes and our own working status never leave.</p>
+        <ol className="rule-list">
+          {rules.map((r, i) => (
+            <li key={i} className={`rule ${r.enabled ? '' : 'off'}`} role="group" aria-label={`Rule ${i + 1}`}>
+              <span className="rule-w">When</span>
+              <select className="lc-select" aria-label={`Rule ${i + 1} event`} value={r.event} onChange={(e) => set(i, { event: e.target.value as Rule['event'], params: {} })}>{Object.entries(EVENTS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select>
+              {r.event === 'phase_entered' && <select className="lc-select" aria-label={`Rule ${i + 1} phase`} value={r.params.phase ?? ''} onChange={(e) => setParams(i, { phase: e.target.value || undefined })}><option value="">any phase</option>{phases.map((p) => <option key={p}>{p}</option>)}</select>}
+              {r.event === 'document_approved' && <select className="lc-select" aria-label={`Rule ${i + 1} document`} value={r.params.docKind ?? ''} onChange={(e) => setParams(i, { docKind: e.target.value || undefined })}><option value="">any document</option>{Object.entries(DOCS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select>}
+              <span className="rule-w">then</span>
+              <select className="lc-select" aria-label={`Rule ${i + 1} action`} value={r.action} onChange={(e) => set(i, { action: e.target.value as Rule['action'] })}>{Object.entries(ACTIONS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select>
+              {r.action === 'status' && <input className="lc-input" aria-label={`Rule ${i + 1} status`} placeholder={c.kind === 'jira' ? 'for example Done' : 'for example Resolved'} value={r.params.status ?? ''} onChange={(e) => setParams(i, { status: e.target.value })} />}
+              {r.action === 'comment' && <input className="lc-input" style={{ minWidth: 260 }} aria-label={`Rule ${i + 1} comment`} placeholder="{{ticket.key}} reached {{phase}}" value={r.params.template ?? ''} onChange={(e) => setParams(i, { template: e.target.value })} />}
+              {r.action === 'attach' && r.event !== 'document_approved' && <span className="checks">{Object.entries(DOCS).map(([k, v]) => <label key={k} className="check"><input type="checkbox" checked={!!r.params.docKinds?.includes(k)} onChange={(e) => setParams(i, { docKinds: e.target.checked ? [...(r.params.docKinds ?? []), k] : (r.params.docKinds ?? []).filter((x) => x !== k) })} /> {v}</label>)}</span>}
+              <span className="fld-actions">
+                <label className="switch" title="Rule on or off"><input type="checkbox" role="switch" aria-label={`Rule ${i + 1} on`} checked={r.enabled} onChange={(e) => set(i, { enabled: e.target.checked })} /><span className="track" aria-hidden /></label>
+                <button type="button" className="btn ghost sm" aria-label={`Remove rule ${i + 1}`} onClick={() => setRules(rules.filter((_, k) => k !== i))}>✕</button></span>
+            </li>))}
+          {rules.length === 0 && <li className="note">No rules yet, so nothing is sent.</li>}
+        </ol>
+        <div className="row"><button type="button" className="btn" disabled={!dirty || busy} onClick={saveRules}>Save rules</button>{dirty && <span className="note">Unsaved changes</span>}</div>
+      </section>
+
+      <section className="pane drill-card" aria-labelledby="sb-q">
+        <div className="row" style={{ justifyContent: 'space-between', margin: '0 0 8px' }}><h4 id="sb-q" style={{ margin: 0 }}>What is waiting and what was sent</h4>
+          <button type="button" className="btn ghost sm" disabled={busy || !c.writebackEnabled} onClick={sendNow}>Send now</button></div>
+        <div className="data-wrap"><table className="data-table">
+          <caption className="sr">Outbound queue</caption>
+          <thead><tr><th scope="col">Ticket</th><th scope="col">What</th><th scope="col">State</th><th scope="col">Detail</th><th scope="col"><span className="sr">Actions</span></th></tr></thead>
+          <tbody>
+            {queue.map((q) => (
+              <tr key={q.id}>
+                <td><a href={`/tickets/${q.ticketId}`}><b>{q.ticketKey}</b></a><span className="note"> {q.title}</span></td>
+                <td>{q.action === 'status' ? `Set status to “${q.payload.status}”` : q.action === 'comment' ? `Comment: ${q.payload.body}` : `Attach ${(q.payload.kinds ?? []).map((k: string) => DOCS[k] ?? k).join(', ')}`}</td>
+                <td><span className={`status ${QSTATE[q.status][1]}`}>{QSTATE[q.status][0]}</span>{q.dryRun && <span className="note"> (trial)</span>}</td>
+                <td className="note">{q.lastError ?? q.result?.reason ?? (q.result?.dryRun ? 'Would have been sent' : q.result?.detail ?? (q.result?.attached ? `Attached ${q.result.attached.join(', ')}` : ''))}</td>
+                <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                  {['failed', 'skipped'].includes(q.status) && <button type="button" className="btn ghost sm" onClick={() => act(`/api/project/integrations/queue/${q.id}/retry`, 'Queued to try again.')}>Try again</button>}{' '}
+                  {['pending', 'failed'].includes(q.status) && <button type="button" className="btn ghost sm" onClick={() => act(`/api/project/integrations/queue/${q.id}/skip`, 'Cancelled.')}>Cancel</button>}</td>
+              </tr>))}
+            {queue.length === 0 && <tr><td colSpan={5} className="empty-row">Nothing queued yet.</td></tr>}
+          </tbody></table></div>
+      </section>
     </div>);
 }

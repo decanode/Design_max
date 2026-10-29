@@ -1,4 +1,4 @@
-import type { Connector, ConnectorConfig, SourceTicket, SourceUser } from './types.js';
+import type { Connector, ConnectorConfig, SourceNow, SourceTicket, SourceUser } from './types.js';
 
 export const TABLES = ['incident', 'problem', 'change_request'] as const;
 /** ServiceNow's own state numbers, per table, so the screen can show names instead of numbers. */
@@ -39,6 +39,35 @@ export class ServiceNowConnector implements Connector {
       this.users.set(id, { id, email: u?.email || undefined, name: u?.name });
     }
     return this.users.get(id);
+  }
+  /* ---- sending outcomes back (only the outbound queue calls these) */
+  private async find(ref: { key: string; type: string }) {
+    const [r] = await this.get(`/api/now/table/${ref.type}`, { sysparm_query: `number=${ref.key}`, sysparm_fields: 'sys_id,state,sys_updated_on', sysparm_limit: '1' });
+    if (!r) throw new Error(`ServiceNow has no ${ref.key} in ${ref.type}`);
+    return r;
+  }
+  private async write(method: 'PATCH' | 'POST', path: string, body: BodyInit, headers: Record<string, string>) {
+    const res = await this.f()(new URL(path, this.c.baseUrl), { method, body, headers: { Authorization: 'Basic ' + Buffer.from(`${this.c.username}:${this.c.secret}`).toString('base64'), Accept: 'application/json', ...headers } });
+    if (!res.ok) throw new Error(`ServiceNow answered ${res.status} ${res.statusText}`);
+  }
+  async current(ref: { key: string; type: string }): Promise<SourceNow> { const r = await this.find(ref); return { status: stateName(ref.type, r.state), updatedAt: asIso(r.sys_updated_on) }; }
+  async transitionTo(ref: { key: string; type: string }, status: string) {
+    const code = Object.entries(STATE_NAMES[ref.type] ?? {}).find(([, name]) => name.toLowerCase() === status.trim().toLowerCase())?.[0];
+    if (code === undefined) throw new Error(`ServiceNow ${ref.type} has no state called “${status}”. Known: ${Object.values(STATE_NAMES[ref.type] ?? {}).join(', ')}`);
+    const r = await this.find(ref);
+    await this.write('PATCH', `/api/now/table/${ref.type}/${r.sys_id}`, JSON.stringify({ state: code }), { 'Content-Type': 'application/json' });
+    return { detail: `Set ${ref.key} to ${status}` };
+  }
+  async addComment(ref: { key: string; type: string }, body: string) {
+    const r = await this.find(ref);
+    const field = this.c.config.commentField === 'comments' ? 'comments' : 'work_notes';          // internal notes by default: customers do not see them
+    await this.write('PATCH', `/api/now/table/${ref.type}/${r.sys_id}`, JSON.stringify({ [field]: body }), { 'Content-Type': 'application/json' });
+    return { detail: `Added a ${field === 'comments' ? 'comment' : 'work note'} to ${ref.key}` };
+  }
+  async attach(ref: { key: string; type: string }, file: { filename: string; mime: string; data: Buffer }) {
+    const r = await this.find(ref);
+    await this.write('POST', `/api/now/attachment/file?table_name=${encodeURIComponent(ref.type)}&table_sys_id=${r.sys_id}&file_name=${encodeURIComponent(file.filename)}`, new Uint8Array(file.data), { 'Content-Type': file.mime });
+    return { detail: `Attached ${file.filename} to ${ref.key}` };
   }
   async *pull(since: string | null): AsyncGenerator<SourceTicket> {
     const size = Number(this.c.config.pageSize ?? 100);

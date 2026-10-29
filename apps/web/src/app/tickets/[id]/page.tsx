@@ -149,7 +149,7 @@ export default function TicketPage() {
 
         <div className="tk-grid">
         <div className="tk-main">
-        <SourceCard t={o.ticket as never} />
+        <SourceCard t={o.ticket as never} canPause={!!me.project?.caps?.writeback && can('ticket.advance')} onChanged={() => load()} />
         <TicketApproval o={o} meId={me.user.id} canResubmit={can('admin.workflows') || can('approval.request') || o.ticket.consultant_id === me.user.id || (o.ticket as { customer_id?: string }).customer_id === me.user.id} busy={busy} run={run} decision={decision} setDecision={setDecision} />
         {o.signoff && o.docRules && <ClosurePanel ticketId={id} docRules={o.docRules} approvedKinds={o.approvedKinds ?? []} signoff={o.signoff} canAsk={can('ticket.advance')} busy={busy} run={run} openDoc={(k) => { pick(k); document.getElementById('tk-docs')?.scrollIntoView({ behavior: 'smooth' }); }} />}
         {(can('ticket.view_all') || can('ticket.advance') || can('ticket.claim')) && <WorkItems ticketId={id} people={people} canEdit={can('ticket.advance') || can('ticket.claim') || can('ticket.assign')} gate={!!me.project?.caps?.work_gate} onChanged={() => setActivityTick((n) => n + 1)} />}

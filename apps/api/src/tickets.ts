@@ -4,6 +4,7 @@ import { qaGateProblem } from './docs/settings.js';
 import { DocError } from './errors.js';
 import { findTicketWorkflow, openTicketApproval } from './approvals/engine.js';
 import { assertCap, projectMode } from './rbac/modes.js';
+import { enqueueEvent } from './integrations/writeback.js';
 import { OutboxMailer, type Mail, type Mailer } from './docs/mailer.js';
 import { nextPhases, resolveTicketType, typeFields, validateMetadata } from './workflow/service.js';
 
@@ -49,6 +50,12 @@ export async function createTicket(projectId: string, title: string, aiSummary?:
 
 export class TransitionError extends Error {}
 
+/** Does this move finish the ticket (into a Done phase from one that is not)? */
+async function closes(db: Pick<pg.Pool, 'query'>, from: string, to: string) {
+  const tones = (await db.query('SELECT name, tone FROM phases WHERE name = ANY($1)', [[from, to]])).rows as { name: string; tone: string }[];
+  return tones.find((t) => t.name === to)?.tone === 'done' && tones.find((t) => t.name === from)?.tone !== 'done';
+}
+
 const DOC_NAME: Record<string, string> = { FS: 'Functional Specification', TS: 'Technical Specification', TUT: 'Unit Test', CRC: 'Code Review Checklist' };
 
 /**
@@ -90,6 +97,9 @@ export async function applyTransition(client: pg.PoolClient, id: string, to: Tic
   if (!(await nextPhases(project_id, ticket_type_id, from, client)).some((n) => n.to === to)) throw new TransitionError(`Illegal transition: ${from} -> ${to}`);
   await assertMayClose(client, id, from, to);
   const { rows } = await client.query('UPDATE tickets SET current_state=$2 WHERE id=$1 RETURNING *', [id, to]);   // the database checks the same rule
+  const tid = (await client.query('SELECT max(id) AS id FROM ticket_transitions WHERE ticket_id=$1', [id])).rows[0].id;
+  await enqueueEvent(client, { type: 'phase_entered', ticketId: id, phase: to, eventKey: `t${tid}`, actorId });
+  if (await closes(client, from, to)) await enqueueEvent(client, { type: 'ticket_closed', ticketId: id, phase: to, eventKey: `c${tid}`, actorId });
   if (actorId) await client.query(
     'UPDATE ticket_transitions SET actor_id=$2 WHERE id=(SELECT max(id) FROM ticket_transitions WHERE ticket_id=$1)', [id, actorId]);
   return rows[0];

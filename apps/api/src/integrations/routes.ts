@@ -10,6 +10,8 @@ import type { Fetcher } from '../etl/types.js';
 import { encryptSecret } from './secrets.js';
 import { validateBaseUrl } from './url.js';
 import { connectorFor, runSync, toneOf, type ConnectionRow } from './sync.js';
+import { drainConnection } from './outbox.js';
+import { planFor } from './writeback.js';
 
 const Id = z.object({ id: z.string().uuid() });
 const Config = z.object({
@@ -31,11 +33,13 @@ export function registerIntegrationRoutes(app: FastifyInstance, deps: { fetch?: 
     if (!c) throw new DocError('Connection not found', 404);
     return c;
   };
-  const view = (c: Record<string, any>) => ({ id: c.id, kind: c.kind, name: c.name, baseUrl: c.base_url, username: c.username, config: c.config, enabled: c.enabled, syncIntervalMin: c.sync_interval_min, lastSyncAt: c.last_sync_at, health: c.health, hasSecret: !!c.secret_enc, tickets: c.tickets ?? 0, lastRun: c.last_run ?? null });
+  const view = (c: Record<string, any>) => ({ id: c.id, kind: c.kind, name: c.name, baseUrl: c.base_url, username: c.username, config: c.config, enabled: c.enabled, syncIntervalMin: c.sync_interval_min, lastSyncAt: c.last_sync_at, health: c.health, hasSecret: !!c.secret_enc, tickets: c.tickets ?? 0, lastRun: c.last_run ?? null,
+    writebackEnabled: c.writeback_enabled, dryRun: c.dry_run, queue: { pending: c.q_pending ?? 0, failed: c.q_failed ?? 0 } });
 
   app.get('/api/project/integrations', { preHandler: admin }, async (req) =>
     (await pool.query(
       `SELECT c.*, (SELECT count(*)::int FROM tickets t WHERE t.connection_id = c.id) AS tickets,
+              (SELECT count(*)::int FROM outbound_queue q WHERE q.connection_id = c.id AND q.status = 'pending') AS q_pending, (SELECT count(*)::int FROM outbound_queue q WHERE q.connection_id = c.id AND q.status = 'failed') AS q_failed,
               (SELECT row_to_json(r) FROM (SELECT status, started_at, finished_at, created, updated, unchanged, failed, removed, error, full_scan FROM sync_runs s WHERE s.connection_id = c.id ORDER BY started_at DESC LIMIT 1) r) AS last_run
        FROM integration_connections c WHERE c.project_id=$1 ORDER BY c.name`, [pid(req)])).rows.map(view));
 
@@ -133,5 +137,89 @@ export function registerIntegrationRoutes(app: FastifyInstance, deps: { fetch?: 
     } catch (e) { await c.query('ROLLBACK'); throw e; } finally { c.release(); }
     await audit(req, 'integration.status_map.apply', { id, moved });
     return { moved };
+  });
+  /* ------------------------------------------------------------------ sending outcomes back (Connected projects) */
+  const RuleIn = z.object({
+    event: z.enum(['phase_entered', 'document_approved', 'signoff_approved', 'ticket_closed']), action: z.enum(['status', 'comment', 'attach']), enabled: z.boolean().default(true),
+    params: z.object({ phase: z.string().max(60).optional(), docKind: z.enum(['FS', 'TS', 'TUT', 'CRC']).optional(), status: z.string().trim().max(100).optional(), template: z.string().max(2000).optional(), docKinds: z.array(z.enum(['FS', 'TS', 'TUT', 'CRC'])).max(4).optional() }).strict().default({}),
+  }).superRefine((r, ctx) => {
+    if (r.action === 'status' && !r.params.status) ctx.addIssue({ code: 'custom', message: 'Say which status to set in the source tool' });
+    if (r.action === 'comment' && !r.params.template?.trim()) ctx.addIssue({ code: 'custom', message: 'Write the comment to send' });
+    if (r.action === 'attach' && r.event !== 'document_approved' && !r.params.docKinds?.length) ctx.addIssue({ code: 'custom', message: 'Choose which documents to attach' });
+  });
+
+  app.put('/api/project/integrations/:id/writeback', { preHandler: admin }, async (req) => {
+    const { id } = Id.parse(req.params); const c = await load(req, id);
+    const b = z.object({ enabled: z.boolean().optional(), dryRun: z.boolean().optional() }).parse(req.body);
+    if (b.enabled || b.dryRun === false || (b.enabled === undefined && b.dryRun === undefined)) await assertCap(pid(req), 'writeback');
+    if (b.enabled === true && !c.secret_enc) throw new DocError('Add the connection’s credentials first', 409);
+    if (b.enabled === true) superOnly(req, 'switch sending on');
+    if (b.dryRun === false) superOnly(req, 'let a connection send for real');
+    await pool.query('UPDATE integration_connections SET writeback_enabled=COALESCE($2,writeback_enabled), dry_run=COALESCE($3,dry_run) WHERE id=$1', [id, b.enabled ?? null, b.dryRun ?? null]);
+    await audit(req, 'integration.writeback', { id, ...b });
+    return { ok: true };
+  });
+
+  app.get('/api/project/integrations/:id/rules', { preHandler: admin }, async (req) => {
+    const { id } = Id.parse(req.params); await load(req, id);
+    return (await pool.query('SELECT id, event, action, params, enabled FROM writeback_rules WHERE connection_id=$1 ORDER BY position, id', [id])).rows;
+  });
+  app.put('/api/project/integrations/:id/rules', { preHandler: admin }, async (req) => {
+    const { id } = Id.parse(req.params); await load(req, id); await assertCap(pid(req), 'writeback');
+    const b = z.object({ rules: z.array(RuleIn).max(40) }).parse(req.body);
+    const c = await pool.connect();
+    try {
+      await c.query('BEGIN');
+      await c.query('DELETE FROM writeback_rules WHERE connection_id=$1', [id]);
+      let pos = 0; for (const r of b.rules) await c.query('INSERT INTO writeback_rules (connection_id, project_id, event, action, params, enabled, position) VALUES ($1,$2,$3,$4,$5,$6,$7)', [id, pid(req), r.event, r.action, JSON.stringify(r.params), r.enabled, ++pos]);
+      await c.query('COMMIT');
+    } catch (e) { await c.query('ROLLBACK'); throw e; } finally { c.release(); }
+    await audit(req, 'integration.rules', { id, count: b.rules.length });
+    return { ok: true };
+  });
+
+  /** What would be sent for this ticket if this happened, without sending or saving anything. */
+  app.post('/api/project/integrations/:id/preview', { preHandler: admin }, async (req) => {
+    const { id } = Id.parse(req.params); await load(req, id);
+    const b = z.object({ ticketId: z.string().uuid(), event: z.enum(['phase_entered', 'document_approved', 'signoff_approved', 'ticket_closed']), phase: z.string().max(60).optional(), docKind: z.enum(['FS', 'TS', 'TUT', 'CRC']).optional() }).parse(req.body);
+    const t = (await pool.query('SELECT title, legacy_id, current_state FROM tickets WHERE id=$1 AND connection_id=$2 AND project_id=$3', [b.ticketId, id, pid(req)])).rows[0];
+    if (!t) throw new DocError('That ticket is not part of this connection', 404);
+    return (await planFor(pool, id, { type: b.event, ticketId: b.ticketId, eventKey: 'preview', phase: b.phase, docKind: b.docKind }, { key: t.legacy_id, title: t.title, phase: t.current_state })).map((p) => ({ action: p.action, payload: p.payload }));
+  });
+
+  app.get('/api/project/integrations/:id/queue', { preHandler: admin }, async (req) => {
+    const { id } = Id.parse(req.params); await load(req, id);
+    return (await pool.query(
+      `SELECT q.id, q.action, q.payload, q.status, q.dry_run AS "dryRun", q.attempts, q.last_error AS "lastError", q.result, q.created_at AS "createdAt", q.sent_at AS "sentAt", q.next_attempt_at AS "nextAttemptAt", t.id AS "ticketId", t.legacy_id AS "ticketKey", t.title
+       FROM outbound_queue q JOIN tickets t ON t.id = q.ticket_id WHERE q.connection_id=$1 ORDER BY q.created_at DESC LIMIT 100`, [id])).rows;
+  });
+  const queueItem = async (req: Parameters<typeof pid>[0], qid: string) => {
+    const q = (await pool.query('SELECT id, status FROM outbound_queue WHERE id=$1 AND project_id=$2', [qid, pid(req)])).rows[0];
+    if (!q) throw new DocError('Item not found', 404);
+    return q;
+  };
+  app.post('/api/project/integrations/queue/:id/retry', { preHandler: admin }, async (req) => {
+    const { id } = Id.parse(req.params); const q = await queueItem(req, id);
+    if (!['failed', 'skipped'].includes(q.status)) throw new DocError('Only items that failed or were skipped can be tried again', 409);
+    await pool.query(`UPDATE outbound_queue SET status='pending', attempts=0, next_attempt_at=now(), last_error=NULL, result=NULL, dry_run=(SELECT dry_run FROM integration_connections c WHERE c.id = connection_id) WHERE id=$1`, [id]);
+    return { ok: true };
+  });
+  app.post('/api/project/integrations/queue/:id/skip', { preHandler: admin }, async (req) => {
+    const { id } = Id.parse(req.params); const q = await queueItem(req, id);
+    if (!['pending', 'failed'].includes(q.status)) throw new DocError('That item is already finished', 409);
+    await pool.query(`UPDATE outbound_queue SET status='cancelled' WHERE id=$1`, [id]);
+    return { ok: true };
+  });
+  /** Send what is waiting now, instead of at the next scheduled pass. */
+  app.post('/api/project/integrations/:id/send', { preHandler: admin }, async (req) => {
+    const { id } = Id.parse(req.params); const c = await load(req, id); await assertCap(pid(req), 'writeback');
+    return drainConnection(c, { fetch: deps.fetch });
+  });
+  app.post('/api/tickets/:id/writeback-pause', { preHandler: need('ticket.advance') }, async (req) => {
+    const { id } = Id.parse(req.params); const { paused } = z.object({ paused: z.boolean() }).parse(req.body);
+    const r = await pool.query('UPDATE tickets SET writeback_paused=$2 WHERE id=$1 AND project_id=$3 AND connection_id IS NOT NULL', [id, paused, pid(req)]);
+    if (!r.rowCount) throw new DocError('This ticket is not linked to a source tool', 404);
+    await audit(req, 'ticket.writeback_pause', { ticketId: id, paused });
+    return { ok: true };
   });
 }

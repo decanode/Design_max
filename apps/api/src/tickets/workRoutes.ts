@@ -5,6 +5,7 @@ import { need, ticketVisible } from '../rbac/auth.js';
 import { audit } from '../rbac/audit.js';
 import { DocError } from '../errors.js';
 import { OutboxMailer, type Mailer } from '../docs/mailer.js';
+import { enqueueEvent } from '../integrations/writeback.js';
 
 const Id = z.object({ id: z.string().uuid() });
 const STATE_LABEL: Record<string, string> = { approved: 'approved', rejected: 'rejected', in_progress: 'is waiting for approval', cancelled: 'was withdrawn', superseded: 'was replaced' };
@@ -89,6 +90,7 @@ export function registerTicketWorkRoutes(app: FastifyInstance, deps: { mailer?: 
       await c.query('UPDATE ticket_signoffs SET status=$2, decided_at=now(), comment=$3 WHERE id=$1', [s.id, b.decision, b.comment ?? null]);
       if (b.comment) await c.query('INSERT INTO ticket_notes (ticket_id, project_id, author_id, body) VALUES ($1,$2,$3,$4)', [id, t.project_id, req.user!.id, b.comment]);
       await c.query('UPDATE tickets SET updated_at = now() WHERE id=$1', [id]);
+      if (b.decision === 'approved') await enqueueEvent(c, { type: 'signoff_approved', ticketId: id, eventKey: `s${s.id}`, actorId: req.user!.id });
       await c.query('COMMIT');
     } catch (e) { await c.query('ROLLBACK'); throw e; } finally { c.release(); }
     await audit(req, 'ticket.signoff.decision', { ticketId: id, decision: b.decision });

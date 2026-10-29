@@ -1,5 +1,5 @@
 import { adfToText } from '../etl/jira.js';
-import type { Connector, ConnectorConfig, SourceTicket, SourceUser } from './types.js';
+import type { Connector, ConnectorConfig, SourceNow, SourceTicket, SourceUser } from './types.js';
 
 const user = (u: any): SourceUser | undefined => (u ? { id: u.accountId ?? u.key ?? u.name, email: u.emailAddress, name: u.displayName ?? u.name } : undefined);
 const FIELDS = ['summary', 'description', 'status', 'issuetype', 'reporter', 'assignee', 'resolution', 'comment', 'attachment', 'priority', 'duedate', 'created', 'updated'];
@@ -26,6 +26,35 @@ export class JiraConnector implements Connector {
   async test() {
     const me = await this.get(this.flavor() === 'cloud' ? '/rest/api/3/myself' : '/rest/api/2/myself');
     return { detail: `Signed in as ${me.displayName ?? me.name ?? 'the integration user'}` };
+  }
+  /* ---- sending outcomes back (only the outbound queue calls these) */
+  private v = () => (this.flavor() === 'cloud' ? '3' : '2');
+  private async send(method: 'POST', path: string, body?: BodyInit | null, extra: Record<string, string> = {}) {
+    const res = await this.f()(new URL(path, this.c.baseUrl), { method, headers: { ...this.headers(), ...extra }, body });
+    if (!res.ok) throw new Error(`Jira answered ${res.status} ${res.statusText}${res.status === 400 || res.status === 403 ? `: ${(await res.text()).slice(0, 200)}` : ''}`);
+    return res;
+  }
+  async current(ref: { key: string }): Promise<SourceNow> {
+    const i = await this.get(`/rest/api/${this.v()}/issue/${encodeURIComponent(ref.key)}`, { fields: 'status,updated' });
+    return { status: i.fields.status.name, updatedAt: i.fields.updated };
+  }
+  async transitionTo(ref: { key: string }, status: string) {
+    const r = await this.get(`/rest/api/${this.v()}/issue/${encodeURIComponent(ref.key)}/transitions`);
+    const want = status.trim().toLowerCase();
+    const t = (r.transitions ?? []).find((x: any) => x.to?.name?.toLowerCase() === want) ?? (r.transitions ?? []).find((x: any) => x.name?.toLowerCase() === want);
+    if (!t) throw new Error(`Jira cannot move ${ref.key} to “${status}” from its current status. Available: ${(r.transitions ?? []).map((x: any) => x.to?.name ?? x.name).join(', ') || 'none'}`);
+    await this.send('POST', `/rest/api/${this.v()}/issue/${encodeURIComponent(ref.key)}/transitions`, JSON.stringify({ transition: { id: t.id } }), { 'Content-Type': 'application/json' });
+    return { detail: `Moved ${ref.key} to ${t.to?.name ?? status}` };
+  }
+  async addComment(ref: { key: string }, body: string) {
+    const payload = this.flavor() === 'cloud' ? { body: { type: 'doc', version: 1, content: [{ type: 'paragraph', content: [{ type: 'text', text: body }] }] } } : { body };
+    await this.send('POST', `/rest/api/${this.v()}/issue/${encodeURIComponent(ref.key)}/comment`, JSON.stringify(payload), { 'Content-Type': 'application/json' });
+    return { detail: `Commented on ${ref.key}` };
+  }
+  async attach(ref: { key: string }, file: { filename: string; mime: string; data: Buffer }) {
+    const form = new FormData(); form.append('file', new Blob([new Uint8Array(file.data)], { type: file.mime }), file.filename);
+    await this.send('POST', `/rest/api/${this.v()}/issue/${encodeURIComponent(ref.key)}/attachments`, form, { 'X-Atlassian-Token': 'no-check' });
+    return { detail: `Attached ${file.filename} to ${ref.key}` };
   }
   private jql(since: string | null) {
     const base = String(this.c.config.jql ?? 'issuetype is not EMPTY').replace(/\s+order\s+by\s.*$/i, '').trim();
