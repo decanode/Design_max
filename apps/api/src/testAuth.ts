@@ -46,9 +46,11 @@ export async function makeCustomUser(perms: string[], access: Record<string, 'hi
 export interface TestLevel { name?: string; rule?: 'any' | 'all'; users?: string[]; roles?: string[] }
 
 /** Inserts an approval workflow for a project directly (tests need precise control over who approves). Returns its id. */
-export async function makeWorkflow(o: { name?: string; projectId: string; kinds?: string[]; levels: TestLevel[]; active?: boolean }) {
-  const id = (await pool.query('INSERT INTO approval_workflows (name, kinds, project_id, active) VALUES ($1,$2,$3,$4) RETURNING id',
-    [o.name ?? `wf-${Math.random().toString(36).slice(2, 7)}`, o.kinds ?? ['FS', 'TS'], o.projectId, o.active ?? true])).rows[0].id as string;
+export async function makeWorkflow(o: { name?: string; projectId: string; kinds?: string[]; ticketTypes?: 'all-enabled' | number[]; levels: TestLevel[]; active?: boolean }) {
+  const types = o.ticketTypes === 'all-enabled'
+    ? (await pool.query('SELECT ticket_type_id FROM project_ticket_types WHERE project_id=$1 AND enabled', [o.projectId])).rows.map((r) => r.ticket_type_id as number) : (o.ticketTypes ?? []);
+  const id = (await pool.query('INSERT INTO approval_workflows (name, kinds, ticket_type_ids, project_id, active) VALUES ($1,$2,$3,$4,$5) RETURNING id',
+    [o.name ?? `wf-${Math.random().toString(36).slice(2, 7)}`, o.kinds ?? ['FS', 'TS'], types, o.projectId, o.active ?? true])).rows[0].id as string;
   for (const [i, l] of o.levels.entries()) {
     const lid = (await pool.query('INSERT INTO approval_levels (workflow_id, position, name, rule) VALUES ($1,$2,$3,$4) RETURNING id', [id, i + 1, l.name ?? `L${i + 1}`, l.rule ?? 'any'])).rows[0].id;
     for (const u of l.users ?? []) await pool.query(`INSERT INTO approval_level_approvers (level_id, kind, user_id) VALUES ($1,'user',$2)`, [lid, u]);

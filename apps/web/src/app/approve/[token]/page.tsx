@@ -5,7 +5,7 @@ import { Nav } from '../../../components/Nav';
 import { Markdown } from '../../../components/Markdown';
 
 const API = '';
-type View = { ticketTitle: string; kind: 'FS' | 'TS'; version: number; status: string; comment: string | null; content: string; level?: { name: string; position: number; of: number; workflow: string } };
+type View = { ticketTitle: string; kind: 'FS' | 'TS' | 'TUT' | 'CRC' | 'TICKET'; version: number; status: string; comment: string | null; content: string; level?: { name: string; position: number; of: number; workflow: string } };
 
 export default function Approve() {
   const { token } = useParams<{ token: string }>();
@@ -34,8 +34,8 @@ export default function Approve() {
       <main id="main" className="narrow">
         {error && <p role="alert" className="err">{error}</p>}
         {v && (<>
-          <h2 style={{ marginTop: 0 }}>{v.kind === 'FS' ? 'Functional' : 'Technical'} Specification: {v.ticketTitle}</h2>
-          <p className="note">Version {v.version}{v.level && <> · Level <b>{v.level.name}</b> ({v.level.position} of {v.level.of}) · {v.level.workflow}</>}</p>
+          <h2 style={{ marginTop: 0 }}>{v.kind === 'TICKET' ? 'New ticket' : v.kind === 'FS' ? 'Functional Specification' : v.kind === 'TS' ? 'Technical Specification' : v.kind === 'TUT' ? 'Technical Unit Test' : 'Code Review Checklist'}: {v.ticketTitle}</h2>
+          <p className="note">{v.kind === 'TICKET' ? 'Approval before work starts' : `Version ${v.version}`}{v.level && <> · Level <b>{v.level.name}</b> ({v.level.position} of {v.level.of}) · {v.level.workflow}</>}</p>
           <Markdown>{v.content}</Markdown>
           {done ? <p role="status" className="ok">{done}</p> : v.status !== 'pending' ? (
             <p role="status" className="note">This request is {v.status}{v.comment ? ` — “${v.comment}”` : ''}. No action is needed.</p>

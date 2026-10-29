@@ -69,7 +69,7 @@ export function buildApp(deps: Partial<DocDeps> & { planningAi?: PlanningAi } = 
   app.get('/api/tickets', { preHandler: need('board.view') }, async (req) => {
     const s = ticketScope(req.user!, 1);
     const rows = (await pool.query(
-      `SELECT t.id, t.title, t.current_state, t.ai_summary, t.ticket_type_id, tt.name AS type_name, tt.short AS type_short, tt.key AS type_key, (ph.tone = 'done') AS is_done, t.team_id, tm.name AS team_name, t.dynamic_metadata, t.legacy_id, t.legacy_source, t.created_at, t.updated_at, t.consultant_id,
+      `SELECT t.id, t.title, t.current_state, t.ai_summary, t.ticket_type_id, tt.name AS type_name, tt.short AS type_short, tt.key AS type_key, (ph.tone = 'done') AS is_done, t.approval_status, t.team_id, tm.name AS team_name, t.dynamic_metadata, t.legacy_id, t.legacy_source, t.created_at, t.updated_at, t.consultant_id,
               c.display_name AS consultant, (t.consultant_id IS NOT NULL) AS is_assigned,
               EXISTS (SELECT 1 FROM approvals a WHERE a.ticket_id = t.id AND a.status = 'pending') AS awaiting_approval
        FROM tickets t LEFT JOIN users c ON c.id = t.consultant_id LEFT JOIN ticket_types tt ON tt.id = t.ticket_type_id LEFT JOIN phases ph ON ph.name = t.current_state LEFT JOIN teams tm ON tm.id = t.team_id
@@ -78,7 +78,7 @@ export function buildApp(deps: Partial<DocDeps> & { planningAi?: PlanningAi } = 
   });
   app.post('/api/tickets', { preHandler: need('ticket.create') }, async (req, reply) => {
     const b = z.object({ title: z.string().trim().min(1).max(300), aiSummary: z.string().optional(), ticketTypeId: z.number().int().positive().optional(), dynamicMetadata: z.record(z.string(), z.unknown()).optional() }).parse(req.body);   // the project is the one you are working in, never taken from the request
-    return reply.code(201).send(sanitizeTicket(await createTicket(req.user!.projectId!, b.title, b.aiSummary, { ticketTypeId: b.ticketTypeId, dynamicMetadata: b.dynamicMetadata }), req.user!.fields));
+    return reply.code(201).send(sanitizeTicket(await createTicket(req.user!.projectId!, b.title, b.aiSummary, { ticketTypeId: b.ticketTypeId, dynamicMetadata: b.dynamicMetadata, requesterId: req.user!.id, mailer: deps.mailer, appUrl: deps.appUrl }), req.user!.fields));
   });
   /** Where this ticket can go next, according to its project's workflow; steps taken through documents and approvals say why they are not manual. */
   app.get('/api/tickets/:id/next', { preHandler: need('board.view') }, async (req, reply) => {

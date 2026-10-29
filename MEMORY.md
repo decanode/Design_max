@@ -311,3 +311,9 @@ Request: chat must distinguish customers from consultants and other roles; greet
 - Built: migration 026 (project_flows/_phases/_edges with RLS; `phases.project_id` for project-owned statuses; `next_phases()` prefers a project flow), `workflow/flowRoutes.ts` (effective lifecycle, validated save: start, reachability, no dead ends, a Done status, stranded tickets, gated doc steps preserved; restore; create/delete own statuses), `boardPhases` for board columns, methodology change blocked while customised, Project settings → Lifecycles UI (`LifecycleAdmin.tsx`). Super Admin uses the same screen inside a project.
 - Tests: `workflow/lifecycle.test.ts` (12), `tests/e2e/lifecycles.spec.ts`. Not done: renaming a status; changing the platform-wide standard flow already exists under Platform → methodologies.
 - Note: `feature_process_guide.md` is now `FEATURE_PROCESS_GUIDE.md` in the working tree (renamed outside this session); docs edited there.
+
+
+### Ticket-creation approvals (2026-10-29)
+- Request: approval workflows existed only for FS/TS/TUT/CRC; allow approval on creation of tickets (Incident, CR, any type), optional per type.
+- Built: migration 027 (workflow `ticket_type_ids`, kind `TICKET`, `tickets.approval_status`, trigger blocks moves while pending/rejected); engine `findTicketWorkflow/openTicketApproval/resubmitTicketApproval`; creation paths (REST, chat verify, planning convert) create ticket + request atomically; guard for docs/transitions; token page shows the ticket; workflow admin "New tickets" scope; ticket page "Ticket approval" card (approve/reject/resubmit/withdraw).
+- Tests: `approvals/ticketApprovals.test.ts` (7), chat test, `tests/e2e/ticket-approvals.spec.ts`. Not done: per-phase-move approvals, approval on ETL imports (intentionally none).

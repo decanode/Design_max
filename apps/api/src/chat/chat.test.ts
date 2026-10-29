@@ -8,7 +8,7 @@ import { AnthropicClient, GitHubModelsClient, GeminiClient } from './llm.js';
 import { LlmChatAgent, ScriptedChatAgent, type ChatMessage } from './agent.js';
 import { buildSystemPrompt, greeting, type PromptContext } from './prompts.js';
 import { createConversation, getDraft } from './service.js';
-import { makeUser, testProject } from '../testAuth.js';
+import { makeUser, makeProject, makeWorkflow, testProject } from '../testAuth.js';
 import { GeminiEmbedder, EMBEDDING_DIM } from '../etl/vectorize.js';
 
 const app = buildApp();
@@ -119,6 +119,25 @@ describe('customer journey', () => {
     const created = once(s, 'verified');
     s.emit('message', { conversationId: c, body: 'yes' });
     expect((await created).ticketId).toBeTruthy();
+    s.close();
+  });
+});
+
+describe('approval before work starts', () => {
+  it('a ticket created from chat waits for the project’s approval workflow, and the assistant says so', async () => {
+    const pid = await makeProject(`Chat approvals ${Math.random().toString(36).slice(2, 6)}`);
+    const u = await makeUser('Customer', undefined, pid); const mgr = await makeUser('Manager', undefined, pid);
+    await makeWorkflow({ projectId: pid, kinds: [], ticketTypes: 'all-enabled', levels: [{ users: [mgr.id] }] });
+    const c = (await createConversation(pid, undefined, { id: u.id, persona: 'customer', name: 'C' })).id;
+    const s = await open(u.cookie); await emit(s, 'join', { conversationId: c });
+    await say(s, c, 'Request a change or new feature');
+    await say(s, c, 'Add a vendor blocking flag to purchase orders');
+    await say(s, c, 'Buyers in procurement, deadline end of quarter');
+    const done = new Promise<any>((res) => s.on('message', (m) => /needs approval first/.test(m.body) && res(m)));
+    const r = await emit(s, 'verify', { conversationId: c });
+    expect(r.ticketId).toBeTruthy();
+    expect((await done).body).toMatch(/sent for approval|needs approval first/);
+    expect((await pool.query('SELECT approval_status FROM tickets WHERE id=$1', [r.ticketId])).rows[0].approval_status).toBe('pending');
     s.close();
   });
 });

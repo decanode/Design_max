@@ -14,6 +14,7 @@ test('customer is greeted, chooses a goal, reviews the full scope and confirms t
   const log = page.getByRole('log');
   await expect(log).toContainText('What would you like to do');
   await page.getByRole('group', { name: 'Quick replies' }).getByRole('button', { name: 'Report a problem' }).click();
+  await expect(log).toContainText('what were you trying to do');
 
   const unique = `Acme${Date.now()}`;
   await say(page, `Invoices for vendor ${unique} fail to post with a message`);
@@ -38,6 +39,7 @@ test('a customer who fixes it themselves raises nothing', async ({ page }) => {
   await page.goto('/chat');
   await page.getByRole('button', { name: 'Start a conversation' }).click();
   await page.getByRole('button', { name: 'Report a problem' }).click();
+  await expect(page.getByRole('log')).toContainText('what were you trying to do');
   await say(page, 'The monthly report shows no rows');
   await page.getByRole('button', { name: 'Let me try that first' }).click();
   await page.getByRole('button', { name: 'It worked, thanks' }).click();
@@ -53,6 +55,7 @@ test.describe('team member', () => {
     await page.goto('/chat');
     await page.getByRole('button', { name: 'Start a conversation' }).click();
     await page.getByRole('button', { name: 'Design a solution or logic' }).click();
+    await expect(page.getByRole('log')).toContainText('What exactly needs to happen');
     await say(page, 'Block vendor payments when bank details changed recently');
     await expect(page.getByRole('log')).toContainText('Edge cases');
     await say(page, 'No payment run on changed vendors; FI signs off; table LFBK');

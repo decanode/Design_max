@@ -12,28 +12,39 @@ import type { Mail, Mailer } from '../docs/mailer.js';
  * Decisions are serialized by locking the request row, so concurrent approvers can never double-advance a level.
  */
 import { RULES, LABEL, type DocKind } from '../docs/kinds.js';
-export type Kind = DocKind;
+export type Kind = DocKind | 'TICKET';
 export interface ApproverRef { kind: 'user' | 'role'; id: string | number; name: string }
 export interface LevelSnap { position: number; name: string; rule: 'any' | 'all'; approvers: ApproverRef[] }
 export interface Person { id: string; email: string; name: string }
 
 const hash = (t: string) => createHash('sha256').update(t).digest('hex');
 export const TOKEN_TTL_DAYS = 7;
-const label = (k: Kind) => LABEL[k].replace(/ (Specification|Checklist|Test)$/, '');
+const NAME = (k: Kind) => (k === 'TICKET' ? 'Ticket' : LABEL[k]);
 type Db = Pick<pg.Pool, 'query'>;
 
-/** The project's active workflow for this kind of document. Each project has its own; nothing is shared across projects. */
-export async function findWorkflow(db: Db, projectId: string, kind: Kind) {
-  const w = (await db.query(
-    `SELECT id, name FROM approval_workflows WHERE active AND NOT is_template AND project_id = $1 AND $2 = ANY(kinds) ORDER BY created_at LIMIT 1`, [projectId, kind])).rows[0];
-  if (!w) return null;
+async function loadLevels(db: Db, workflowId: string) {
   const levels = (await db.query(
     `SELECT l.position, l.name, l.rule,
             COALESCE(json_agg(json_build_object('kind', a.kind, 'id', COALESCE(a.user_id::text, a.role_id::text), 'name', COALESCE(u.display_name, r.name)) ORDER BY a.id) FILTER (WHERE a.id IS NOT NULL), '[]') AS approvers
      FROM approval_levels l LEFT JOIN approval_level_approvers a ON a.level_id = l.id LEFT JOIN users u ON u.id = a.user_id LEFT JOIN roles r ON r.id = a.role_id
-     WHERE l.workflow_id = $1 GROUP BY l.id ORDER BY l.position`, [w.id])).rows as LevelSnap[];
+     WHERE l.workflow_id = $1 GROUP BY l.id ORDER BY l.position`, [workflowId])).rows as LevelSnap[];
   levels.forEach((l) => l.approvers.forEach((a) => { if (a.kind === 'role') a.id = Number(a.id); }));
-  return { id: w.id as string, name: w.name as string, levels };
+  return levels;
+}
+
+/** The project's active workflow for this kind of document. Each project has its own; nothing is shared across projects. */
+export async function findWorkflow(db: Db, projectId: string, kind: DocKind) {
+  const w = (await db.query(
+    `SELECT id, name FROM approval_workflows WHERE active AND NOT is_template AND project_id = $1 AND $2 = ANY(kinds) ORDER BY created_at LIMIT 1`, [projectId, kind])).rows[0];
+  return w ? { id: w.id as string, name: w.name as string, levels: await loadLevels(db, w.id) } : null;
+}
+
+/** The project's active workflow that approves the creation of tickets of this type, if any. */
+export async function findTicketWorkflow(db: Db, projectId: string, ticketTypeId: number | null) {
+  if (ticketTypeId == null) return null;
+  const w = (await db.query(
+    `SELECT id, name FROM approval_workflows WHERE active AND NOT is_template AND project_id = $1 AND $2 = ANY(ticket_type_ids) ORDER BY created_at LIMIT 1`, [projectId, ticketTypeId])).rows[0];
+  return w ? { id: w.id as string, name: w.name as string, levels: await loadLevels(db, w.id) } : null;
 }
 
 /**
@@ -50,9 +61,9 @@ export async function resolveLevel(db: Db, level: LevelSnap, projectId: string):
 
 /** What would happen if this ticket's document were sent for approval now (shown to the requester first). */
 export async function approvalPlan(ticketId: string, kind: Kind, requesterId: string) {
-  const t = (await pool.query('SELECT project_id FROM tickets WHERE id=$1', [ticketId])).rows[0];
+  const t = (await pool.query('SELECT project_id, ticket_type_id FROM tickets WHERE id=$1', [ticketId])).rows[0];
   if (!t) throw new DocError('Ticket not found', 404);
-  const wf = await findWorkflow(pool, t.project_id, kind);
+  const wf = kind === 'TICKET' ? await findTicketWorkflow(pool, t.project_id, t.ticket_type_id) : await findWorkflow(pool, t.project_id, kind);
   if (!wf) return { workflow: null, levels: [] };
   const levels = [];
   for (const l of wf.levels) {
@@ -87,8 +98,8 @@ async function startLevel(c: pg.PoolClient, req: any, fromIndex: number, ticketT
           [req.ticket_id, p.id, req.kind, req.version_number, hash(token), String(TOKEN_TTL_DAYS), req.id, lvl.position, lvl.name]);
         mails.push({
           to: p.email,
-          subject: `Approval needed (${lvl.name} of ${levels[levels.length - 1].name}): ${LABEL[req.kind as Kind]} – ${ticketTitle}`,
-          body: `You are asked to approve at level ${lvl.name} (${lvl.rule === 'all' ? 'everyone at this level must approve' : 'any one approver is enough'}), version ${req.version_number}:\n\n${appUrl}/approve/${token}\n\nThis link is single-use and expires in ${TOKEN_TTL_DAYS} days. You can also decide inside the app.`,
+          subject: `Approval needed (${lvl.name} of ${levels[levels.length - 1].name}): ${NAME(req.kind as Kind)} – ${ticketTitle}`,
+          body: `You are asked to approve at level ${lvl.name} (${lvl.rule === 'all' ? 'everyone at this level must approve' : 'any one approver is enough'})${req.kind === 'TICKET' ? ', for this new ticket' : `, version ${req.version_number}`}:\n\n${appUrl}/approve/${token}\n\nThis link is single-use and expires in ${TOKEN_TTL_DAYS} days. You can also decide inside the app.`,
         });
       }
       await c.query('UPDATE approval_requests SET current_level=$2 WHERE id=$1', [req.id, lvl.position]);
@@ -105,7 +116,7 @@ async function requesterMail(c: pg.PoolClient, req: any, subject: string, body: 
   return u ? [{ to: u.email, subject, body }] : [];
 }
 
-export async function requestApproval(ticketId: string, kind: Kind, requester: { id: string }, mailer: Mailer, appUrl: string) {
+export async function requestApproval(ticketId: string, kind: DocKind, requester: { id: string }, mailer: Mailer, appUrl: string) {
   const c = await pool.connect();
   let mails: Mail[] = [];
   try {
@@ -143,6 +154,44 @@ export async function requestApproval(ticketId: string, kind: Kind, requester: {
   } finally { c.release(); }
 }
 
+/**
+ * Opens the approval that a new ticket needs, inside the caller's transaction (so the ticket and its request exist together or not at all).
+ * Every level must be satisfiable by someone other than the requester, or the ticket cannot be created: it would wait forever.
+ * Returns the emails to send once the caller has committed.
+ */
+export async function openTicketApproval(c: pg.PoolClient, ticket: { id: string; title: string; project_id: string }, wf: NonNullable<Awaited<ReturnType<typeof findTicketWorkflow>>>, requesterId: string | null, appUrl: string) {
+  for (const l of wf.levels) {
+    const people = (await resolveLevel(c, l, ticket.project_id)).filter((p) => p.id !== requesterId);
+    if (!people.length) throw new DocError(`Approval level ${l.name} of “${wf.name}” has no eligible approvers${requesterId ? ' (nobody can approve their own request)' : ''}. Ask an Admin to update that workflow.`, 409);
+  }
+  const req = (await c.query(
+    `INSERT INTO approval_requests (ticket_id, kind, version_number, workflow_id, workflow_name, levels, requested_by) VALUES ($1,'TICKET',1,$2,$3,$4,$5) RETURNING *`,
+    [ticket.id, wf.id, wf.name, JSON.stringify(wf.levels), requesterId])).rows[0];
+  const started = await startLevel(c, req, 0, ticket.title, appUrl, ticket.project_id);
+  if (started.finished) throw new DocError('This workflow has no one left to ask', 409);
+  await c.query(`UPDATE tickets SET approval_status='pending' WHERE id=$1`, [ticket.id]);
+  return { requestId: req.id as string, workflow: wf.name, mails: started.mails };
+}
+
+/** The requester fixed what was refused (or an Admin decided to ask again): sends the ticket for approval once more. */
+export async function resubmitTicketApproval(ticketId: string, requesterId: string, mailer: Mailer, appUrl: string) {
+  const c = await pool.connect();
+  let mails: Mail[] = [];
+  try {
+    await c.query('BEGIN');
+    const t = (await c.query('SELECT id, title, project_id, ticket_type_id, approval_status FROM tickets WHERE id=$1 FOR UPDATE', [ticketId])).rows[0];
+    if (!t) throw new DocError('Ticket not found', 404);
+    if (t.approval_status !== 'rejected') throw new DocError(t.approval_status === 'pending' ? 'This ticket is already waiting for approval' : 'This ticket does not need approval', 409);
+    const wf = await findTicketWorkflow(c, t.project_id, t.ticket_type_id);
+    if (!wf) throw new DocError('No approval workflow covers this kind of ticket any more. Ask an Admin to approve it by switching the workflow back on.', 409);
+    const r = await openTicketApproval(c, t, wf, requesterId, appUrl);
+    mails = r.mails;
+    await c.query('COMMIT');
+    for (const m of mails) await mailer.send(m);
+    return { requestId: r.requestId, workflow: r.workflow };
+  } catch (e) { await c.query('ROLLBACK'); throw e; } finally { c.release(); }
+}
+
 export type Decision = 'approved' | 'rejected';
 const effective = (a: { status: string; expires_at: Date }, ignoreExpiry: boolean) =>
   a.status === 'pending' && !ignoreExpiry && a.expires_at < new Date() ? 'expired' : a.status;
@@ -175,7 +224,8 @@ async function decide(lookup: (c: pg.PoolClient) => Promise<any>, decision: Deci
     if (decision === 'rejected') {
       await c.query(`UPDATE approvals SET status='skipped' WHERE request_id=$1 AND status='pending'`, [req.id]);
       await c.query(`UPDATE approval_requests SET status='rejected', completed_at=now() WHERE id=$1`, [req.id]);
-      mails = await requesterMail(c, req, `Rejected at ${lvl.name}: ${LABEL[req.kind as Kind]} – ${title}`, `${who} rejected your request at level ${lvl.name}.\n\nReason: ${comment!.trim()}\n\nUpdate the document and request approval again.`);
+      if (req.kind === 'TICKET') await c.query(`UPDATE tickets SET approval_status='rejected' WHERE id=$1`, [req.ticket_id]);
+      mails = await requesterMail(c, req, `Rejected at ${lvl.name}: ${NAME(req.kind as Kind)} – ${title}`, `${who} rejected your request at level ${lvl.name}.\n\nReason: ${comment!.trim()}\n\n${req.kind === 'TICKET' ? 'Update the ticket if needed and send it for approval again from the ticket page.' : 'Update the document and request approval again.'}`);
     } else {
       const left = (await c.query(`SELECT count(*)::int n FROM approvals WHERE request_id=$1 AND level=$2 AND status='pending'`, [req.id, lvl.position])).rows[0].n as number;
       if (lvl.rule === 'any' || left === 0) {
@@ -184,9 +234,10 @@ async function decide(lookup: (c: pg.PoolClient) => Promise<any>, decision: Deci
         mails = next.mails;
         if (next.finished) {
           await c.query(`UPDATE approval_requests SET status='approved', completed_at=now() WHERE id=$1`, [req.id]);
-          const to = RULES[req.kind as Kind].onApprove;
+          const to = req.kind === 'TICKET' ? undefined : RULES[req.kind as DocKind].onApprove;
+          if (req.kind === 'TICKET') await c.query(`UPDATE tickets SET approval_status='approved' WHERE id=$1`, [req.ticket_id]);
           if (to) await applyTransition(c, req.ticket_id, to, task.approver_id);
-          mails.push(...await requesterMail(c, req, `Approved: ${LABEL[req.kind as Kind]} – ${title}`, `All ${levels.length} approval level${levels.length > 1 ? 's' : ''} signed off.${to ? ` The ticket has moved to ${to}.` : ' The document is now locked.'}`));
+          mails.push(...await requesterMail(c, req, `Approved: ${NAME(req.kind as Kind)} – ${title}`, `All ${levels.length} approval level${levels.length > 1 ? 's' : ''} signed off.${req.kind === 'TICKET' ? ' Work on the ticket can now begin.' : to ? ` The ticket has moved to ${to}.` : ' The document is now locked.'}`));
         }
       }
     }
@@ -224,6 +275,7 @@ export async function cancelRequest(ticketId: string, kind: Kind, user: { id: st
     if (req.requested_by !== user.id && !user.perms.has('admin.workflows')) throw new DocError('Only the requester or an Admin can cancel this approval', 403);
     await c.query(`UPDATE approvals SET status='superseded' WHERE request_id=$1 AND status='pending'`, [req.id]);
     await c.query(`UPDATE approval_requests SET status='cancelled', completed_at=now() WHERE id=$1`, [req.id]);
+    if (kind === 'TICKET') await c.query(`UPDATE tickets SET approval_status='rejected' WHERE id=$1`, [ticketId]);   // parked until it is sent again
     await c.query('COMMIT');
   } catch (e) { await c.query('ROLLBACK'); throw e; } finally { c.release(); }
 }

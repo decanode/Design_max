@@ -307,6 +307,15 @@ Rules the system enforces and explains in plain words: a new ticket must have a 
 4. When a level is complete, the next level is asked. When the last level approves, the ticket moves to *FS Approved* / *TS Approved* and the requester is emailed.
 5. A live **timeline** on the ticket shows each level: approved, waiting, not started, passed, or rejected, with who and when.
 
+### Approving new tickets, not just documents (Project Admin)
+A workflow can also cover **the creation of tickets**. In **Project settings → Approval workflows**, tick one or more ticket types under **New tickets (approved before work starts)**, for example Incident and Change Request, instead of (or as well as) documents. Pick the levels and approvers as usual.
+
+- When someone raises a ticket of that type (from the board, the chat assistant, or an AI plan), it is created but **waits**: its phase cannot be moved and documents cannot be generated until every level approves. The approvers are emailed and see it under their approvals; the ticket page shows a **Ticket approval** card with progress and, for an approver, **Approve** and **Reject** (a reason is required to reject).
+- If an approver rejects, the ticket is parked as *Not approved* with the reason shown. The person who raised it (or an approvals admin) can fix it and press **Send for approval again**. **Withdraw request** also parks it.
+- A ticket type with no workflow, or with its workflow switched off, needs no approval, exactly as before.
+- A ticket cannot be created if a level has nobody who could approve it (nobody approves their own request); you get a clear message and nothing is created.
+- One active workflow per ticket type, and one per document type, per project.
+
 ### What to expect
 - A rejection at any level ends the request, sends the reason to the requester, and returns the document to drafting. Fix it and request again from L1.
 - **Nobody approves their own request.** A request will not start if a level would have no one eligible.

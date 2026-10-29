@@ -5,7 +5,7 @@ import { j } from '../lib/auth';
 
 import { EDIT_IN, type Kind } from '../lib/docKinds';
 export type ApprovalRequest = {
-  id: string; kind: Kind; version: number; status: 'in_progress' | 'approved' | 'rejected' | 'superseded' | 'cancelled'; workflow: string; currentLevel: number;
+  id: string; kind: Kind | 'TICKET'; version: number; status: 'in_progress' | 'approved' | 'rejected' | 'superseded' | 'cancelled'; workflow: string; currentLevel: number;
   requestedBy: string | null; requestedById: string | null; requestedAt: string; completedAt: string | null;
   levels: { position: number; name: string; rule: 'any' | 'all'; state: 'done' | 'auto' | 'active' | 'waiting' | 'rejected' | 'stopped'; tasks: { id: string; approver: string; status: string; comment: string | null; decidedAt: string | null }[] }[];
 };

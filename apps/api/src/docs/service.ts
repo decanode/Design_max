@@ -72,6 +72,8 @@ async function buildContext(ticketId: string, kind: DocKind, embedder?: Embedder
 export async function generateDocument(ticketId: string, kind: DocKind, gen: DocGenerator, embedder?: Embedder) {
   const t = await getTicket(ticketId);
   const rule = RULES[kind];
+  const ap = (await pool.query('SELECT approval_status FROM tickets WHERE id=$1', [ticketId])).rows[0]?.approval_status;
+  if (ap === 'pending' || ap === 'rejected') throw new DocError(ap === 'pending' ? 'This ticket is waiting for approval. Documents can be generated once it is approved.' : 'This ticket was not approved. Send it for approval again first.', 409);
   if (!rule.generateIn.includes(t.current_state)) throw new DocError(`The ${kind} can only be generated ${generateHint(kind)} (ticket is in "${t.current_state}")`);
   if ((await listVersions(ticketId, kind)).length) throw new DocError(`A ${LABEL[kind]} already exists for this ticket. Edit it instead.`);
   const content = await gen.generate(kind, await buildContext(ticketId, kind, embedder));
@@ -137,7 +139,9 @@ const effectiveStatus = (a: { status: string; expires_at: Date }) => (a.status =
 
 export async function viewApproval(token: string) {
   const a = await findByToken(pool, token);
-  const doc = (await pool.query('SELECT content_json, content_md, content_text FROM documents WHERE ticket_id=$1 AND kind=$2 AND version_number=$3', [a.ticket_id, a.kind, a.version_number])).rows[0];
+  const doc = a.kind === 'TICKET'
+    ? await ticketAsDocument(a.ticket_id)
+    : (await pool.query('SELECT content_json, content_md, content_text FROM documents WHERE ticket_id=$1 AND kind=$2 AND version_number=$3', [a.ticket_id, a.kind, a.version_number])).rows[0];
   const req = (await pool.query('SELECT workflow_name, levels FROM approval_requests WHERE id=$1', [a.request_id])).rows[0];
   const levels = req.levels as { position: number; name: string }[];
   return {
@@ -198,3 +202,12 @@ export async function snapshotDraft(projectId: string, ticketId: string, kind: K
 /** After a version is saved through the API, the shared draft follows it. */
 export const syncDraft = (projectId: string, ticketId: string, kind: Kind, row: { content_json: PmNode | null; content_md: string | null; content_text: string | null }) =>
   resetDraft(projectId, ticketId, kind, versionPm(row));
+
+/** What an approver reads for a ticket approval: the ticket itself (title, type, details and scope) as Markdown. */
+async function ticketAsDocument(ticketId: string) {
+  const t = (await pool.query(
+    `SELECT t.title, t.ai_summary, t.dynamic_metadata, tt.name AS type_name FROM tickets t LEFT JOIN ticket_types tt ON tt.id = t.ticket_type_id WHERE t.id=$1`, [ticketId])).rows[0];
+  const fields = Object.entries((t.dynamic_metadata ?? {}) as Record<string, unknown>).map(([k, v]) => `- **${k.replace(/_/g, ' ')}:** ${String(v)}`).join('\n');
+  const md = `# ${t.title}\n\n**Type:** ${t.type_name ?? 'Ticket'}\n\n${fields ? `## Details\n${fields}\n\n` : ''}${t.ai_summary ? `## Scope\n${t.ai_summary}\n` : ''}`;
+  return { content_json: null, content_md: md, content_text: md };
+}

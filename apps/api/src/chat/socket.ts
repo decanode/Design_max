@@ -45,7 +45,7 @@ export function attachChat(http: HttpServer, agent: ChatAgent, embedder?: Embedd
     async function confirmTicket(u: SessionUser, cid: string) {
       const r = await verifyDraft(cid);
       if (r.created) {
-        const msg = await addMessage(cid, 'assistant', 'Design Max', `Done. I created the ${'typeName' in r ? r.typeName : 'ticket'} **${r.draft.title}**. You can follow it on the board; the team will pick it up from there. Is there anything else I can help with?`);
+        const msg = await addMessage(cid, 'assistant', 'Design Max', `Done. I created the ${'typeName' in r ? r.typeName : 'ticket'} **${r.draft.title}**. ${'approval' in r && r.approval ? `It needs approval first (workflow “${r.approval.workflow}”): the approvers have been notified, and work starts once they sign off. You can follow it on the board.` : 'You can follow it on the board; the team will pick it up from there.'} Is there anything else I can help with?`);
         io.to(cid).emit('message', msg);
         io.to(cid).emit('verified', { draft: r.draft, ticketId: r.ticketId });
         io.to(cid).emit('conversation', await getConversation(cid));

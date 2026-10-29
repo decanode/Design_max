@@ -13,7 +13,7 @@ import { assertCommentsResolved, registerCommentRoutes } from './comments.js';
 import { registerUploadRoutes } from './upload.js';
 import { versionPm, versionText } from './content.js';
 import { exportDocument } from '../docgen/exportDocument.js';
-import { approvalPlan, cancelRequest, decideAsUser, decideByToken, requestApproval } from '../approvals/engine.js';
+import { approvalPlan, cancelRequest, decideAsUser, decideByToken, requestApproval, resubmitTicketApproval } from '../approvals/engine.js';
 
 const Id = z.object({ id: z.string().uuid() });
 const Kind = z.enum(KINDS);
@@ -111,7 +111,7 @@ export function registerDocRoutes(app: FastifyInstance, d: DocDeps) {
   /** Who would be asked, in what order, under the workflow that covers this document. */
   app.get('/api/tickets/:id/approval-plan', { preHandler: need('approval.request') }, async (req) => {
     const { id } = Id.parse(req.params);
-    const { kind } = z.object({ kind: Kind }).parse(req.query);
+    const { kind } = z.object({ kind: z.union([Kind, z.literal('TICKET')]) }).parse(req.query);
     await visible(req, id);
     return approvalPlan(id, kind, req.user!.id);
   });
@@ -125,9 +125,20 @@ export function registerDocRoutes(app: FastifyInstance, d: DocDeps) {
     return reply.code(201).send(await requestApproval(id, kind, req.user!, d.mailer, d.appUrl));
   });
 
+  /** A ticket that was refused its creation approval is sent again: by whoever raised it, or someone who manages approvals. */
+  app.post('/api/tickets/:id/approvals/resubmit', async (req) => {
+    const { id } = Id.parse(req.params);
+    await visible(req, id);
+    const u = req.user!;
+    const t = (await pool.query('SELECT customer_id, consultant_id FROM tickets WHERE id=$1', [id])).rows[0];
+    const mine = t && (t.customer_id === u.id || t.consultant_id === u.id);
+    if (!mine && !u.perms.has('admin.workflows') && !u.perms.has('approval.request')) throw new DocError('Only the person who raised this ticket, or an approvals admin, can send it again', 403);
+    return resubmitTicketApproval(id, u.id, d.mailer, d.appUrl);
+  });
+
   app.post('/api/tickets/:id/approvals/cancel', { preHandler: need('approval.request') }, async (req) => {
     const { id } = Id.parse(req.params);
-    const { kind } = z.object({ kind: Kind }).parse(req.body);
+    const { kind } = z.object({ kind: z.union([Kind, z.literal('TICKET')]) }).parse(req.body);
     await visible(req, id);
     await cancelRequest(id, kind, req.user!);
     return { ok: true };

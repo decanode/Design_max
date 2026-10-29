@@ -225,7 +225,7 @@ export async function convertToTickets(user: Actor, opts: { elementIds?: string[
   for (const t of todo) t.meta = validateMetadata(defs, t.meta);           // every ticket is checked before the first one is created
   const created: ConvertResult['created'] = [];
   for (const t of todo) {
-    const ticket = await createTicket(user.projectId, t.el.title, t.summary, { ticketTypeId: type.id, dynamicMetadata: t.meta });
+    const ticket = await createTicket(user.projectId, t.el.title, t.summary, { ticketTypeId: type.id, dynamicMetadata: t.meta, requesterId: user.id });
     await pool.query('UPDATE wbs_elements SET ticket_id=$2 WHERE id=$1', [t.el.id, ticket.id]);
     created.push({ elementId: t.el.id, ticketId: ticket.id });
   }

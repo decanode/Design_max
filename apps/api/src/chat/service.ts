@@ -2,6 +2,8 @@ import { pool } from '../db.js';
 import { assessFit, loadStackPolicy } from '../stacks.js';
 import { similar, type Embedder } from '../etl/vectorize.js';
 import { DocError } from '../errors.js';
+import { findTicketWorkflow, openTicketApproval } from '../approvals/engine.js';
+import { OutboxMailer, type Mail } from '../docs/mailer.js';
 import { loadWorkflow, typeFields, validateMetadata, type TypeField } from '../workflow/service.js';
 import type { ChatAgent, ChatMessage, Turn } from './agent.js';
 import { greeting, type Intent, type Persona, type PromptContext, type Stage, type TicketTypeBrief } from './prompts.js';
@@ -175,10 +177,20 @@ export async function verifyDraft(conversationId: string) {
     const t = await client.query(
       'INSERT INTO tickets (project_id, title, ai_summary, customer_id, consultant_id, ticket_type_id, dynamic_metadata) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id',
       [conv.project_id, d.title, d.scope_md ?? d.summary, conv.persona === 'customer' ? conv.customer_id : null, conv.persona === 'team' ? conv.opened_by : null, type.id, JSON.stringify(meta)]);
+    // If the project approves this kind of ticket, the ticket waits for sign-off; it and its approval request are created together.
+    let approval: { workflow: string } | null = null; let mails: Mail[] = [];
+    const wfa = await findTicketWorkflow(client, conv.project_id, type.id);
+    if (wfa) {
+      try {
+        const o = await openTicketApproval(client, { id: t.rows[0].id, title: d.title, project_id: conv.project_id }, wfa, conv.opened_by, process.env.APP_URL ?? 'http://localhost:3000');
+        approval = { workflow: o.workflow }; mails = o.mails;
+      } catch (e) { throw e instanceof DocError ? new VerifyError(e.message) : e; }
+    }
     const upd = await client.query(`UPDATE requirement_drafts SET status='verified', ticket_id=$2, updated_at=now() WHERE conversation_id=$1 RETURNING *`, [conversationId, t.rows[0].id]);
     await client.query(`UPDATE conversations SET stage='done', outcome='ticket_created', suggestions='[]' WHERE id=$1`, [conversationId]);
     await client.query('COMMIT');
-    return { draft: upd.rows[0], ticketId: t.rows[0].id as string, created: true, typeName: type.name as string };
+    for (const m of mails) await new OutboxMailer().send(m);
+    return { draft: upd.rows[0], ticketId: t.rows[0].id as string, created: true, typeName: type.name as string, approval };
   } catch (e) { await client.query('ROLLBACK'); throw e; } finally { client.release(); }
 }
 

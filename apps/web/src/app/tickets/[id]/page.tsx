@@ -6,7 +6,7 @@ import { DocEditor, DocView, type EditorApi } from '../../../components/DocEdito
 import { MergeDialog } from '../../../components/MergeDialog';
 import { CommentsPanel, useThreads } from '../../../components/CommentsPanel';
 import { KINDS, LABEL, FULL, GENERATE_IN, EDIT_IN, HINT, type Kind } from '../../../lib/docKinds';
-import { ApprovalPanel, type ApprovalRequest } from '../../../components/ApprovalPanel';
+import { ApprovalPanel, Timeline, type ApprovalRequest } from '../../../components/ApprovalPanel';
 import { TypeDetails } from '../../../components/TypeDetails';
 import { useWorkflow, type TypeField } from '../../../lib/workflow';
 import { TicketDetails, type DetailTicket } from '../../../components/TicketDetails';
@@ -16,11 +16,11 @@ const API = '';
 type Ver = { version: number; author: string | null; note: string | null; at: string };
 type Overview = {
   ticketType?: { id: number; key: string; name: string; short: string; fields: TypeField[] } | null;
-  ticket: DetailTicket & { dynamic_metadata?: Record<string, unknown>; type_short?: string; type_name?: string; team_id?: string | null; team_name?: string | null; current_state: string; customer_name?: string | null; consultant_name?: string | null; consultant_id?: string | null; is_assigned?: boolean };
+  ticket: DetailTicket & { dynamic_metadata?: Record<string, unknown>; type_short?: string; type_name?: string; team_id?: string | null; team_name?: string | null; current_state: string; approval_status?: 'none' | 'pending' | 'approved' | 'rejected'; customer_name?: string | null; consultant_name?: string | null; consultant_id?: string | null; is_assigned?: boolean };
   fields: Record<string, 'hidden' | 'read' | 'write'>;
   docs: Record<Kind, { latest: { version_number: number; content_md: string }; versions: Ver[] } | null>;
   stacks?: string[]; stackWarnings?: { kind: Kind; stack: string; terms: string[] }[];
-  approvals: { id: string; approver_id: string; kind: Kind; version_number: number; status: string; comment: string | null; approver: string; level_name: string | null }[];
+  approvals: { id: string; approver_id: string; kind: Kind | 'TICKET'; version_number: number; status: string; comment: string | null; approver: string; level_name: string | null }[];
   requests: ApprovalRequest[];
 };
 type DiffLine = { type: 'same' | 'add' | 'del'; text: string };
@@ -147,7 +147,8 @@ export default function TicketPage() {
           {STATES.map((s, i) => <li key={s} className={i < idx ? 'done' : i === idx ? 'cur' : ''} aria-current={i === idx ? 'step' : undefined}>{s}</li>)}
         </ol>
 
-        <PhaseMoves next={next} state={state} can={can('ticket.advance')} busy={busy} onMove={(to) => run(() => fetch(`${API}/api/tickets/${id}/transition`, j({ to })), `Moved to ${to}.`)} />
+        <TicketApproval o={o} meId={me.user.id} canResubmit={can('admin.workflows') || can('approval.request') || o.ticket.consultant_id === me.user.id || (o.ticket as { customer_id?: string }).customer_id === me.user.id} busy={busy} run={run} decision={decision} setDecision={setDecision} />
+        <PhaseMoves next={next} state={state} can={can('ticket.advance') && (o.ticket.approval_status ?? 'none') !== 'pending' && o.ticket.approval_status !== 'rejected'} busy={busy} onMove={(to) => run(() => fetch(`${API}/api/tickets/${id}/transition`, j({ to })), `Moved to ${to}.`)} />
         <TicketDetails ticket={o.ticket} fields={o.fields} onSaved={() => load()} />
         {o.ticketType && <TypeDetails ticketId={id} typeName={o.ticketType.name} fields={o.ticketType.fields} values={o.ticket.dynamic_metadata} access={o.fields.details} onSaved={() => load()} />}
 
@@ -231,5 +232,35 @@ function PhaseMoves({ next, state, can, busy, onMove }: { next: { to: string; ga
       {next.map((n) => n.gated
         ? <span key={n.to} className="tag" title={n.gated}>{n.to} · {n.gated}</span>
         : can ? <button key={n.to} className="btn sm" disabled={busy} onClick={() => onMove(n.to)}>Move to {n.to}</button> : <span key={n.to} className="tag">{n.to}</span>)}
+    </section>);
+}
+
+
+/** A ticket whose creation needs approval: where it stands, who must decide, and (when refused) the way to send it again. */
+function TicketApproval({ o, meId, canResubmit, busy, run, decision, setDecision }: {
+  o: Overview; meId: string; canResubmit: boolean; busy: boolean; run: (fn: () => Promise<Response>, okText: string) => Promise<void>; decision: string; setDecision: (v: string) => void;
+}) {
+  const st = o.ticket.approval_status ?? 'none';
+  const req = o.requests.find((r) => r.kind === 'TICKET');
+  const mine = o.approvals.find((a) => a.kind === 'TICKET' && a.status === 'pending' && a.approver_id === meId);
+  if (st === 'none' || !req) return null;
+  const refusal = req.levels.flatMap((l) => l.tasks).find((t) => t.status === 'rejected');
+  return (
+    <section className={`ticket-approval ${st}`} aria-label="Ticket approval">
+      <h3>{st === 'pending' ? 'Waiting for approval' : st === 'approved' ? 'Approved' : 'Not approved'} <span className="note">· {req.workflow}</span></h3>
+      {st === 'pending' && <p className="note" style={{ margin: 0 }}>Work on this ticket starts once every level below has approved. Phase moves and documents are on hold until then.</p>}
+      {st === 'rejected' && <p style={{ margin: 0 }}>{refusal ? `${refusal.approver} did not approve${refusal.comment ? `: “${refusal.comment}”` : ''}.` : 'The request was withdrawn.'} Update the ticket if needed, then send it again.</p>}
+      <Timeline r={req} />
+      {mine && (
+        <div>
+          <label htmlFor="t-dec">Comment <span className="note">(required to reject)</span></label>
+          <textarea id="t-dec" rows={2} value={decision} onChange={(e) => setDecision(e.target.value)} style={{ width: '100%', margin: '6px 0 10px', padding: 10, borderRadius: 8, border: '1px solid var(--line)', background: 'var(--panel)', color: 'var(--text)' }} />
+          <div className="row" style={{ margin: 0 }}>
+            <button className="btn verify" style={{ width: 'auto' }} disabled={busy} onClick={() => { run(() => fetch(`/api/my/approvals/${mine.id}/decision`, j({ decision: 'approved', comment: decision })), 'Approved.'); setDecision(''); }}>Approve</button>
+            <button className="btn ghost" disabled={busy || !decision.trim()} onClick={() => { run(() => fetch(`/api/my/approvals/${mine.id}/decision`, j({ decision: 'rejected', comment: decision })), 'Rejected with your comment.'); setDecision(''); }}>Reject</button>
+          </div>
+        </div>)}
+      {st === 'rejected' && canResubmit && <button className="btn" style={{ width: 'auto' }} disabled={busy} onClick={() => run(() => fetch(`/api/tickets/${o.ticket.id}/approvals/resubmit`, j({})), 'Sent for approval again.')}>Send for approval again</button>}
+      {st === 'pending' && canResubmit && <button className="btn ghost sm" disabled={busy} onClick={() => run(() => fetch(`/api/tickets/${o.ticket.id}/approvals/cancel`, j({ kind: 'TICKET' })), 'Approval request withdrawn. The ticket is on hold.')}>Withdraw request</button>}
     </section>);
 }

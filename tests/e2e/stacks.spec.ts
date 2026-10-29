@@ -18,6 +18,7 @@ test('a Project Admin limits the project to SAP: off-stack requests are flagged 
     const say = async (text: string) => { await cp.getByLabel('Message').fill(text); await cp.getByRole('button', { name: 'Send' }).click(); };
     const scope = cp.getByRole('complementary', { name: 'Scope' });
     await cp.getByRole('button', { name: 'Request a change or new feature' }).click();
+    await expect(cp.getByRole('log')).toContainText('What are you trying to achieve');
     await say('Please build a C# ASP.NET web API for our vendor data');
     await say('Procurement uses it daily, needed by quarter end');
     await expect(scope.getByRole('alert')).toContainText('Outside this project’s technology');
@@ -27,6 +28,7 @@ test('a Project Admin limits the project to SAP: off-stack requests are flagged 
     // …and then a request inside the stack, in a fresh conversation
     await cp.getByRole('button', { name: 'Start a conversation' }).click();
     await cp.getByRole('button', { name: 'Request a change or new feature' }).click();
+    await expect(cp.getByRole('log')).toContainText('What are you trying to achieve');
     await say('Block vendor Acme in the purchase order BAPI');
     await say('Procurement uses it daily, needed by quarter end');
     await expect(scope.getByRole('heading', { level: 3 })).toContainText('Block vendor Acme');
