@@ -42,6 +42,31 @@ async function newProject(type = 'implementation') {
 }
 const enable = (admin: { cookie: string }, on = true) => call(admin, 'PUT', '/api/project/modules', { key: 'planning_module', enabled: on });
 
+describe('Planning parts are switched separately', () => {
+  it('each part has its own switch, depends on the one before it, and gates its own routes', async () => {
+    const { pm, admin } = await newProject();
+    const put = (key: string, enabled: boolean) => call(admin, 'PUT', '/api/project/modules', { key, enabled });
+    expect((await put('wbs', true)).status).toBe(409);                                  // needs the charter first
+    expect((await put('project_charter', true)).body.modules).toMatchObject({ planning_module: true, project_charter: true, wbs: false, ritm_prep: false });
+    expect((await call(pm, 'GET', '/api/planning')).status).toBe(200);
+    expect((await call(pm, 'POST', '/api/planning/wbs', { parentId: null, title: 'Phase' })).status).toBe(403);      // WBS is still off
+    expect((await put('ritm_prep', true)).status).toBe(409);
+    expect((await put('wbs', true)).status).toBe(200);
+    expect((await call(pm, 'POST', '/api/planning/wbs', { parentId: null, title: 'Phase' })).status).toBe(201);
+    expect((await call(pm, 'POST', '/api/planning/convert', {})).status).toBe(403);                                  // RITM preparation is off
+    expect((await put('project_charter', false)).status).toBe(409);                      // WBS is built from it
+    expect((await put('wbs', false)).status).toBe(200);
+    expect((await put('project_charter', false)).body.modules.planning_module).toBe(false);   // no part left: Planning is off
+    expect((await call(pm, 'GET', '/api/planning')).status).toBe(403);
+  });
+  it('the Coming soon modules can be chosen and are remembered, without affecting Planning', async () => {
+    const { admin } = await newProject();
+    const r = await call(admin, 'PUT', '/api/project/modules', { key: 'risks', enabled: true });
+    expect(r.body.modules).toEqual({ risks: true });
+    expect((await call(admin, 'GET', '/api/project/modules')).body.modules.risks).toBe(true);
+  });
+});
+
 describe('module flag and access', () => {
   it('is off by default: planning routes refuse, and the PM is told why', async () => {
     const { pm, admin } = await newProject();
@@ -54,9 +79,8 @@ describe('module flag and access', () => {
   it('a Project Admin switches it on (and off); the session then reports it; others cannot toggle', async () => {
     const { pm, admin, cons } = await newProject();
     expect((await call(pm, 'PUT', '/api/project/modules', { key: 'planning_module', enabled: true })).status).toBe(403);
-    expect((await call(admin, 'GET', '/api/project/modules')).body.available[0].name).toMatch(/AI Project Planning/);
     expect((await call(admin, 'PUT', '/api/project/modules', { key: 'finance_tracking', enabled: true })).status).toBe(400);   // unknown modules are refused
-    expect((await enable(admin)).body.modules).toEqual({ planning_module: true });
+    expect((await enable(admin)).body.modules).toEqual({ planning_module: true, project_charter: true, wbs: true, ritm_prep: true });   // the older single switch turns on all three parts
     expect((await call(pm, 'GET', '/api/auth/me')).body.project.modules.planning_module).toBe(true);
     expect((await call(pm, 'GET', '/api/planning')).status).toBe(200);
     expect((await call(cons, 'GET', '/api/planning')).status).toBe(403);               // a Consultant lacks the permission

@@ -18,7 +18,10 @@ const ago = (iso: string) => new Date(iso).toLocaleString([], { dateStyle: 'medi
 /** The AI planning co-pilot: charter intake, a live-editable charter, a drag-and-drop work breakdown, and the tickets that come from it. */
 export default function Planning() {
   const { me, can, loading } = useAuth();
-  const enabled = !!me?.project?.modules?.planning_module;
+  const mods = me?.project?.modules ?? {};
+  const charterOn = !!mods.project_charter, wbsOn = !!mods.wbs, ritmOn = !!mods.ritm_prep;      // each Planning section is switched on separately under Project settings → Modules
+  const enabled = charterOn || wbsOn || ritmOn;
+  const steps = useMemo(() => (Object.keys(STEP_LABEL) as Step[]).filter((s) => (s === 'intake' || s === 'charter' ? charterOn : s === 'wbs' ? wbsOn : ritmOn)), [charterOn, wbsOn, ritmOn]);
   const [data, setData] = useState<PlanningState | null>(null);
   const [step, setStep] = useState<Step>('intake');
   const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
@@ -38,8 +41,8 @@ export default function Planning() {
   }, [flash]);
   useEffect(() => {
     if (!me?.project || !enabled || !can('planning.manage')) return;
-    load().then((d) => { if (d) setStep(d.wbs.length ? 'wbs' : d.charter ? 'charter' : 'intake'); });
-  }, [me?.project, enabled, can, load]);
+    load().then((d) => { if (d) setStep(d.wbs.length && wbsOn ? 'wbs' : d.charter && charterOn ? 'charter' : steps[0] ?? 'intake'); });
+  }, [me?.project, enabled, can, load, wbsOn, charterOn, steps]);
 
   const wbs = data?.wbs ?? [];
   const charter = data?.charter ?? null;
@@ -97,7 +100,7 @@ export default function Planning() {
 
   if (loading || !me) return <><Nav current="planning" /><main id="main"><p className="note">Loading…</p></main></>;
   if (!me.project) return <><Nav current="planning" /><main id="main"><NoProject /></main></>;
-  if (!enabled) return <><Nav current="planning" /><main id="main"><div className="pane" style={{ padding: 24 }}><h2 style={{ marginTop: 0 }}>Planning is not switched on</h2><p>The AI Project Planning module is off for this project. {can('admin.projects') ? <>Switch it on in <Link href="/admin">Project settings → Modules</Link>.</> : 'Ask a Project Admin to switch it on.'}</p></div></main></>;
+  if (!enabled) return <><Nav current="planning" /><main id="main"><div className="pane" style={{ padding: 24 }}><h2 style={{ marginTop: 0 }}>Planning is not switched on</h2><p>Project charter, Work breakdown and RITM preparation are all off for this project. {can('admin.projects') ? <>Switch it on in <Link href="/admin">Project settings → Modules</Link>.</> : 'Ask a Project Admin to switch it on.'}</p></div></main></>;
   if (!can('planning.manage')) return <><Nav current="planning" /><main id="main"><NoAccess what="project planning" /></main></>;
 
   const selectedWps = [...selected].filter((id) => wps.some((w) => w.id === id && !w.ticket));
@@ -108,12 +111,12 @@ export default function Planning() {
       <Nav current="planning" />
       <main id="main" className="planning">
         <div className="board-head">
-          <div><h2>Planning <span className="note">· {me.project.name}</span></h2><p>Draft the charter, break it down, and turn the plan into tickets.</p></div>
+          <div><h2>Planning <span className="note">· {me.project.name}</span></h2><p>{[charterOn && 'Draft the charter', wbsOn && 'break it down', ritmOn && 'turn the plan into tickets'].filter(Boolean).join(', ').replace(/^./, (c) => c.toUpperCase())}.</p></div>
           {data && <span className="ai-badge" title={data.ai.provider === 'gemini' ? 'Drafts are written by Google Gemini' : 'No Gemini key is configured; a simple template is used'}>{data.ai.provider === 'gemini' ? `✦ Gemini · ${data.ai.model}` : 'Offline template'}</span>}
         </div>
 
         <ol className="plan-steps" aria-label="Planning steps">
-          {(Object.keys(STEP_LABEL) as Step[]).map((s, i) => (
+          {steps.map((s, i) => (
             <li key={s} className={`${step === s ? 'cur' : ''} ${status[s]}`} aria-current={step === s ? 'step' : undefined}>
               <button type="button" disabled={status[s] === 'locked'} onClick={() => setStep(s)}>
                 <span className="n">{status[s] === 'done' ? '✓' : i + 1}</span><span>{STEP_LABEL[s]}</span>
@@ -153,9 +156,9 @@ export default function Planning() {
                   onClick={() => (wbs.length ? setAskReplace(true) : generateWbs(false))}>{busy ? 'Drafting…' : wbs.length ? 'Regenerate WBS with Gemini' : 'Generate WBS with Gemini'}</button>
                 <span className="note">{wbs.length ? `${children(wbs, null).length} phases · ${wbs.filter((r) => r.level === 2).length} deliverables · ${wps.length} work packages · ${fmtDays(wbs.length ? children(wbs, null).reduce((n, p) => n + effortOf(wbs, p.id), 0) : 0)} person-days` : 'Generate a first draft, or start with Add phase.'}</span>
                 <span style={{ marginLeft: 'auto' }} className="row">
-                  {wps.length > 0 && <button className="btn ghost sm" onClick={() => setSelected(new Set(wps.filter((w) => !w.ticket).map((w) => w.id)))}>Select all</button>}
-                  {selected.size > 0 && <button className="btn ghost sm" onClick={() => setSelected(new Set())}>Clear</button>}
-                  <button className="btn" disabled={busy || toConvert === 0} onClick={() => setConverting(true)}>{selectedWps.length ? `Convert ${selectedWps.length} to tickets` : 'Convert to tickets'}</button>
+                  {ritmOn && wps.length > 0 && <button className="btn ghost sm" onClick={() => setSelected(new Set(wps.filter((w) => !w.ticket).map((w) => w.id)))}>Select all</button>}
+                  {ritmOn && selected.size > 0 && <button className="btn ghost sm" onClick={() => setSelected(new Set())}>Clear</button>}
+                  {ritmOn && <button className="btn" disabled={busy || toConvert === 0} onClick={() => setConverting(true)}>{selectedWps.length ? `Convert ${selectedWps.length} to tickets` : 'Convert to tickets'}</button>}
                 </span>
               </div>
               {askReplace && (

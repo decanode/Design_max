@@ -317,3 +317,7 @@ Request: chat must distinguish customers from consultants and other roles; greet
 - Request: approval workflows existed only for FS/TS/TUT/CRC; allow approval on creation of tickets (Incident, CR, any type), optional per type.
 - Built: migration 027 (workflow `ticket_type_ids`, kind `TICKET`, `tickets.approval_status`, trigger blocks moves while pending/rejected); engine `findTicketWorkflow/openTicketApproval/resubmitTicketApproval`; creation paths (REST, chat verify, planning convert) create ticket + request atomically; guard for docs/transitions; token page shows the ticket; workflow admin "New tickets" scope; ticket page "Ticket approval" card (approve/reject/resubmit/withdraw).
 - Tests: `approvals/ticketApprovals.test.ts` (7), chat test, `tests/e2e/ticket-approvals.spec.ts`. Not done: per-phase-move approvals, approval on ETL imports (intentionally none).
+
+
+### Module tiles (2026-10-29)
+- Modules screen is one grouped container (Project set-up / Planning & estimation / Governance & control). The single "AI Project Planning" switch is replaced by `project_charter`, `wbs`, `ritm_prep` (real, gate Planning steps and routes, dependencies enforced in `setModule`), plus eight "Coming soon" keys stored server-side. `planning_module` is kept true while any part is on (Nav + legacy API). Migration 028 gives existing Planning projects all three. Tests: `planning.test.ts` (+2), `planning.spec.ts` step updated.

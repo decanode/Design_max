@@ -12,7 +12,7 @@ import { pickTemplate, stackKey } from '../docgen/templateLibrary.js';
 import { sampleDocument } from '../docgen/sample.js';
 import { KINDS } from '../docs/kinds.js';
 import { DocSettings, FONTS, STACK_SETS, effectiveSettings, saveProjectSettings } from '../docs/settings.js';
-import { KNOWN_MODULES, PLANNING_MODULE, modulesOf, setModule } from '../planning/service.js';
+import { KNOWN_MODULES, modulesOf, setModule } from '../planning/service.js';
 
 /**
  * Project Admin console API. Everything here acts on the caller's CURRENT project only (taken from the session,
@@ -195,7 +195,7 @@ export function registerProjectRoutes(app: FastifyInstance) {
   // ---------------- module configuration (feature flags)
   app.get('/api/project/modules', { preHandler: settings }, async (req) => ({
     modules: await modulesOf(pid(req)),
-    available: [{ key: PLANNING_MODULE, name: 'AI Project Planning (Charter & WBS)', description: 'Lets Project Managers draft a project charter with AI, break it into a work breakdown structure, and turn work packages into tickets. Adds a Planning tab.' }],
+    available: [],      // the screen lists the modules itself; this is kept for older clients
   }));
   app.put('/api/project/modules', { preHandler: settings }, async (req) => {
     const b = z.object({ key: z.enum(KNOWN_MODULES), enabled: z.boolean() }).parse(req.body);

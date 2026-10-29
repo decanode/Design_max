@@ -50,11 +50,12 @@ test('Admin toggle: the Planning tab is hidden until a Project Admin switches th
   // the admin finds the switch in Project settings → Modules
   await admin.goto('/admin');
   await admin.getByRole('tab', { name: 'Modules' }).click();
-  const sw = admin.getByRole('switch', { name: /Enable AI Project Planning \(Charter & WBS\)/ });
+  const sw = admin.getByRole('switch', { name: 'Enable Project charter' });
   await expect(sw).not.toBeChecked();
   await sw.click({ force: true });
   await expect(admin.getByRole('status')).toContainText('is on');
   await expect(sw).toBeChecked();
+  await expect(admin.getByRole('switch', { name: 'Enable Work breakdown structure (WBS)' })).not.toBeChecked();   // each part is its own switch
 
   // the tab appears for the PM
   await pm.goto('/');

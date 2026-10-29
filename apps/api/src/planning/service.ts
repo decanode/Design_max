@@ -9,14 +9,44 @@ import { loadWorkflow, typeFields, validateMetadata, type TicketTypeInfo } from 
 import { SECTION_TITLES, charterSections, type Charter, type CharterIntake, type PlanningAi, type SectionKey, type WbsPlan } from './ai.js';
 
 export const PLANNING_MODULE = 'planning_module';
-export const KNOWN_MODULES = [PLANNING_MODULE] as const;
+/** The three parts of Planning, each switched on separately; the later ones build on the earlier. */
+export const PLANNING_SECTIONS = ['project_charter', 'wbs', 'ritm_prep'] as const;
+type Section = (typeof PLANNING_SECTIONS)[number];
+/** Modules announced for later: they can be chosen now, and do nothing until they ship. */
+export const UPCOMING_MODULES = ['effort_estimation', 'cost_estimation', 'timesheets', 'milestones', 'risks', 'raci', 'change_control', 'assumptions'] as const;
+/** `planning_module` is the older single switch: it still works (it sets all three sections) and is kept true whenever any section is on. */
+export const KNOWN_MODULES = [PLANNING_MODULE, ...PLANNING_SECTIONS, ...UPCOMING_MODULES] as const;
 
 export async function modulesOf(projectId: string): Promise<Record<string, boolean>> {
   const m = (await pool.query('SELECT enabled_modules FROM projects WHERE id=$1', [projectId])).rows[0]?.enabled_modules ?? {};
-  return Object.fromEntries(Object.entries(m).map(([k, v]) => [k, v === true]));
+  const out: Record<string, boolean> = Object.fromEntries(Object.entries(m).map(([k, v]) => [k, v === true]));
+  // Projects that switched Planning on before the sections existed have it all: a section is on unless it was switched off.
+  for (const k of PLANNING_SECTIONS) {
+    if (out[PLANNING_MODULE] === true) out[k] = (m as Record<string, unknown>)[k] !== false; else delete out[k];
+  }
+  return out;
 }
+
 export async function setModule(projectId: string, key: string, on: boolean) {
-  await pool.query(`UPDATE projects SET enabled_modules = jsonb_set(enabled_modules, ARRAY[$2]::text[], to_jsonb($3::boolean), true) WHERE id=$1`, [projectId, key, on]);
+  const cur = await modulesOf(projectId);
+  const sections: Record<Section, boolean> = { project_charter: !!cur.project_charter, wbs: !!cur.wbs, ritm_prep: !!cur.ritm_prep };
+  if (key === PLANNING_MODULE) {
+    if (!on) { await pool.query(`UPDATE projects SET enabled_modules = jsonb_set(enabled_modules, '{planning_module}', 'false'::jsonb, true) WHERE id=$1`, [projectId]); return; }
+    for (const k of PLANNING_SECTIONS) sections[k] = true;
+  }
+  else if ((PLANNING_SECTIONS as readonly string[]).includes(key)) {
+    const k = key as Section;
+    if (on && k === 'wbs' && !sections.project_charter) throw new DocError('Switch on Project charter first: the work breakdown is built from the approved charter.', 409);
+    if (on && k === 'ritm_prep' && !sections.wbs) throw new DocError('Switch on the Work breakdown structure first: request items are prepared from its work packages.', 409);
+    if (!on && k === 'project_charter' && sections.wbs) throw new DocError('Switch off the Work breakdown structure first: it is built from the charter.', 409);
+    if (!on && k === 'wbs' && sections.ritm_prep) throw new DocError('Switch off RITM preparation steps first: they are prepared from the work breakdown.', 409);
+    sections[k] = on;
+  } else {
+    await pool.query(`UPDATE projects SET enabled_modules = jsonb_set(enabled_modules, ARRAY[$2]::text[], to_jsonb($3::boolean), true) WHERE id=$1`, [projectId, key, on]);
+    return;
+  }
+  await pool.query(`UPDATE projects SET enabled_modules = enabled_modules || $2::jsonb WHERE id=$1`,
+    [projectId, JSON.stringify({ ...sections, [PLANNING_MODULE]: PLANNING_SECTIONS.some((k) => sections[k]) })]);
 }
 
 /* ------------------------------------------------------------------ charter text */

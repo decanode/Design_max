@@ -34,7 +34,12 @@ const Id = z.object({ id: z.string().uuid() });
 export function registerPlanningRoutes(app: FastifyInstance, deps: { ai: PlanningAi }) {
   /** Planning is a per-project feature: the Project Admin must have switched it on. */
   const moduleOn = async (req: FastifyRequest, reply: FastifyReply) => {
-    if (!(await modulesOf(req.user!.projectId!))[PLANNING_MODULE]) return reply.code(403).send({ error: 'The Planning module is not switched on for this project', code: 'MODULE_DISABLED' });
+    const m = await modulesOf(req.user!.projectId!);
+    if (!m[PLANNING_MODULE]) return reply.code(403).send({ error: 'The Planning module is not switched on for this project', code: 'MODULE_DISABLED' });
+    // each part of Planning has its own switch
+    const url = req.routeOptions.url ?? '';
+    const part = url.startsWith('/api/planning/charter') ? ['project_charter', 'Project charter'] : url.startsWith('/api/planning/wbs') ? ['wbs', 'Work breakdown structure'] : url.startsWith('/api/planning/convert') ? ['ritm_prep', 'RITM preparation steps'] : null;
+    if (part && !m[part[0]]) return reply.code(403).send({ error: `${part[1]} is not switched on for this project`, code: 'MODULE_DISABLED' });
   };
   const gate = { preHandler: [need('planning.manage'), moduleOn] };
   const actor = (req: FastifyRequest): Actor => ({ id: req.user!.id, name: req.user!.name, projectId: req.user!.projectId!, projectName: req.user!.projectName ?? 'Project' });
