@@ -20,6 +20,7 @@ import { registerPlatformRoutes } from './platform/routes.js';
 import { registerPlanningRoutes } from './planning/routes.js';
 import { defaultPlanningAi, type PlanningAi } from './planning/ai.js';
 import { registerPeopleRoutes } from './project/peopleRoutes.js';
+import { registerIntegrationRoutes } from './integrations/routes.js';
 import { registerTicketWorkRoutes } from './tickets/workRoutes.js';
 import { registerFlowRoutes } from './workflow/flowRoutes.js';
 import { registerBuilderRoutes } from './workflow/builderRoutes.js';
@@ -31,7 +32,7 @@ import { registerWorkflowRoutes } from './approvals/adminRoutes.js';
 import { canWrite, sanitizeTicket } from './tickets/fields.js';
 import { ticketVisible } from './rbac/auth.js';
 
-export function buildApp(deps: Partial<DocDeps> & { planningAi?: PlanningAi } = {}) {
+export function buildApp(deps: Partial<DocDeps> & { planningAi?: PlanningAi; sourceFetch?: typeof fetch } = {}) {
   const app = Fastify();
   app.register(cors, { origin: true, credentials: true });
   registerAuth(app);
@@ -75,7 +76,7 @@ export function buildApp(deps: Partial<DocDeps> & { planningAi?: PlanningAi } = 
               EXISTS (SELECT 1 FROM approvals a WHERE a.ticket_id = t.id AND a.status = 'pending') AS awaiting_approval
        FROM tickets t LEFT JOIN users c ON c.id = t.consultant_id LEFT JOIN users cu ON cu.id = t.customer_id LEFT JOIN ticket_types tt ON tt.id = t.ticket_type_id LEFT JOIN phases ph ON ph.name = t.current_state LEFT JOIN teams tm ON tm.id = t.team_id
        WHERE ${s.sql} ORDER BY t.updated_at DESC LIMIT 500`, s.params)).rows;
-    return rows.map((r) => sanitizeTicket(r, req.user!.fields));      // column-level security: hidden fields never leave the server
+    return rows.map((r) => { const o = sanitizeTicket(r, req.user!.fields) as Record<string, unknown>; return { ...o, key: o.legacy_id ?? o.key }; });      // column-level security: hidden fields never leave the server; a mirrored ticket is known by its source key
   });
   app.post('/api/tickets', { preHandler: need('ticket.create') }, async (req, reply) => {
     const b = z.object({ title: z.string().trim().min(1).max(300), aiSummary: z.string().optional(), ticketTypeId: z.number().int().positive().optional(), dynamicMetadata: z.record(z.string(), z.unknown()).optional() }).parse(req.body);   // the project is the one you are working in, never taken from the request
@@ -180,6 +181,7 @@ export function buildApp(deps: Partial<DocDeps> & { planningAi?: PlanningAi } = 
   registerBuilderRoutes(app);
   registerFlowRoutes(app);
   registerTicketWorkRoutes(app, { mailer: deps.mailer, appUrl: deps.appUrl });
+  registerIntegrationRoutes(app, { fetch: deps.sourceFetch });
   registerPeopleRoutes(app);
   registerPlanningRoutes(app, { ai: deps.planningAi ?? defaultPlanningAi() });
   registerWorkflowAdminRoutes(app);

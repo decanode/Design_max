@@ -177,8 +177,8 @@ export async function ticketOverview(id: string, fields: FieldAccess, userId?: s
   const approvedKinds = (await pool.query(`SELECT DISTINCT kind FROM approval_requests WHERE ticket_id=$1 AND status='approved'`, [id])).rows.map((r) => r.kind as string);
   const signoff = await signoffOf(id, base, userId);
   if (fields.customer === 'hidden' && signoff.latest) signoff.latest.customer = null;
-  const key = ty ? `${ty.short}-${base.seq}` : `T-${base.seq}`;
-  return { ticket: { ...ticket, key }, ticketType: ty && { ...ty, fields: typeDefs }, docRules, approvedKinds, signoff, docs, approvals, requests: await requestsForTicket(id), stacks, stackWarnings, fields };
+  const nativeKey = ty ? `${ty.short}-${base.seq}` : `T-${base.seq}`;
+  return { ticket: { ...ticket, key: (ticket as { legacy_id?: string | null }).legacy_id ?? nativeKey }, ticketType: ty && { ...ty, fields: typeDefs }, docRules, approvedKinds, signoff, docs, approvals, requests: await requestsForTicket(id), stacks, stackWarnings, fields };
 }
 
 /** Why the shared draft cannot be edited right now, or null when it can. */

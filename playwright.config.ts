@@ -22,10 +22,12 @@ export default defineConfig({
     { name: 'e2e', testIgnore: /auth\.setup\.ts/, dependencies: ['setup'], use: { storageState: '.auth/Super Admin.json' } },
   ],
   webServer: [
+    // A stand-in for a customer's Jira (and a record of every call made to it)
+    { command: 'node tests/e2e/mock-sources.mjs', url: 'http://localhost:4310/health', reuseExistingServer: false, timeout: 20_000 },
     // A stand-in for Gemini: the API's real SDK calls it, so prompts, parsing and the UI are tested without spending quota
     { command: 'node tests/e2e/mock-gemini.mjs', url: 'http://localhost:4300/health', reuseExistingServer: false, timeout: 20_000 },
     { command: 'npm run dev:api', url: `http://localhost:${API}/health`, reuseExistingServer: false, timeout: 60_000,
-      env: { API_PORT: String(API), AI_PROVIDER: 'offline', DATABASE_URL: testDbUrl(), PLANNING_PROVIDER: 'gemini', GEMINI_API_KEY: 'e2e-test-key', GEMINI_MODEL: 'gemini-e2e', GEMINI_API_BASE_URL: 'http://localhost:4300' } },
+      env: { API_PORT: String(API), SYNC_SCHEDULER: 'off', AI_PROVIDER: 'offline', DATABASE_URL: testDbUrl(), PLANNING_PROVIDER: 'gemini', GEMINI_API_KEY: 'e2e-test-key', GEMINI_MODEL: 'gemini-e2e', GEMINI_API_BASE_URL: 'http://localhost:4300' } },
     // A production build: leaner than the dev server (no per-page compiles or hot reloads), and it proves the app builds.
     { command: `npx next build && npx next start -p ${WEB}`, cwd: 'apps/web', url: `http://localhost:${WEB}`, reuseExistingServer: false, timeout: 300_000,
       env: { API_INTERNAL_URL: `http://localhost:${API}`, NEXT_DIST_DIR: '.next-e2e' } },

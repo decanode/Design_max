@@ -697,3 +697,7 @@ main:has(.settings-rail) { padding-left: calc(var(--rail-w) + 32px); }
 .mode-card:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); } .mode-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .mode-card.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 7%, var(--panel-2)); box-shadow: 0 4px 14px color-mix(in srgb, var(--accent) 14%, transparent); }
 .mode-icon { font-size: 26px; } .mode-card ul { margin: 4px 0 0; padding-left: 18px; font-size: 13px; display: grid; gap: 3px; } .mode-card ul.limits { color: var(--muted); list-style: '– '; }
+
+/* ---------- Source tickets ---------- */
+.source-card { display: grid; gap: 10px; border-left: 4px solid var(--accent); } .src-grid { margin: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; } .src-grid div { display: grid; gap: 4px; } .src-grid dt { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; } .src-grid dd { margin: 0; font-size: 14px; }
+.state-pill.src { background: color-mix(in srgb, var(--warn) 14%, var(--panel)); border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); }

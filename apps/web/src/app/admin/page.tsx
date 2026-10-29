@@ -13,9 +13,10 @@ import { ActivityList } from '../../components/consoleBits';
 import { RolesAdmin } from '../../components/people/RolesAdmin';
 import { MembersAdmin } from '../../components/people/MembersAdmin';
 import { TeamsAdmin } from '../../components/people/TeamsAdmin';
+import { IntegrationAdmin } from '../../components/integration/IntegrationAdmin';
 import { NoAccess, NoProject, useAuth } from '../../lib/auth';
 
-type Tab = 'members' | 'teams' | 'roles' | 'fields' | 'tech' | 'lifecycles' | 'workflows' | 'template' | 'modules' | 'documents' | 'activity';
+type Tab = 'members' | 'teams' | 'roles' | 'fields' | 'tech' | 'lifecycles' | 'integration' | 'workflows' | 'template' | 'modules' | 'documents' | 'activity';
 
 /** Project settings: what a Project Admin (or anyone they delegate to) controls, for the project they are working in. */
 export default function ProjectSettings() {
@@ -34,6 +35,8 @@ export default function ProjectSettings() {
       { key: 'lifecycles', label: 'Lifecycles', hint: 'The statuses each kind of item moves through, and which moves are allowed.', show: can('admin.projects') },
       { key: 'workflows', label: 'Approval workflows', hint: 'Who approves documents, and in what order.', show: can('admin.workflows') },
       { key: 'tech', label: 'Technology', hint: 'The technologies this project works in; the AI stays within them.', show: can('admin.projects') }] },
+    { label: 'Source systems', items: [
+      { key: 'integration', label: 'Connections', hint: 'Pull tickets in from the customer’s Jira or ServiceNow, and map their statuses.', show: can('admin.projects') && !!me?.project?.caps?.connector && me?.project?.operatingMode !== 'full' }] },
     { label: 'Features & content', items: [
       { key: 'modules', label: 'Modules', hint: 'Optional capabilities you can switch on for this project.', show: can('admin.projects') },
       { key: 'documents', label: 'Documents', hint: 'How this project’s Word documents look, and delivery rules for them.', show: can('admin.projects') }] },
@@ -59,6 +62,7 @@ export default function ProjectSettings() {
         {t === 'fields' && can('admin.roles') && <FieldAdmin mode="project" flash={flash} />}
         {t === 'template' && can('admin.projects') && <TemplateBuilder flash={flash} />}
         {t === 'lifecycles' && can('admin.projects') && <LifecycleAdmin flash={flash} sub={sub} onSub={setSub} />}
+        {t === 'integration' && can('admin.projects') && <IntegrationAdmin flash={flash} sub={sub} onSub={setSub} />}
         {t === 'tech' && can('admin.projects') && <TechnologyAdmin flash={flash} />}
         {t === 'workflows' && can('admin.workflows') && <WorkflowAdmin flash={flash} />}
         {t === 'modules' && can('admin.projects') && <ModulesAdmin flash={flash} />}
