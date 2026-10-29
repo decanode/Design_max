@@ -316,3 +316,36 @@ describe('the Project Admin tier', () => {
     expect((await pool.query("SELECT permission FROM project_role_permissions WHERE permission LIKE 'platform.%' OR permission = 'mailbox.view'")).rows).toEqual([]);
   });
 });
+
+describe('platform user browser', () => {
+  it('searches, filters by project, status and kind, pages on the server, and is for Super Admins only', async () => {
+    const app = buildApp(); await app.ready();
+    const sup = await makeUser('Admin');
+    const tag = Math.random().toString(36).slice(2, 7);
+    const pid = await makeProject(`Browse ${tag}`);
+    const a = await makeUser('Consultant', `a${tag}`, pid); const b = await makeUser('Manager', `b${tag}`, pid);
+    await pool.query('UPDATE users SET active=false WHERE id=$1', [b.id]);
+    const loner = await makeUser('Consultant', `c${tag}`, pid); await pool.query('DELETE FROM project_members WHERE user_id=$1', [loner.id]);
+    const get = async (u: { cookie: string }, url: string) => { const r = await app.inject({ method: 'GET', url, headers: { cookie: u.cookie } }); return { status: r.statusCode, body: r.json() as any }; };
+
+    const inProject = await get(sup, `/api/platform/users/search?project=${pid}`);
+    expect(inProject.body.rows.map((x: any) => x.id).sort()).toEqual([a.id, b.id].sort());
+    expect(inProject.body.rows[0].projects[0]).toMatchObject({ id: pid });
+    expect((await get(sup, `/api/platform/users/search?project=${pid}&status=inactive`)).body.rows.map((x: any) => x.id)).toEqual([b.id]);
+    expect((await get(sup, `/api/platform/users/search?q=c${tag}@`)).body.rows.map((x: any) => x.id)).toEqual([loner.id]);
+    expect((await get(sup, '/api/platform/users/search?project=none&pageSize=100')).body.rows.some((x: any) => x.id === loner.id)).toBe(true);
+    expect((await get(sup, '/api/platform/users/search?project=super&pageSize=100')).body.rows.every((x: any) => x.isSuperAdmin)).toBe(true);
+    const p1 = await get(sup, `/api/platform/users/search?project=${pid}&pageSize=1&page=1`); const p2 = await get(sup, `/api/platform/users/search?project=${pid}&pageSize=1&page=2`);
+    expect(p1.body.total).toBe(2); expect(p1.body.rows[0].id).not.toBe(p2.body.rows[0].id);
+    expect((await get(sup, '/api/platform/users/search?q=%25')).body.total).toBe(0);                 // a wildcard is searched for literally
+
+    const f = (await get(sup, '/api/platform/users/facets')).body;
+    expect(f.projects.find((x: any) => x.id === pid).users).toBe(2);
+    expect(f.counts.all).toBeGreaterThanOrEqual(3);
+    expect((await get(sup, `/api/platform/users/${a.id}`)).body).toMatchObject({ id: a.id, projects: [{ id: pid }] });
+    expect((await get(sup, `/api/platform/users/00000000-0000-4000-8000-000000000000`)).status).toBe(404);
+    expect((await get(a, '/api/platform/users/search')).status).toBe(403);
+    expect((await get(a, '/api/platform/users/facets')).status).toBe(403);
+    await app.close();
+  });
+});

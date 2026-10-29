@@ -186,6 +186,53 @@ export function registerPlatformRoutes(app: FastifyInstance) {
               COALESCE((SELECT json_agg(json_build_object('id', p.id, 'name', p.name, 'role', r.name) ORDER BY p.name) FROM project_members m JOIN projects p ON p.id = m.project_id JOIN roles r ON r.id = m.role_id WHERE m.user_id = u.id), '[]') AS projects
        FROM users u ORDER BY u.active DESC, u.display_name`)).rows);
 
+  /**
+   * Browse users at scale: filtered, sorted and paged on the server. `project` is a project id, "none" (no project) or "super".
+   * The membership list of each returned user is complete, whatever project filter is used.
+   */
+  app.get('/api/platform/users/search', { preHandler: sup }, async (req) => {
+    const q = z.object({
+      q: z.string().trim().max(100).optional(), status: z.enum(['all', 'active', 'inactive']).default('all'),
+      project: z.union([z.string().uuid(), z.literal('none'), z.literal('super')]).optional(),
+      sort: z.enum(['name', 'newest', 'projects']).default('name'), page: z.coerce.number().int().min(1).default(1), pageSize: z.coerce.number().int().min(1).max(100).default(25),
+    }).parse(req.query);
+    const where: string[] = []; const args: unknown[] = [];
+    const arg = (v: unknown) => { args.push(v); return `$${args.length}`; };
+    if (q.q) { const l = arg(`%${q.q.replace(/[%_\\]/g, (c) => `\\${c}`)}%`); where.push(`(u.display_name ILIKE ${l} OR u.email ILIKE ${l})`); }
+    if (q.status !== 'all') where.push(`u.active = ${q.status === 'active'}`);
+    if (q.project === 'none') where.push('NOT EXISTS (SELECT 1 FROM project_members m WHERE m.user_id = u.id)');
+    else if (q.project === 'super') where.push('u.is_super_admin');
+    else if (q.project) where.push(`EXISTS (SELECT 1 FROM project_members m WHERE m.user_id = u.id AND m.project_id = ${arg(q.project)})`);
+    const cond = where.length ? `WHERE ${where.join(' AND ')}` : '';
+    const order = q.sort === 'newest' ? 'u.created_at DESC, u.display_name' : q.sort === 'projects' ? '(SELECT count(*) FROM project_members m WHERE m.user_id = u.id) DESC, u.display_name' : 'u.display_name, u.email';
+    const total = (await pool.query(`SELECT count(*)::int n FROM users u ${cond}`, args)).rows[0].n as number;
+    const rows = (await pool.query(
+      `SELECT u.id, u.email, u.display_name AS name, u.active, u.is_super_admin AS "isSuperAdmin", u.created_at,
+              COALESCE((SELECT json_agg(json_build_object('id', p.id, 'name', p.name, 'role', r.name, 'archived', p.status = 'archived') ORDER BY p.name) FROM project_members m JOIN projects p ON p.id = m.project_id JOIN roles r ON r.id = m.role_id WHERE m.user_id = u.id), '[]') AS projects
+       FROM users u ${cond} ORDER BY ${order} LIMIT ${q.pageSize} OFFSET ${(q.page - 1) * q.pageSize}`, args)).rows;
+    return { rows, total, page: q.page, pageSize: q.pageSize };
+  });
+
+  /** The numbers behind the browse rail: how many users overall, and in each project. */
+  app.get('/api/platform/users/facets', { preHandler: sup }, async () => {
+    const c = (await pool.query(
+      `SELECT count(*)::int AS "all", count(*) FILTER (WHERE active)::int AS active, count(*) FILTER (WHERE NOT active)::int AS inactive,
+              count(*) FILTER (WHERE is_super_admin)::int AS super, count(*) FILTER (WHERE NOT EXISTS (SELECT 1 FROM project_members m WHERE m.user_id = users.id))::int AS "noProject" FROM users`)).rows[0];
+    const projects = (await pool.query(
+      `SELECT p.id, p.name, p.status, count(m.user_id)::int AS users FROM projects p LEFT JOIN project_members m ON m.project_id = p.id GROUP BY p.id ORDER BY p.status, p.name`)).rows;
+    return { counts: c, projects };
+  });
+
+  app.get('/api/platform/users/:id', { preHandler: sup }, async (req) => {
+    const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
+    const u = (await pool.query(
+      `SELECT u.id, u.email, u.display_name AS name, u.active, u.is_super_admin AS "isSuperAdmin", u.created_at,
+              COALESCE((SELECT json_agg(json_build_object('id', p.id, 'name', p.name, 'role', r.name, 'archived', p.status = 'archived') ORDER BY p.name) FROM project_members m JOIN projects p ON p.id = m.project_id JOIN roles r ON r.id = m.role_id WHERE m.user_id = u.id), '[]') AS projects
+       FROM users u WHERE u.id = $1`, [id])).rows[0];
+    if (!u) throw new DocError('User not found', 404);
+    return u;
+  });
+
   app.post('/api/platform/users', { preHandler: sup }, async (req, reply) => {
     const b = z.object({ email: z.string().email(), name: z.string().trim().min(1).max(80), isSuperAdmin: z.boolean().default(false) }).parse(req.body);
     if ((await pool.query('SELECT 1 FROM users WHERE email=$1', [b.email.toLowerCase()])).rowCount) throw new DocError('A user with that email already exists', 409);

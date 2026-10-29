@@ -620,3 +620,15 @@ main:has(.settings-rail) { padding-left: calc(var(--rail-w) + 32px); }
 .pj-admins { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; } .pj-admins li { display: flex; align-items: center; gap: 12px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel-2); } .pj-admins .switch { margin-left: auto; }
 .pj-stacks { display: flex; flex-wrap: wrap; gap: 8px; }
 .btn.danger { background: var(--danger); border-color: var(--danger); color: #fff; }
+
+/* ---------- Platform → Users ---------- */
+.users-layout { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 16px; align-items: start; } @media (max-width: 900px) { .users-layout { grid-template-columns: 1fr; } }
+.users-rail { padding: 12px; display: grid; gap: 8px; position: sticky; top: 16px; max-height: calc(100vh - 120px); overflow: auto; } .users-rail h4 { margin: 8px 6px 0; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.users-rail ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.rail-item.scope { display: flex; justify-content: space-between; align-items: center; gap: 8px; width: 100%; text-align: left; padding: 8px 10px; border-radius: 9px; border: 0; border-left: 3px solid transparent; background: transparent; color: var(--text); cursor: pointer; font: inherit; }
+.rail-item.scope:hover { background: color-mix(in srgb, var(--accent) 7%, var(--panel)); } .rail-item.scope.on { background: color-mix(in srgb, var(--accent) 13%, var(--panel)); border-left-color: var(--accent); font-weight: 650; }
+.rail-item.scope .count { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; } .rail-item.scope span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.users-projects { max-height: 46vh; overflow: auto; }
+.users-scope { margin: 0 0 8px; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; } .users-scope .linklike { margin-left: auto; }
+.chip.here { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--panel)); font-weight: 600; }
+.pager { display: flex; align-items: center; gap: 10px; justify-content: flex-end; flex-wrap: wrap; padding: 12px 2px; } .pager .note:first-child { margin-right: auto; }

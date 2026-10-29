@@ -8,51 +8,12 @@ import { FieldAdmin } from '../../components/FieldAdmin';
 import { ActivityList, api } from '../../components/consoleBits';
 import { RolesAdmin } from '../../components/people/RolesAdmin';
 import { ProjectsAdmin } from '../../components/platform/ProjectsAdmin';
+import { UsersAdmin } from '../../components/platform/UsersAdmin';
 import { NoAccess, useAuth, j } from '../../lib/auth';
 
 type Tab = 'projects' | 'users' | 'roles' | 'fields' | 'stacks' | 'workflows' | 'documents' | 'activity';
 type Flash = (kind: 'ok' | 'err', text: string) => void;
 type Stack = { id: number; name: string; description: string; keywords: string[]; projects: number };
-type PUser = { id: string; email: string; name: string; active: boolean; isSuperAdmin: boolean; projects: { id: string; name: string; role: string }[] };
-
-function Users({ flash }: { flash: Flash }) {
-  const [users, setUsers] = useState<PUser[]>([]);
-  const [form, setForm] = useState({ email: '', name: '', isSuperAdmin: false });
-  const { me } = useAuth();
-  const load = useCallback(async () => setUsers(await api('/api/platform/users')), []);
-  useEffect(() => { load().catch((e) => flash('err', e.message)); }, [load, flash]);
-  async function patch(u: PUser, body: object, ok: string) { try { await api(`/api/platform/users/${u.id}`, j(body, 'PATCH')); flash('ok', ok); load(); } catch (e) { flash('err', (e as Error).message); load(); } }
-  async function create(e: React.FormEvent) {
-    e.preventDefault();
-    try { await api('/api/platform/users', j(form)); flash('ok', `Created ${form.name}. Add them to a project from that project's settings.`); setForm({ email: '', name: '', isSuperAdmin: false }); load(); } catch (er) { flash('err', (er as Error).message); }
-  }
-  return (
-    <>
-      <form className="pane build" onSubmit={create} aria-label="Create a user">
-        <h3>New user</h3>
-        <div className="row">
-          <label className="sr" htmlFor="un">Name</label><input id="un" placeholder="Full name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
-          <label className="sr" htmlFor="ue">Email</label><input id="ue" type="email" placeholder="name@company.com" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} required />
-          <label className="check"><input type="checkbox" checked={form.isSuperAdmin} onChange={(e) => setForm({ ...form, isSuperAdmin: e.target.checked })} /> Super Admin</label>
-          <button className="btn" type="submit">Create</button>
-        </div>
-      </form>
-      <div className="matrix-wrap">
-        <table className="grid users" style={{ minWidth: 760 }}>
-          <caption className="sr">All users</caption>
-          <thead><tr><th scope="col">Name</th><th scope="col">Email</th><th scope="col">Projects and roles</th><th scope="col">Super Admin</th><th scope="col">Active</th></tr></thead>
-          <tbody>{users.map((u) => (
-            <tr key={u.id} className={u.active ? '' : 'inactive'}>
-              <td>{u.name}{u.id === me?.user.id && <span className="note"> (you)</span>}</td><td>{u.email}</td>
-              <td>{u.projects.length ? u.projects.map((p) => <span key={p.id} className="chip" style={{ marginRight: 4 }}>{p.name} · {p.role}</span>) : <span className="note">none</span>}</td>
-              <td><input type="checkbox" checked={u.isSuperAdmin} aria-label={`${u.name} is a Super Admin`} onChange={(e) => patch(u, { isSuperAdmin: e.target.checked }, `${u.name} ${e.target.checked ? 'is now' : 'is no longer'} a Super Admin.`)} /></td>
-              <td><input type="checkbox" checked={u.active} aria-label={`${u.name} is active`} onChange={(e) => patch(u, { active: e.target.checked }, `${u.name} ${e.target.checked ? 'reactivated' : 'deactivated'}.`)} /></td>
-            </tr>))}</tbody>
-        </table>
-      </div>
-    </>
-  );
-}
 
 function StackRow({ s, onSave, onDelete }: { s: Stack; onSave: (s: Stack, d: string, k: string) => void; onDelete: (s: Stack) => void }) {
   const [d, setD] = useState(s.description);
@@ -118,7 +79,7 @@ export default function Platform() {
         <div className="board-head"><div><h2>Platform</h2></div></div>
         <SettingsShell label="Platform" groups={groups} active={tab} onSelect={setTab} status={status && <p className={status.kind === 'err' ? 'err' : 'ok'} role={status.kind === 'err' ? 'alert' : 'status'} style={{ margin: 0 }}>{status.text}</p>}>
         {tab === 'projects' && <ProjectsAdmin flash={flash} sub={sub} onSub={setSub} />}
-        {tab === 'users' && <Users flash={flash} />}
+        {tab === 'users' && <UsersAdmin flash={flash} sub={sub} onSub={setSub} />}
         {tab === 'roles' && <RolesAdmin mode="platform" flash={flash} sub={sub} onSub={setSub} />}
         {tab === 'fields' && <FieldAdmin mode="platform" flash={flash} />}
         {tab === 'stacks' && <Stacks flash={flash} />}
