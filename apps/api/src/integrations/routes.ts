@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
-import { pool } from '../db.js';
+import { pool, runWithContext } from '../db.js';
 import { need } from '../rbac/auth.js';
 import { audit } from '../rbac/audit.js';
 import { assertCap } from '../rbac/modes.js';
@@ -221,5 +222,28 @@ export function registerIntegrationRoutes(app: FastifyInstance, deps: { fetch?: 
     if (!r.rowCount) throw new DocError('This ticket is not linked to a source tool', 404);
     await audit(req, 'ticket.writeback_pause', { ticketId: id, paused });
     return { ok: true };
+  });
+  /* ------------------------------------------------------------------ "something changed": the source tool calls us */
+  const sha = (t: string) => createHash('sha256').update(t).digest('hex');
+  /** Creates (or replaces) the address the source tool calls. The token is shown once; only its hash is kept. */
+  app.post('/api/project/integrations/:id/webhook', { preHandler: admin }, async (req) => {
+    const { id } = Id.parse(req.params); await load(req, id);
+    const token = randomBytes(24).toString('base64url');
+    await pool.query('UPDATE integration_connections SET webhook_token_hash=$2 WHERE id=$1', [id, sha(token)]);
+    await audit(req, 'integration.webhook', { id });
+    return { path: `/api/integrations/webhook/${id}?token=${token}` };
+  });
+  const lastPing = new Map<string, number>();
+  /** Public: the token is the credential. It only asks for a look, so the worst a stranger could do is cause an early read-only sync, and that is rate limited. */
+  app.post('/api/integrations/webhook/:id', async (req, reply) => {
+    const { id } = Id.parse(req.params);
+    const token = String((req.query as { token?: string }).token ?? '');
+    const row = await runWithContext({ platform: true }, async () => (await pool.query('SELECT * FROM integration_connections WHERE id=$1 AND enabled', [id])).rows[0] as (ConnectionRow & { webhook_token_hash: string | null }) | undefined);
+    const ok = !!row?.webhook_token_hash && token.length > 10 && (() => { const a = Buffer.from(sha(token)), b = Buffer.from(row.webhook_token_hash!); return a.length === b.length && timingSafeEqual(a, b); })();
+    if (!row || !ok) return reply.code(404).send({ error: 'Not found' });                    // the same answer whether it exists or not
+    if (Date.now() - (lastPing.get(id) ?? 0) < 15_000) return reply.code(202).send({ queued: false, reason: 'A look was just started' });
+    lastPing.set(id, Date.now());
+    void runWithContext({ projectId: row.project_id }, () => runSync(row, { trigger: 'webhook', fetch: deps.fetch })).catch(() => {});
+    return reply.code(202).send({ queued: true });
   });
 }

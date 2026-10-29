@@ -51,7 +51,7 @@ export function registerReportRoutes(app: FastifyInstance) {
   const build = need('report.build');
 
   app.get('/api/reports/meta', { preHandler: view }, async (req) => ({
-    datasets: datasetMeta(),
+    datasets: datasetMeta(req.user!.perms),
     readableFields: FIELD_KEYS.filter((f) => canRead(req.user!.fields, f)),   // groupings/filters on other fields are refused by the engine
     filterFields: FILTER_FIELD,
     // Filter choices are only needed (and only offered) to people who build reports.

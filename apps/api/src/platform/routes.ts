@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { pool } from '../db.js';
 import { needSuper } from '../rbac/auth.js';
 import { audit } from '../rbac/audit.js';
+import { backfillSnapshots, takeSnapshot } from '../reports/snapshots.js';
 import { MODES, capabilitiesOf, validateOverrides, type Mode } from '../rbac/modes.js';
 import { CATALOG, PROJECT_ADMIN_ROLE, PROJECT_KEYS, isKnownKey } from '../rbac/permissions.js';
 import { DocError } from '../errors.js';
@@ -117,6 +118,31 @@ export function registerPlatformRoutes(app: FastifyInstance) {
                         WHERE m.project_id = p.id AND r.name = $1), '[]') AS admins,
               COALESCE((SELECT array_agg(s.name ORDER BY s.name) FROM project_stacks ps JOIN tech_stacks s ON s.id = ps.stack_id WHERE ps.project_id = p.id), '{}') AS stacks
        FROM projects p ORDER BY p.status, p.name`, [PROJECT_ADMIN_ROLE])).rows);
+
+  /** Every active project side by side: how much is open, how fast work finishes, and whether its source connections are healthy. */
+  app.get('/api/platform/portfolio', { preHandler: sup }, async () => (await pool.query(
+    `SELECT p.id, p.name, p.operating_mode AS "operatingMode",
+            (SELECT count(*)::int FROM tickets t WHERE t.project_id = p.id AND t.source_removed_at IS NULL AND t.current_state NOT IN (SELECT name FROM phases WHERE tone = 'done')) AS "open",
+            (SELECT count(*)::int FROM tickets t WHERE t.project_id = p.id AND (t.approval_status = 'pending' OR EXISTS (SELECT 1 FROM approvals a WHERE a.ticket_id = t.id AND a.status = 'pending'))) AS "awaitingApproval",
+            (SELECT round(avg(extract(epoch from (now() - t.created_at)) / 86400)::numeric, 1) FROM tickets t WHERE t.project_id = p.id AND t.source_removed_at IS NULL AND t.current_state NOT IN (SELECT name FROM phases WHERE tone = 'done')) AS "avgAgeDays",
+            (SELECT count(*)::int FROM ticket_flow_v f WHERE f.project_id = p.id AND f.done_at >= now() - interval '30 days') AS "finished30",
+            (SELECT round((percentile_cont(0.85) WITHIN GROUP (ORDER BY extract(epoch from (f.done_at - t.created_at)) / 86400))::numeric, 1) FROM ticket_flow_v f JOIN tickets t ON t.id = f.ticket_id WHERE f.project_id = p.id AND f.done_at >= now() - interval '90 days') AS "p85LeadDays",
+            (SELECT count(*)::int FROM integration_connections c WHERE c.project_id = p.id) AS connections,
+            (SELECT count(*)::int FROM integration_connections c WHERE c.project_id = p.id AND c.health = 'error') AS "connectionsFailing",
+            (SELECT max(last_sync_at) FROM integration_connections c WHERE c.project_id = p.id) AS "lastSyncAt",
+            (SELECT count(*)::int FROM outbound_queue q WHERE q.project_id = p.id AND q.status = 'failed') AS "sendFailures"
+     FROM projects p WHERE p.status = 'active' ORDER BY p.name`)).rows);
+
+  /** Builds the daily records for a project's past, from the history we already keep. */
+  app.post('/api/platform/projects/:id/snapshots', { preHandler: sup }, async (req) => {
+    const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
+    const { days } = z.object({ days: z.number().int().min(1).max(365).default(90) }).parse(req.body ?? {});
+    if (!(await pool.query('SELECT 1 FROM projects WHERE id=$1', [id])).rowCount) throw new DocError('Project not found', 404);
+    const today = await takeSnapshot(id);
+    const past = await backfillSnapshots(id, days);
+    await audit(req, 'project.snapshots', { id, days }, id);
+    return { today, past };
+  });
 
   app.post('/api/platform/projects', { preHandler: sup }, async (req, reply) => {
     const b = z.object({

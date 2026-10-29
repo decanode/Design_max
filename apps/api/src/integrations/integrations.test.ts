@@ -210,3 +210,18 @@ describe('connection routes', () => {
     expect((await pool.query('SELECT current_state FROM tickets WHERE id=$1', [touched])).rows[0].current_state).toBe('Triage');
   });
 });
+
+describe('webhooks', () => {
+  it('a source tool can ask for an early look with its secret address; a wrong or missing token learns nothing', async () => {
+    const { pid, pa } = await mirrorProject(); const c = await connection(pid);
+    expect((await call(pa, 'POST', `/api/project/integrations/${c.id}/webhook`)).status).toBe(200);
+    const { path } = (await call(pa, 'POST', `/api/project/integrations/${c.id}/webhook`)).body;              // asking again replaces the token
+    const raw = (u: string) => app.inject({ method: 'POST', url: u });
+    expect((await raw(`/api/integrations/webhook/${c.id}`)).statusCode).toBe(404);
+    expect((await raw(`/api/integrations/webhook/${c.id}?token=not-the-token-at-all`)).statusCode).toBe(404);
+    expect((await raw(`/api/integrations/webhook/00000000-0000-4000-8000-000000000000?token=whatever-whatever`)).statusCode).toBe(404);
+    const ok = await raw(path); expect(ok.statusCode).toBe(202); expect(ok.json()).toEqual({ queued: true });
+    expect((await raw(path)).json()).toMatchObject({ queued: false });                                           // asked again straight away: nothing extra starts
+    expect((await pool.query('SELECT webhook_token_hash FROM integration_connections WHERE id=$1', [c.id])).rows[0].webhook_token_hash).not.toContain(path.split('token=')[1]);
+  });
+});

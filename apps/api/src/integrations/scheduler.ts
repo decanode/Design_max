@@ -1,6 +1,7 @@
 import { pool, runWithContext } from '../db.js';
 import { runSync, type ConnectionRow } from './sync.js';
 import { drainDue } from './outbox.js';
+import { snapshotDue } from '../reports/snapshots.js';
 
 /**
  * Runs the pull sync for every enabled connection that is due. Several API instances can run this at once: a
@@ -24,7 +25,7 @@ export async function syncDueConnections(now = new Date()): Promise<number> {
 
 export function startSyncScheduler(everyMs = 60_000) {
   if (process.env.SYNC_SCHEDULER === 'off') return () => {};
-  const t = setInterval(() => { syncDueConnections().catch((e) => console.error('sync scheduler', e)); drainDue().catch((e) => console.error('write-back scheduler', e)); }, everyMs);
+  const t = setInterval(() => { syncDueConnections().catch((e) => console.error('sync scheduler', e)); drainDue().catch((e) => console.error('write-back scheduler', e)); snapshotDue().catch((e) => console.error('snapshots', e)); }, everyMs);
   t.unref();
   return () => clearInterval(t);
 }

@@ -71,6 +71,7 @@ function ConnPage({ c, isSuper, flash, back, done }: { c: Conn | null; isSuper: 
     flavor: (c?.config.flavor ?? 'cloud') as string, jql: (c?.config.jql ?? '') as string, ac: (c?.config.acceptanceCriteriaField ?? '') as string, tables: (c?.config.tables ?? ['incident', 'problem', 'change_request']) as string[], query: (c?.config.query ?? '') as string });
   const [busy, setBusy] = useState(false);
   const [test, setTest] = useState<{ ok: boolean; detail: string } | null>(null);
+  const [hook, setHook] = useState('');
   const lockSuper = !isNew && !isSuper;
   const config = f.kind === 'jira' ? { flavor: f.flavor as 'cloud' | 'datacenter', ...(f.jql.trim() ? { jql: f.jql.trim() } : {}), ...(f.ac.trim() ? { acceptanceCriteriaField: f.ac.trim() } : {}) }
     : { tables: f.tables as ('incident' | 'problem' | 'change_request')[], ...(f.query.trim() ? { query: f.query.trim() } : {}) };
@@ -84,6 +85,7 @@ function ConnPage({ c, isSuper, flash, back, done }: { c: Conn | null; isSuper: 
     } catch (er) { flash('err', (er as Error).message); } finally { setBusy(false); }
   }
   async function runTest() { if (!c) return; setTest(await api(`/api/project/integrations/${c.id}/test`, j({}))); }
+  async function makeHook() { if (!c) return; const r = await api(`/api/project/integrations/${c.id}/webhook`, j({})); setHook(`${window.location.origin}${r.path}`); }
   async function remove() {
     if (!c || !confirm(`Remove the connection “${c.name}”? Its tickets stay here, but stop updating.`)) return;
     try { await api(`/api/project/integrations/${c.id}`, { method: 'DELETE' }); flash('ok', 'Connection removed.'); await done(); back(); } catch (er) { flash('err', (er as Error).message); }
@@ -118,6 +120,13 @@ function ConnPage({ c, isSuper, flash, back, done }: { c: Conn | null; isSuper: 
           {!isNew && <label className="ds-rule"><span className="ds-rule-text"><b>Sync automatically</b><span className="note">Switch off to pause. “Sync now” still needs it on.</span></span><span className="switch"><input type="checkbox" role="switch" aria-label="Sync automatically" checked={f.enabled} onChange={(e) => setF({ ...f, enabled: e.target.checked })} /><span className="track" aria-hidden /></span></label>}
         </section>
       </div>
+      {!isNew && (
+        <section className="pane drill-card" aria-labelledby="cn-hook">
+          <h4 id="cn-hook">Look sooner when something changes <span className="note">(optional)</span></h4>
+          <p className="note" style={{ marginTop: 0 }}>Without this, changes are picked up at the interval above. To have {KIND[c!.kind].name} tell us the moment a ticket changes, point a webhook at this secret address. It only makes us look; it can never change anything.</p>
+          <button type="button" className="btn ghost" onClick={makeHook}>{hook ? 'Create a new address' : 'Create the secret address'}</button>
+          {hook && <div className="hook" role="status"><code>{hook}</code><span className="note">Copy it now: it is not shown again, and creating a new one replaces it.</span></div>}
+        </section>)}
       {test && <p role="status" className={test.ok ? 'ok' : 'err'}>{test.ok ? '✓ ' : '✕ '}{test.detail}</p>}
       {!isNew && isSuper && <section className="danger-zone" aria-label="Remove connection"><div><b>Remove this connection</b><p className="note" style={{ margin: 0 }}>Tickets already pulled in stay here, but they stop updating.</p></div><button type="button" className="btn danger" onClick={remove}>Remove</button></section>}
       <div className="tb-bar drill-bar" role="region" aria-label="Save changes">

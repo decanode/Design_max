@@ -108,13 +108,13 @@ export async function userFromCookie(header: string | undefined) {
 }
 
 /** Routes under /api/ that work without a session. Approval-by-token carries its own credential. */
-const PUBLIC = [/^\/api\/auth\//, /^\/api\/states$/, /^\/api\/approvals\/[^/]+(\/decision)?$/];
+const PUBLIC = [/^\/api\/integrations\/webhook\/[^/]+$/, /^\/api\/auth\//, /^\/api\/states$/, /^\/api\/approvals\/[^/]+(\/decision)?$/];
 
 /**
  * Routes that legitimately span projects run as the platform: the Super Admin console (guarded by `needSuper`), sign-in and
  * project switching, and the public emailed-link approval (the link's token is its authority for exactly one approval).
  */
-const PLATFORM_ROUTES = [/^\/api\/platform\//, /^\/api\/auth\//, /^\/api\/approvals\/[^/]+(\/decision)?$/, /^\/health\/db$/];
+const PLATFORM_ROUTES = [/^\/api\/integrations\/webhook\/[^/]+$/, /^\/api\/platform\//, /^\/api\/auth\//, /^\/api\/approvals\/[^/]+(\/decision)?$/, /^\/health\/db$/];
 
 export function registerAuth(app: FastifyInstance) {
   app.decorateRequest('user', null);

@@ -1,13 +1,13 @@
 'use client';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 
-export type Row = { label: string; value: number | null };
+export type Row = { label: string; value: number | null; parts?: Record<string, number> };
 export type Result = {
-  rows: Row[]; truncated: boolean;
+  rows: Row[]; truncated: boolean; series?: string[];
   measure: { key: string; label: string; unit: string };
   dimension: { key: string; label: string; time?: 'day' | 'week' | 'month' | null } | null;
 };
-export type ChartKind = 'kpi' | 'bar' | 'column' | 'line' | 'share' | 'table';
+export type ChartKind = 'kpi' | 'bar' | 'column' | 'line' | 'share' | 'stack' | 'table';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 export function fmt(v: number | null, compact = false) {
@@ -209,7 +209,52 @@ function Share({ r }: { r: Result }) {
   );
 }
 
+/** Columns divided into coloured parts: how the whole (a day's pipeline, a week's work) is made up. */
+function Stack({ r }: { r: Result }) {
+  const [ref, w] = useWidth<HTMLDivElement>();
+  const [tip, setTip] = useState<Tip | null>(null);
+  const series = r.series ?? [];
+  const colorOf = (k: string, i: number) => (k === 'Other' ? 'var(--viz-other)' : SLOTS[i % SLOTS.length]);
+  const rows = r.rows, n = rows.length;
+  const max = Math.max(...rows.map((d) => d.value ?? 0), 0);
+  const tk = ticks(max), top = tk[tk.length - 1] || 1;
+  const H = 240, m = { l: 40, r: 8, t: 12, b: 28 }, iw = Math.max(w - m.l - m.r, 10), ih = H - m.t - m.b;
+  const slot = iw / Math.max(n, 1), bw = Math.max(Math.min(slot * 0.72, 44), 2);
+  const y = (v: number) => m.t + ih - (v / top) * ih;
+  const every = Math.ceil(n / Math.max(Math.floor(iw / 58), 1));
+  return (
+    <div ref={ref} className="viz-wrap">
+      {w > 0 && n > 0 && (
+        <svg width={w} height={H} role="img" aria-label={`${r.measure.label} by ${r.dimension?.label}, divided by ${series.join(', ')}`}>
+          {tk.map((t) => (<g key={t}><line x1={m.l} x2={w - m.r} y1={y(t)} y2={y(t)} className={t === 0 ? 'viz-axis' : 'viz-grid'} /><text x={m.l - 6} y={y(t) + 4} textAnchor="end" className="viz-tick">{fmt(t, true)}</text></g>))}
+          {rows.map((d, k) => {
+            const x = m.l + slot * k + (slot - bw) / 2; let acc = 0;
+            return (
+              <g key={d.label}>
+                {series.map((sname, si) => {
+                  const v = d.parts?.[sname] ?? 0; if (!v) return null;
+                  const y0 = y(acc + v), h = y(acc) - y0; acc += v;
+                  return <rect key={sname} x={x} y={y0} width={bw} height={Math.max(h, 0.5)} fill={colorOf(sname, si)} className="viz-seg" tabIndex={0} aria-label={`${niceLabel(d.label, r.dimension?.time)}, ${sname}: ${fmt(v)}`}
+                    onPointerMove={(e) => { const b = ref.current!.getBoundingClientRect(); setTip({ x: e.clientX - b.left, y: e.clientY - b.top, value: fmt(v), label: `${sname} · ${niceLabel(d.label, r.dimension?.time)}`, color: colorOf(sname, si) }); }}
+                    onPointerLeave={() => setTip(null)} onFocus={() => setTip({ x: x + bw / 2, y: y0, value: fmt(v), label: `${sname} · ${niceLabel(d.label, r.dimension?.time)}`, color: colorOf(sname, si) })} onBlur={() => setTip(null)} />;
+                })}
+                {k % every === 0 && <text x={x + bw / 2} y={H - 10} textAnchor="middle" className="viz-tick">{niceLabel(d.label, r.dimension?.time)}</text>}
+              </g>);
+          })}
+        </svg>)}
+      <Tooltip tip={tip} width={w} />
+      <ul className="viz-legend">{series.map((k, i) => <li key={k}><i style={{ background: colorOf(k, i) }} aria-hidden /><span>{k}</span></li>)}</ul>
+    </div>
+  );
+}
+
 export function DataTable({ r }: { r: Result }) {
+  if (r.series) return (
+    <table className="viz-table">
+      <thead><tr><th scope="col">{r.dimension?.label}</th>{r.series.map((k) => <th key={k} scope="col" className="num">{k}</th>)}<th scope="col" className="num">Total</th></tr></thead>
+      <tbody>{r.rows.map((d) => <tr key={d.label}><th scope="row">{niceLabel(d.label, r.dimension?.time)}</th>{r.series!.map((k) => <td key={k} className="num">{fmt(d.parts?.[k] ?? 0)}</td>)}<td className="num">{fmt(d.value)}</td></tr>)}</tbody>
+    </table>
+  );
   return (
     <table className="viz-table">
       <thead><tr><th scope="col">{r.dimension?.label ?? 'Measure'}</th><th scope="col" className="num">{r.measure.label}</th></tr></thead>
@@ -228,5 +273,6 @@ export function ChartView({ chart, result, asTable }: { chart: ChartKind; result
     case 'bar': return <HBar r={result} />;
     case 'line': return <Line r={result} />;
     case 'share': return <Share r={result} />;
+    case 'stack': return <Stack r={result} />;
   }
 }

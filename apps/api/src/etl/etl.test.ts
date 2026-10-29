@@ -61,9 +61,9 @@ describe('pipeline (DB)', () => {
     expect(a).toMatchObject({ tickets: 3, embedded: 1, failed: [] });
     expect(b.tickets).toBe(1);
 
-    const t = await pool.query("SELECT count(*)::int c FROM tickets WHERE legacy_id IS NOT NULL");
+    const t = await pool.query("SELECT count(*)::int c FROM tickets WHERE legacy_id IS NOT NULL AND project_id=$1", [projectId]);
     expect(t.rows[0].c).toBe(4);
-    const st = await pool.query("SELECT current_state FROM tickets WHERE legacy_id='PROJ-1'");
+    const st = await pool.query("SELECT current_state FROM tickets WHERE legacy_id='PROJ-1' AND project_id=$1", [projectId]);
     expect(st.rows[0].current_state).toBe('Deployed');
     const u = await pool.query("SELECT 1 FROM users WHERE email='alice@corp.com'");
     expect(u.rowCount).toBe(1);

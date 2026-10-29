@@ -105,6 +105,8 @@ function ProjectPage({ id, list, flash, back, reload }: { id: string; list: Proj
       </div>
 
       <ModeSection p={p} flash={flash} reload={reload} />
+      <section className="pane drill-card" aria-labelledby="pj-trend"><h4 id="pj-trend">Trend history</h4><p className="note" style={{ marginTop: 0 }}>Cumulative-flow and pipeline-over-time reports use a record of each day. One is taken every day; this fills in the past 90 days from the phase history already kept (our own phases only).</p>
+        <button type="button" className="btn ghost" onClick={async () => { try { const r = await api(`/api/platform/projects/${p.id}/snapshots`, j({ days: 90 })); flash('ok', `Trend history built: ${r.past} daily records.`); } catch (e) { flash('err', (e as Error).message); } }}>Build 90 days of trend history</button></section>
 
       <div className="drill-grid">
         <section className="pane drill-card" aria-labelledby="pj-admins">

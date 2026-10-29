@@ -123,6 +123,40 @@ Open **Chat** and press **Start a conversation**. Design Max greets you by name 
 
 **Closing a ticket** (moving it into a finishing phase) is refused until: every document its type requires is approved, and, for a ticket raised by a customer, **that customer has confirmed it is resolved**. The team presses **Ask the customer to confirm** (the customer gets an email and a prompt on the ticket); the customer answers *Yes, it is resolved* or *No, it is not resolved* with a reason, and a refusal keeps the ticket open until it is asked again. Only the customer who raised the ticket can answer. Tickets raised internally, or migrated from Jira or ServiceNow, need no customer confirmation.
 
+## 4b. Operating modes: how much of the lifecycle runs here
+
+A Super Admin chooses, per project (**Platform → Projects → the project → Operating mode**, or when creating it), how much of Design Max the project uses. Changing it never deletes anything, is recorded in the activity log, and can be changed again.
+
+| | **Full adoption** | **Connected** | **Mirror (read-only)** |
+|---|---|---|---|
+| Idea | The whole lifecycle lives here | The customer keeps Jira / ServiceNow; tickets are pulled in and agreed outcomes are sent back | Tickets are pulled in read-only; the team works locally; nothing is sent back |
+| Create tickets here, customer chat intake | Yes | No (tickets come from the source) | No |
+| Our own status, documents, approvals, work breakdown, reports | Yes | Yes | Yes |
+| Required documents and customer sign-off before closing | Yes | Yes | Off by default |
+| Write-back to the source tool | n/a | You choose what | Never |
+
+A Super Admin can adjust three things inside a mode (required documents before closing, customer sign-off, turning work packages into tickets) and a fourth that is off everywhere unless chosen: **all tasks done before closing**. Writing back in Mirror, or creating tickets in Connected/Mirror, can never be switched on.
+
+### Connecting a source tool (Connected and Mirror projects)
+**Project settings → Source systems → Connections.** A Super Admin adds a connection (Jira Cloud or Data Center, or ServiceNow: address, account, token or password). The credential is stored encrypted, never shown again, and only a Super Admin can change it or the address. Anyone who manages the project can then set what is pulled (a Jira JQL filter, or ServiceNow tables), how often to check, test the connection, and press **Sync now**.
+- The first sync reads everything; later ones read only what changed, with a full look about once a day to notice tickets that disappeared. Re-running is always safe.
+- Each ticket keeps **the source's status** (and its history, with real dates) separately from **our own status**, which is where it starts and where the team moves it. The ticket page shows both side by side and links to the original. Mirrored tickets are known by their source key (for example PAY-12).
+- **Status mapping** chooses which of this project's phases each source status starts in. "Save and apply" also moves tickets nobody has touched yet.
+- People who appear in the source tool become inactive accounts (they cannot sign in and belong to no project), unless their email matches an existing person.
+- **Sync history** shows every run and the tickets that could not be mirrored. A webhook address (optional) makes the source tool trigger an early read.
+
+### Sending outcomes back (Connected projects only)
+**Connections → Send back.** Everything is explicit:
+1. Rules say what is sent: *when* a ticket enters a phase / a document is approved / the customer confirms / a ticket is closed here, *then* set the source status, add a comment (with placeholders such as the ticket key and phase), or attach the approved document. Internal notes and our working status are never sent.
+2. A **Super Admin** switches sending on, and a **Trial run** is on by default: items are recorded with "would have been sent" and nothing leaves. Only a Super Admin switches the trial off. Anyone who manages the project can switch sending off at any time.
+3. Each item is queued **in the same step as the change that caused it**, so a change that is rolled back sends nothing. Failed items retry with growing gaps, then stop and wait for a person (**Try again** or **Cancel**). If someone changed the ticket in the source tool after we last read it, we do not overwrite it: the item is skipped and the ticket is marked **out of sync**.
+4. A per-ticket switch (**Do not send anything about this ticket**) pauses one ticket. Leaving Connected mode cancels everything waiting and switches sending off.
+
+### Breaking a ticket into work, and flow reports
+Staff can break any ticket into **work items** (owner, estimate, hours spent, dependencies, "waits for"), add the standard tasks for its type, or ask for a suggested breakdown. Progress shows on the board card. Work items are the team's own working list and never reach the customer or the source tool.
+
+New built-in reports (and the **Flow and delivery health** dashboard under Summary) measure lead time and cycle time with percentiles, throughput per week, average time in each status, where work bounces back, approval and sign-off turnaround, and the pipeline day by day as a stacked chart. They work for mirrored tickets too, using the source tool's own history. **Platform → Portfolio** compares every project side by side. A daily record of each project's pipeline is taken automatically; **Build 90 days of trend history** (on the project's page) fills in the past from the phase history already kept.
+
 ## 5. The board, ticket types and the project template (dynamic workflows)
 
 **What it is.** How a project works is configured, not hard-coded. Each project has a **project type** (Implementation, Support, DevOps, Conversion), a **methodology** (Waterfall, Agile, Hybrid, ITIL), a set of **phases** it uses and a set of **ticket types** its people may create (Incident, Problem, Change Request, Request Item, WRICEF, Epic, Feature, Bug, Requirement). The board, the create form and the allowed moves all follow that configuration, so a Support project and an SAP implementation behave differently without any code change.

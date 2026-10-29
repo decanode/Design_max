@@ -6,15 +6,15 @@ import { Nav } from '../../../components/Nav';
 import { ChartView, type ChartKind, type Result } from '../../../components/charts';
 import { NoAccess, NoProject, useAuth, j } from '../../../lib/auth';
 
-type Filters = { states?: string[]; consultantIds?: string[]; sources?: string[]; openOnly?: boolean; statuses?: string[]; kinds?: string[]; range?: string };
-type Def = { dataset: string; measure: string; groupBy: string | null; filters: Filters; sort: 'natural' | 'value_desc' | 'value_asc'; limit: number; chart: ChartKind };
-type Meta = { datasets: { key: string; label: string; filters: string[]; measures: { key: string; label: string }[]; dimensions: { key: string; label: string; time: string | null; field: string | null }[] }[]; people: { id: string; name: string }[]; readableFields: string[]; filterFields: Record<string, string> };
+type Filters = { states?: string[]; consultantIds?: string[]; sources?: string[]; openOnly?: boolean; statuses?: string[]; kinds?: string[]; origins?: string[]; range?: string };
+type Def = { dataset: string; measure: string; groupBy: string | null; seriesBy: string | null; filters: Filters; sort: 'natural' | 'value_desc' | 'value_asc'; limit: number; chart: ChartKind };
+type Meta = { datasets: { key: string; label: string; filters: string[]; measures: { key: string; label: string; additive?: boolean }[]; dimensions: { key: string; label: string; time: string | null; field: string | null }[] }[]; people: { id: string; name: string }[]; readableFields: string[]; filterFields: Record<string, string> };
 
-const NEW: Def = { dataset: 'tickets', measure: 'count', groupBy: 'state', filters: {}, sort: 'natural', limit: 12, chart: 'column' };
+const NEW: Def = { dataset: 'tickets', measure: 'count', groupBy: 'state', seriesBy: null, filters: {}, sort: 'natural', limit: 12, chart: 'column' };
 const CHARTS: { key: ChartKind; label: string; hint: string }[] = [
   { key: 'kpi', label: 'Number', hint: 'One headline number' }, { key: 'column', label: 'Columns', hint: 'Compare categories or phases' },
   { key: 'bar', label: 'Bars', hint: 'Long names or many categories' }, { key: 'line', label: 'Line', hint: 'Trend over time' },
-  { key: 'share', label: 'Share', hint: 'Part of a whole (counts)' }, { key: 'table', label: 'Table', hint: 'Exact figures' },
+  { key: 'share', label: 'Share', hint: 'Part of a whole (counts)' }, { key: 'stack', label: 'Stacked', hint: 'What each column is made of, for example phases over time' }, { key: 'table', label: 'Table', hint: 'Exact figures' },
 ];
 
 function Check({ legend, options, value, onChange, disabled }: { legend: string; options: { value: string; label: string }[]; value?: string[]; onChange: (v: string[] | undefined) => void; disabled?: boolean }) {
@@ -88,15 +88,20 @@ export default function Builder() {
     else if (!n.groupBy) n.groupBy = ds!.dimensions[0].key;
     if (c === 'line' && !ds!.dimensions.find((x) => x.key === n.groupBy)?.time) n.groupBy = timeDim;
     if (c === 'share') n.measure = 'count';
+    if (c === 'stack') {
+      if (!ds!.measures.find((x) => x.key === n.measure)?.additive) n.measure = ds!.measures.find((x) => x.additive)?.key ?? n.measure;
+      if (!n.seriesBy || n.seriesBy === n.groupBy) n.seriesBy = ds!.dimensions.find((x) => x.key !== n.groupBy)?.key ?? null;
+    } else n.seriesBy = null;
     return n;
   });
   const setGroup = (g: string) => setDef((d) => {
     const n: Def = { ...d, groupBy: g || null };
     if (!g) n.chart = 'kpi'; else if (d.chart === 'kpi') n.chart = 'column';
     if (g && d.chart === 'line' && !ds!.dimensions.find((x) => x.key === g)?.time) n.chart = 'column';
+    if (n.chart !== 'stack') n.seriesBy = null; else if (n.seriesBy === g) n.seriesBy = ds!.dimensions.find((x) => x.key !== g)?.key ?? null;
     return n;
   });
-  const setMeasure = (m: string) => setDef((d) => ({ ...d, measure: m, chart: d.chart === 'share' && m !== 'count' ? 'column' : d.chart }));
+  const setMeasure = (m: string) => setDef((d) => { const additive = ds?.measures.find((x) => x.key === m)?.additive; const stackBad = d.chart === 'stack' && !additive; return { ...d, measure: m, chart: d.chart === 'share' && m !== 'count' ? 'column' : stackBad ? 'column' : d.chart, seriesBy: stackBad ? null : d.seriesBy }; });
   const setFilter = (k: keyof Filters, v: unknown) => setDef((d) => { const f = { ...d.filters, [k]: v } as Filters; if (v === undefined || v === false || v === 'all') delete f[k]; return { ...d, filters: f }; });
 
   async function save(asCopy = false) {
@@ -128,7 +133,7 @@ export default function Builder() {
   if (!can('report.view')) return <><Nav current="dashboards" /><main id="main"><NoAccess what="reports" /></main></>;
   if (isNew && !can('report.build')) return <><Nav current="dashboards" /><main id="main"><NoAccess what="building reports" /></main></>;
 
-  const chartOk = (c: ChartKind) => !(c === 'line' && !timeDim) && !(c === 'share' && !ds?.measures.some((m) => m.key === 'count'));
+  const chartOk = (c: ChartKind) => !(c === 'line' && !timeDim) && !(c === 'share' && !ds?.measures.some((m) => m.key === 'count')) && !(c === 'stack' && (!ds?.measures.some((m) => m.additive) || (ds?.dimensions.length ?? 0) < 2));
   const F = (k: string) => ds?.filters.includes(k);
 
   return (
@@ -157,6 +162,8 @@ export default function Builder() {
               <div className="field"><label htmlFor="gb">Group by</label>
                 <select id="gb" value={def.groupBy ?? ''} onChange={(e) => setGroup(e.target.value)}>
                   <option value="">Nothing — a single number</option>{ds?.dimensions.map((d) => <option key={d.key} value={d.key}>{d.label}</option>)}</select></div>
+              {def.chart === 'stack' && <div className="field"><label htmlFor="sb">Stack by</label>
+                <select id="sb" value={def.seriesBy ?? ''} onChange={(e) => patch({ seriesBy: e.target.value || null })}>{ds?.dimensions.filter((d) => d.key !== def.groupBy).map((d) => <option key={d.key} value={d.key}>{d.label}</option>)}</select></div>}
 
               <div className="field"><span className="lbl" id="ct">Show as</span>
                 <div className="seg wrap" role="group" aria-labelledby="ct">{CHARTS.map((c) => (
@@ -179,6 +186,7 @@ export default function Builder() {
               {F('states') && <Check legend="Phase" options={STATES.map((s) => ({ value: s, label: s }))} value={def.filters.states} onChange={(v) => setFilter('states', v)} />}
               {F('statuses') && <Check legend="Approval status" options={['pending', 'approved', 'rejected', 'superseded'].map((s) => ({ value: s, label: s[0].toUpperCase() + s.slice(1) }))} value={def.filters.statuses} onChange={(v) => setFilter('statuses', v)} />}
               {F('kinds') && <Check legend="Document" options={[{ value: 'FS', label: 'Functional spec' }, { value: 'TS', label: 'Technical spec' }]} value={def.filters.kinds} onChange={(v) => setFilter('kinds', v)} />}
+              {F('origins') && <Check legend="Where it is tracked" options={[{ value: 'phase', label: 'Our phases' }, { value: 'source', label: 'Source tool' }]} value={def.filters.origins} onChange={(v) => setFilter('origins', v)} />}
               {F('sources') && <Check legend="Source" options={[{ value: 'native', label: 'Design Max' }, { value: 'jira', label: 'Jira' }, { value: 'servicenow', label: 'ServiceNow' }]} value={def.filters.sources} onChange={(v) => setFilter('sources', v)} />}
               {F('consultantIds') && <Check legend="Consultant" options={people.map((p) => ({ value: p.id, label: p.name }))} value={def.filters.consultantIds} onChange={(v) => setFilter('consultantIds', v)} />}
 
