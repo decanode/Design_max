@@ -45,9 +45,9 @@ describe('transform', () => {
 describe('pipeline (DB)', () => {
   let projectId: string;
   beforeAll(async () => {
-    const legacy = "(SELECT id FROM tickets WHERE legacy_id IS NOT NULL)";
+    const legacy = "(SELECT id FROM tickets WHERE legacy_id IS NOT NULL AND project_id IN (SELECT id FROM projects WHERE name = 'etl'))";
     for (const t of ['ticket_transitions', 'ticket_comments', 'attachments']) await pool.query(`DELETE FROM ${t} WHERE ticket_id IN ${legacy}`);
-    await pool.query("DELETE FROM tickets WHERE legacy_id IS NOT NULL");
+    await pool.query("DELETE FROM tickets WHERE legacy_id IS NOT NULL AND project_id IN (SELECT id FROM projects WHERE name = 'etl')");
     await pool.query("DELETE FROM embeddings WHERE source_type='ticket'");
     projectId = (await pool.query("INSERT INTO projects(name) VALUES('etl') RETURNING id")).rows[0].id;
   });

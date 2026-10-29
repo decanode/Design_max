@@ -117,7 +117,8 @@ describe('Consultant', () => {
   it('two consultants claiming the same ticket at the same instant: exactly one wins', async () => {
     const free = await ticketFor({ title: 'claim race' });
     const rs = await Promise.all([call(consultant, 'POST', `/api/tickets/${free}/claim`), call(consultant2, 'POST', `/api/tickets/${free}/claim`)]);
-    expect(rs.map((r) => r.status).sort()).toEqual([200, 409]);
+    const codes = rs.map((r) => r.status).sort();
+    expect(codes[0]).toBe(200); expect([404, 409]).toContain(codes[1]);          // the loser is told it is taken (409), or no longer sees it (404), depending on who is faster
     expect((await pool.query('SELECT consultant_id FROM tickets WHERE id=$1', [free])).rows[0].consultant_id).toMatch(/./);
   });
   it('the author of a saved version is the signed-in user, not a client-supplied name', async () => {
