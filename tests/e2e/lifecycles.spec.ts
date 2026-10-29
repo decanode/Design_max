@@ -6,6 +6,7 @@ const stamp = Date.now();
 async function supportProject(browser: Browser, project: string, adminName: string, adminEmail: string): Promise<Page> {
   const sup = await (await browser.newContext({ storageState: '.auth/Super Admin.json' })).newPage();
   await sup.goto('/platform');
+  await sup.getByRole('button', { name: '+ New project' }).click();
   await sup.getByLabel('Project name').fill(project);
   await sup.getByLabel('Project Admin email').fill(adminEmail);
   await sup.getByLabel('Project Admin name').fill(adminName);

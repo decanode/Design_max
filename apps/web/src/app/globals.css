@@ -612,3 +612,11 @@ main:has(.settings-rail) { padding-left: calc(var(--rail-w) + 32px); }
 .tech-try { display: grid; gap: 8px; } .tech-try textarea { width: 100%; box-sizing: border-box; resize: vertical; } .tech-try .btn { justify-self: start; }
 .tech-verdict { margin-top: 12px; display: grid; gap: 6px; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--line); } .tech-verdict.ok { border-color: var(--done); background: color-mix(in srgb, var(--done) 9%, var(--panel)); } .tech-verdict.warn { border-color: var(--warn); background: color-mix(in srgb, var(--warn) 10%, var(--panel)); } .tech-verdict.bad { border-color: var(--danger); background: color-mix(in srgb, var(--danger) 9%, var(--panel)); }
 .tech-applies { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; } .tech-applies li { display: grid; gap: 4px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel-2); }
+
+/* ---------- Platform → Projects ---------- */
+.team-badge.big { width: 48px; height: 48px; border-radius: 13px; font-size: 20px; }
+.pj-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.pj-stats > div { display: grid; gap: 2px; padding: 12px 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); align-content: start; } .pj-stats b { font-size: 22px; } .pj-tech { grid-column: span 2; } @media (max-width: 600px) { .pj-tech { grid-column: auto; } }
+.pj-admins { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; } .pj-admins li { display: flex; align-items: center; gap: 12px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel-2); } .pj-admins .switch { margin-left: auto; }
+.pj-stacks { display: flex; flex-wrap: wrap; gap: 8px; }
+.btn.danger { background: var(--danger); border-color: var(--danger); color: #fff; }

@@ -9,13 +9,14 @@ test('Super Admin creates a project; its new Project Admin sees only that projec
 
   // Platform console: create the project with a brand-new Project Admin
   await sup.goto('/platform');
+  await sup.getByRole('button', { name: '+ New project' }).click();
   await sup.getByLabel('Project name').fill(project);
   await sup.getByLabel('Project Admin email').fill(adminEmail);
   await sup.getByLabel('Project Admin name').fill('Gina Admin');
   await sup.getByRole('button', { name: 'Create project' }).click();
   await expect(sup.getByRole('status')).toContainText(`Project “${project}” created`);
-  const card = sup.getByRole('article', { name: `Project ${project}` });
-  await expect(card).toContainText('Gina Admin');
+  const row = sup.getByRole('row', { name: new RegExp(project) });
+  await expect(row).toContainText('Gina Admin');
 
   // Gina signs in: her account exists, she is Project Admin of exactly one project, and that is where she lands
   const gctx = await browser.newContext({ storageState: { cookies: [], origins: [] } });
@@ -39,9 +40,8 @@ test('Super Admin creates a project; its new Project Admin sees only that projec
   expect(list.map((t) => t.title)).not.toContain(ticketTitle);
 
   // The Super Admin can step in to help, and the project's own admin can see that they did
-  await sup.getByRole('button', { name: 'Open project' }).first().waitFor();
-  await card.getByRole('button', { name: 'Open project' }).click();
-  await expect(sup.getByRole('article', { name: `Project ${project}` }).getByText('Working here')).toBeVisible();
+  await row.getByRole('button', { name: `Switch to ${project}` }).click();
+  await expect(sup.getByRole('row', { name: new RegExp(project) }).getByText('Working here', { exact: true })).toBeVisible();
   await sup.goto('/');
   await expect(sup.getByRole('region', { name: 'Requirement Verified' }).getByRole('link', { name: ticketTitle })).toBeVisible();
   await g.goto('/admin');
@@ -51,7 +51,8 @@ test('Super Admin creates a project; its new Project Admin sees only that projec
   // Archiving cuts access off at once
   await sup.goto('/platform');
   sup.once('dialog', (d) => d.accept());
-  await sup.getByRole('article', { name: `Project ${project}` }).getByRole('button', { name: 'Archive' }).click();
+  await sup.getByRole('button', { name: `Open project ${project}` }).click();
+  await sup.getByRole('button', { name: 'Archive', exact: true }).click();
   await expect(sup.getByRole('status')).toContainText('is now archived');
   await g.goto('/');
   await expect(g.getByText('You are not in a project yet')).toBeVisible();

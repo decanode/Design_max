@@ -20,8 +20,9 @@ test('A Super Admin lets a Project Admin create roles; the role is private to th
 
   // the Super Admin allows Rae (and only Rae) in the Platform console
   await sup.goto('/platform#projects');
-  const card = sup.getByRole('article', { name: `Project Roles A ${stamp}` });
-  await card.getByRole('checkbox', { name: `${names.a} may create roles in Roles A ${stamp}` }).click();
+  await sup.getByRole('button', { name: `Open project Roles A ${stamp}` }).click();
+  const card = sup.getByRole('region', { name: `Project Roles A ${stamp}` });
+  await card.getByRole('switch', { name: `${names.a} may create roles in Roles A ${stamp}` }).click({ force: true });
   await expect(sup.getByRole('status')).toContainText(`${names.a} can now create roles`);
 
   // Rae can now create a role, in two steps: name it (here starting from a copy of Consultant), then choose what it can do
@@ -83,7 +84,8 @@ test('A Super Admin lets a Project Admin create roles; the role is private to th
 
   // the Super Admin takes the permission back
   await hash(sup, 'projects');
-  await sup.getByRole('article', { name: `Project Roles A ${stamp}` }).getByRole('checkbox', { name: `${names.a} may create roles in Roles A ${stamp}` }).click();
+  await sup.getByRole('button', { name: `Open project Roles A ${stamp}` }).click();
+  await sup.getByRole('region', { name: `Project Roles A ${stamp}` }).getByRole('switch', { name: `${names.a} may create roles in Roles A ${stamp}` }).click({ force: true });
   await expect(sup.getByRole('status')).toContainText('can no longer create roles');
   await rae.reload(); await hash(rae, 'roles');
   await expect(rae.getByRole('button', { name: '+ New role' })).toHaveCount(0);

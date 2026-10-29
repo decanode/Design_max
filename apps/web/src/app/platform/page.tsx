@@ -7,105 +7,13 @@ import { Nav } from '../../components/Nav';
 import { FieldAdmin } from '../../components/FieldAdmin';
 import { ActivityList, api } from '../../components/consoleBits';
 import { RolesAdmin } from '../../components/people/RolesAdmin';
+import { ProjectsAdmin } from '../../components/platform/ProjectsAdmin';
 import { NoAccess, useAuth, j } from '../../lib/auth';
 
 type Tab = 'projects' | 'users' | 'roles' | 'fields' | 'stacks' | 'workflows' | 'documents' | 'activity';
 type Flash = (kind: 'ok' | 'err', text: string) => void;
-type Project = { id: string; name: string; status: 'active' | 'archived'; members: number; tickets: number; admins: { id: string; name: string; canCreateRoles?: boolean }[]; stacks: string[] };
 type Stack = { id: number; name: string; description: string; keywords: string[]; projects: number };
 type PUser = { id: string; email: string; name: string; active: boolean; isSuperAdmin: boolean; projects: { id: string; name: string; role: string }[] };
-
-function Projects({ flash }: { flash: Flash }) {
-  const { switchProject, me } = useAuth();
-  const [list, setList] = useState<Project[]>([]);
-  const [stacks, setStacks] = useState<Stack[]>([]);
-  const [form, setForm] = useState({ name: '', email: '', adminName: '', stackIds: [] as number[], projectTypeId: 0, templateTypeId: 0 });
-  const [cat, setCat] = useState<{ projectTypes: { id: number; key: string; name: string; defaultTemplateId: number | null }[]; templates: { id: number; name: string }[] } | null>(null);
-  const [appoint, setAppoint] = useState<Record<string, { email: string; name: string }>>({});
-  const load = useCallback(async () => { const [p, s] = await Promise.all([api('/api/platform/projects'), api('/api/platform/stacks')]); setList(p); setStacks(s); const c = await api('/api/platform/workflow/catalog'); setCat(c); setForm((f) => (f.projectTypeId ? f : { ...f, projectTypeId: c.projectTypes.find((x: { key: string }) => x.key === 'implementation')?.id ?? 0 })); }, []);
-  useEffect(() => { load().catch((e) => flash('err', e.message)); }, [load, flash]);
-
-  async function create(e: React.FormEvent) {
-    e.preventDefault();
-    try {
-      await api('/api/platform/projects', j({ name: form.name, stackIds: form.stackIds, projectTypeId: form.projectTypeId || undefined, templateTypeId: form.templateTypeId || undefined, admin: form.email ? { email: form.email, name: form.adminName || undefined } : undefined }));
-      flash('ok', `Project “${form.name}” created${form.email ? ` and ${form.email} appointed Project Admin` : ''}. It starts with its own copy of the standard approval workflow.`);
-      setForm({ name: '', email: '', adminName: '', stackIds: [], projectTypeId: form.projectTypeId, templateTypeId: 0 }); load();
-    } catch (er) { flash('err', (er as Error).message); }
-  }
-  async function appointAdmin(p: Project) {
-    const a = appoint[p.id]; if (!a?.email) return;
-    try { const r = await api(`/api/platform/projects/${p.id}/admins`, j({ email: a.email, name: a.name || undefined })); flash('ok', `${a.email} is now a Project Admin of ${p.name}${r.created ? ' (new account created)' : ''}.`); setAppoint({ ...appoint, [p.id]: { email: '', name: '' } }); load(); }
-    catch (e) { flash('err', (e as Error).message); }
-  }
-  async function allowRoles(p: Project, userId: string, name: string, enabled: boolean) {
-    try { await api(`/api/platform/projects/${p.id}/admins/${userId}/role-creation`, j({ enabled }, 'PUT')); flash('ok', enabled ? `${name} can now create roles in ${p.name}.` : `${name} can no longer create roles in ${p.name}.`); load(); }
-    catch (e) { flash('err', (e as Error).message); }
-  }
-  async function setStatus(p: Project, status: 'active' | 'archived') {
-    if (status === 'archived' && !confirm(`Archive “${p.name}”? Everyone loses access to it at once. Nothing is deleted, and you can restore it.`)) return;
-    try { await api(`/api/platform/projects/${p.id}`, j({ status }, 'PATCH')); flash('ok', `${p.name} is now ${status}.`); load(); } catch (e) { flash('err', (e as Error).message); }
-  }
-
-  return (
-    <>
-      <form className="pane build" onSubmit={create} aria-label="Create a project">
-        <h3>New project</h3>
-        <div className="row">
-          <label className="sr" htmlFor="pn">Project name</label><input id="pn" placeholder="Project name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required minLength={2} />
-          <label className="sr" htmlFor="pe">Project Admin email</label><input id="pe" type="email" placeholder="Project Admin's email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
-          <label className="sr" htmlFor="pa">Project Admin name</label><input id="pa" placeholder="Their name (if new)" value={form.adminName} onChange={(e) => setForm({ ...form, adminName: e.target.value })} />
-        </div>
-        {cat && <div className="row">
-          <label htmlFor="ppt">Project type</label>
-          <select id="ppt" value={form.projectTypeId} onChange={(e) => setForm({ ...form, projectTypeId: Number(e.target.value), templateTypeId: 0 })}>{cat.projectTypes.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</select>
-          <label htmlFor="ptt">Methodology</label>
-          <select id="ptt" value={form.templateTypeId} onChange={(e) => setForm({ ...form, templateTypeId: Number(e.target.value) })}>
-            <option value={0}>Recommended for the project type ({cat.templates.find((t) => t.id === cat.projectTypes.find((x) => x.id === form.projectTypeId)?.defaultTemplateId)?.name ?? '—'})</option>
-            {cat.templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</select>
-          <span className="note">Phases and ticket types start from this; the Project Admin can fine-tune them in Project settings.</span>
-        </div>}
-        <fieldset className="stackpick"><legend className="note">Allowed technology (optional, the Project Admin can change it)</legend>
-          {stacks.map((s) => (<label key={s.id} className="check"><input type="checkbox" checked={form.stackIds.includes(s.id)} onChange={(e) => setForm({ ...form, stackIds: e.target.checked ? [...form.stackIds, s.id] : form.stackIds.filter((x) => x !== s.id) })} /> {s.name}</label>))}
-        </fieldset>
-        <button className="btn" type="submit" disabled={form.name.trim().length < 2}>Create project</button>
-      </form>
-
-      <div className="wf-list">
-        {list.map((p) => (
-          <article key={p.id} className={`wf ${p.status === 'archived' ? 'off' : ''}`} aria-label={`Project ${p.name}`}>
-            <header>
-              <div><h3>{p.name} {p.status === 'archived' && <span className="note">· archived</span>}</h3>
-                <p className="note" style={{ margin: 0 }}>{p.members} member{p.members === 1 ? '' : 's'} · {p.tickets} ticket{p.tickets === 1 ? '' : 's'} · {p.stacks.length ? p.stacks.join(', ') : 'any technology'}</p></div>
-              <div className="row" style={{ margin: 0 }}>
-                {p.status === 'active' && me?.project?.id !== p.id && <button className="btn ghost sm" onClick={() => switchProject(p.id)}>Open project</button>}
-                {p.status === 'active' && me?.project?.id === p.id && <span className="role-badge" data-role="Manager">Working here</span>}
-                <button className="link-btn" onClick={() => setStatus(p, p.status === 'active' ? 'archived' : 'active')}>{p.status === 'active' ? 'Archive' : 'Restore'}</button>
-              </div>
-            </header>
-            <div className="row" style={{ margin: '8px 0 0' }}>
-              <span className="note">Project Admins:</span>
-              {p.admins.length ? p.admins.map((a) => <span key={a.id} className="chip">{a.name}</span>) : <span className="err">none yet</span>}
-            </div>
-            {p.admins.length > 0 && (
-              <fieldset className="admin-powers" aria-label={`What Project Admins of ${p.name} may do`}>
-                <legend className="note">May create roles of their own in this project</legend>
-                {p.admins.map((a) => (
-                  <label key={a.id} className="check"><input type="checkbox" checked={!!a.canCreateRoles} aria-label={`${a.name} may create roles in ${p.name}`} onChange={(e) => allowRoles(p, a.id, a.name, e.target.checked)} /> {a.name}</label>))}
-              </fieldset>)}
-            {p.status === 'active' && (
-              <div className="row" style={{ margin: '8px 0 0' }}>
-                <label className="sr" htmlFor={`ae${p.id}`}>Appoint a Project Admin for {p.name}</label>
-                <input id={`ae${p.id}`} type="email" placeholder="Appoint a Project Admin (email)" value={appoint[p.id]?.email ?? ''} onChange={(e) => setAppoint({ ...appoint, [p.id]: { name: appoint[p.id]?.name ?? '', email: e.target.value } })} style={{ minWidth: 260 }} />
-                <label className="sr" htmlFor={`an${p.id}`}>Name</label>
-                <input id={`an${p.id}`} placeholder="Name (if new)" value={appoint[p.id]?.name ?? ''} onChange={(e) => setAppoint({ ...appoint, [p.id]: { email: appoint[p.id]?.email ?? '', name: e.target.value } })} style={{ minWidth: 160 }} />
-                <button className="btn ghost sm" disabled={!appoint[p.id]?.email} onClick={() => appointAdmin(p)}>Appoint</button>
-              </div>)}
-          </article>))}
-      </div>
-    </>
-  );
-}
 
 function Users({ flash }: { flash: Flash }) {
   const [users, setUsers] = useState<PUser[]>([]);
@@ -209,7 +117,7 @@ export default function Platform() {
       <main id="main">
         <div className="board-head"><div><h2>Platform</h2></div></div>
         <SettingsShell label="Platform" groups={groups} active={tab} onSelect={setTab} status={status && <p className={status.kind === 'err' ? 'err' : 'ok'} role={status.kind === 'err' ? 'alert' : 'status'} style={{ margin: 0 }}>{status.text}</p>}>
-        {tab === 'projects' && <Projects flash={flash} />}
+        {tab === 'projects' && <ProjectsAdmin flash={flash} sub={sub} onSub={setSub} />}
         {tab === 'users' && <Users flash={flash} />}
         {tab === 'roles' && <RolesAdmin mode="platform" flash={flash} sub={sub} onSub={setSub} />}
         {tab === 'fields' && <FieldAdmin mode="platform" flash={flash} />}
