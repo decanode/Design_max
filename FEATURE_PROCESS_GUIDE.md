@@ -334,14 +334,14 @@ A workflow can also cover **the creation of tickets**. In **Project settings →
 
 ---
 
-## 8. Dashboards and reports
+## 8. Summary (dashboards) and reports
 
 **What it is.** Tracking and reporting you can build yourself, without code.
 
-**How to use it** (menu: **Dashboards**; roles with the report permissions)
+**How to use it** (menu: **Summary**; roles with the report permissions)
 - Open **Delivery overview**, a ready-made dashboard: open tickets, average age, approval time, tickets by phase, approvals by status, new tickets per month, deployments per month, workload by consultant, tickets by source.
 - Built-in dashboards and reports are **copy-only**: click **Copy to customize** to get your own editable version.
-- **Edit dashboard**: add reports, remove, reorder, resize (small/medium/large), rename, and choose *private* or *shared with the project*.
+- **Edit summary**: add reports, remove, reorder, resize (small/medium/large), rename, and choose *private* or *shared with the project*.
 - **Reports → New report**: pick what to report on (Tickets, Approvals or Phase changes), the measure (a count, average age, average time to decision), how to group (phase, consultant, source, month/week/day, approval level…), filters, and how to show it: single number, columns, bars, line, share of total, or table. The preview updates as you change things.
 - Every chart has a **Table** view and a **CSV** download.
 

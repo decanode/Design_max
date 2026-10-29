@@ -97,8 +97,8 @@ export default function Dashboards() {
     save({ layout: [...toLayout(dash.widgets), { id: crypto.randomUUID(), reportId: rep.id, size: 1 }] }, `Added “${rep.name}”.`); setPick('');
   };
   async function create() {
-    const name = prompt('Name your dashboard'); if (!name?.trim()) return;
-    try { const { id: nid } = await api('/api/dashboards', j({ name: name.trim() })); keepEdit.current = true; await loadList(); setId(nid); flash('ok', 'Dashboard created. Add widgets below.'); }
+    const name = prompt('Name your summary'); if (!name?.trim()) return;
+    try { const { id: nid } = await api('/api/dashboards', j({ name: name.trim() })); keepEdit.current = true; await loadList(); setId(nid); flash('ok', 'Summary created. Add widgets below.'); }
     catch (e) { flash('err', (e as Error).message); }
   }
   async function copy() {
@@ -107,14 +107,14 @@ export default function Dashboards() {
     catch (e) { flash('err', (e as Error).message); }
   }
   async function del() {
-    if (!dash || !confirm(`Delete the dashboard “${dash.name}”? The reports stay in your library.`)) return;
-    try { await api(`/api/dashboards/${dash.id}`, { method: 'DELETE' }); const l = await loadList(); setDash(null); setId(l[0]?.id ?? null); flash('ok', 'Dashboard deleted.'); }
+    if (!dash || !confirm(`Delete the summary “${dash.name}”? The reports stay in your library.`)) return;
+    try { await api(`/api/dashboards/${dash.id}`, { method: 'DELETE' }); const l = await loadList(); setDash(null); setId(l[0]?.id ?? null); flash('ok', 'Summary deleted.'); }
     catch (e) { flash('err', (e as Error).message); }
   }
 
   if (authLoading || !me) return <><Nav current="dashboards" /><main id="main"><p className="note">Loading…</p></main></>;
   if (!me.project) return <><Nav current="dashboards" /><main id="main"><NoProject /></main></>;
-  if (!can('report.view')) return <><Nav current="dashboards" /><main id="main"><NoAccess what="dashboards" /></main></>;
+  if (!can('report.view')) return <><Nav current="dashboards" /><main id="main"><NoAccess what="the summary" /></main></>;
   const canBuild = can('report.build');
 
   return (
@@ -123,29 +123,29 @@ export default function Dashboards() {
       <main id="main">
         <div className="board-head">
           <div>
-            <h2>Dashboards</h2>
+            <h2>Summary</h2>
             <p>Track delivery and report on it. {canBuild ? 'Build your own reports and arrange them how you like.' : ''}</p>
           </div>
           <div className="tools">
-            <label className="sr" htmlFor="dash-pick">Dashboard</label>
+            <label className="sr" htmlFor="dash-pick">Summary</label>
             <select id="dash-pick" className="search" value={id ?? ''} onChange={(e) => setId(e.target.value)} style={{ minWidth: 240 }}>
               {list.map((d) => <option key={d.id} value={d.id}>{d.name}{d.isSystem ? ' (built-in)' : d.mine ? '' : ` · ${d.owner ?? 'shared'}`}</option>)}
             </select>
-            {canBuild && <button className="btn ghost" onClick={create}>New dashboard</button>}
+            {canBuild && <button className="btn ghost" onClick={create}>New summary</button>}
             {(canBuild || can('report.manage_all')) && <Link className="btn ghost" href="/reports" style={{ textDecoration: 'none' }}>Reports</Link>}
           </div>
         </div>
 
         <div aria-live="polite" style={{ minHeight: 22 }}>{msg && <p className={msg.kind === 'err' ? 'err' : 'ok'} role={msg.kind === 'err' ? 'alert' : 'status'} style={{ margin: '0 0 8px' }}>{msg.text}</p>}</div>
 
-        {!dash ? <p className="note">{list.length ? 'Loading…' : 'No dashboards yet.'}</p> : (<>
+        {!dash ? <p className="note">{list.length ? 'Loading…' : 'No summaries yet.'}</p> : (<>
           <div className="dash-bar">
             {edit ? (
               <div className="row" style={{ margin: 0 }}>
-                <label className="sr" htmlFor="dn">Dashboard name</label>
+                <label className="sr" htmlFor="dn">Summary name</label>
                 <input id="dn" defaultValue={dash.name} key={dash.id + dash.name} onBlur={(e) => e.target.value.trim() && e.target.value !== dash.name && save({ name: e.target.value.trim() }, 'Renamed.')} style={{ fontWeight: 600, minWidth: 220 }} />
                 <label className="sr" htmlFor="dv">Who can see this</label>
-                <select id="dv" value={dash.visibility} onChange={(e) => save({ visibility: e.target.value }, e.target.value === 'shared' ? 'Shared with everyone who can view dashboards.' : 'Now private to you.')}>
+                <select id="dv" value={dash.visibility} onChange={(e) => save({ visibility: e.target.value }, e.target.value === 'shared' ? 'Shared with everyone who can view summaries.' : 'Now private to you.')}>
                   <option value="private">Private to me</option><option value="shared">Shared with everyone</option>
                 </select>
               </div>
@@ -155,7 +155,7 @@ export default function Dashboards() {
             <div className="row" style={{ margin: 0 }}>
               <button className="btn ghost sm" onClick={() => setTick((t) => t + 1)}>Refresh</button>
               {canBuild && <button className="btn ghost sm" onClick={copy}>{dash.canEdit ? 'Duplicate' : 'Copy to customize'}</button>}
-              {dash.canEdit && <button className={edit ? 'btn sm' : 'btn ghost sm'} onClick={() => setEdit(!edit)}>{edit ? 'Done' : 'Edit dashboard'}</button>}
+              {dash.canEdit && <button className={edit ? 'btn sm' : 'btn ghost sm'} onClick={() => setEdit(!edit)}>{edit ? 'Done' : 'Edit summary'}</button>}
               {edit && dash.canEdit && <button className="link-btn" onClick={del}>Delete</button>}
             </div>
           </div>
@@ -169,14 +169,14 @@ export default function Dashboards() {
                   <option value="">Choose a report…</option>
                   {reports.map((r) => <option key={r.id} value={r.id}>{r.name}{r.isSystem ? ' (built-in)' : ''}</option>)}
                 </select>
-                <button className="btn" disabled={!pick} onClick={add}>Add to dashboard</button>
+                <button className="btn" disabled={!pick} onClick={add}>Add to summary</button>
                 <span className="note">or</span>
                 <Link className="btn ghost" href={`/reports/new?dashboard=${dash.id}`} style={{ textDecoration: 'none' }}>Create a new report</Link>
               </div>
             </div>)}
 
           {dash.widgets.length === 0 ? (
-            <div className="pane" style={{ padding: 28, textAlign: 'center' }}><p style={{ margin: 0 }} className="note">This dashboard is empty. {dash.canEdit ? 'Choose “Edit dashboard” to add reports.' : ''}</p></div>
+            <div className="pane" style={{ padding: 28, textAlign: 'center' }}><p style={{ margin: 0 }} className="note">This summary is empty. {dash.canEdit ? 'Choose “Edit summary” to add reports.' : ''}</p></div>
           ) : (
             <section className="widgets" aria-label={`${dash.name} widgets`}>
               {dash.widgets.map((w, i) => (

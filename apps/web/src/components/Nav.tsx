@@ -26,7 +26,7 @@ export function Nav({ current }: { current: Key }) {
       <nav aria-label="Primary">
         {inProject && link('/', 'board', 'Board', can('board.view'))}
         {inProject && link('/planning', 'planning', 'Planning', !!me?.project?.modules?.planning_module && can('planning.manage'))}
-        {inProject && link('/dashboards', 'dashboards', 'Dashboards', can('report.view'))}
+        {inProject && link('/dashboards', 'dashboards', 'Summary', can('report.view'))}
         {inProject && link('/chat', 'chat', 'Chat', canAny('chat.as_customer', 'chat.as_consultant', 'chat.view_all'))}
         {link('/mailbox', 'mailbox', 'Mailbox', isSuper)}
         {inProject && link('/admin', 'admin', 'Project settings', canAny('admin.roles', 'admin.users', 'admin.projects', 'admin.workflows'))}

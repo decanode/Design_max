@@ -19,7 +19,7 @@ test.describe('Lead builds reports and dashboards', () => {
     await expect(phase.getByRole('columnheader', { name: 'Phase' })).toBeVisible();
     await expect(phase.getByRole('link', { name: 'CSV' })).toHaveAttribute('href', /\/api\/reports\/.+\/csv/);
     // built-in dashboards can't be edited directly, only copied
-    await expect(page.getByRole('button', { name: 'Edit dashboard' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Edit summary' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Copy to customize' })).toBeVisible();
   });
 
@@ -50,10 +50,10 @@ test.describe('Lead builds reports and dashboards', () => {
     // new dashboard
     await page.goto('/dashboards');
     page.once('dialog', (d) => d.accept(board));
-    await page.getByRole('button', { name: 'New dashboard' }).click();
-    await expect(page.getByRole('status')).toContainText('Dashboard created');
+    await page.getByRole('button', { name: 'New summary' }).click();
+    await expect(page.getByRole('status')).toContainText('Summary created');
     await page.getByLabel('Report', { exact: true }).selectOption({ label: report });
-    await page.getByRole('button', { name: 'Add to dashboard' }).click();
+    await page.getByRole('button', { name: 'Add to summary' }).click();
     const card = page.getByRole('article', { name: report });
     await expect(card).toBeVisible();
     await card.getByRole('button', { name: 'Large' }).click();
@@ -61,7 +61,7 @@ test.describe('Lead builds reports and dashboards', () => {
 
     // add a second built-in widget and reorder
     await page.getByLabel('Report', { exact: true }).selectOption({ label: 'Open tickets (built-in)' });
-    await page.getByRole('button', { name: 'Add to dashboard' }).click();
+    await page.getByRole('button', { name: 'Add to summary' }).click();
     await page.getByRole('button', { name: 'Move Open tickets earlier' }).click();
     await page.getByLabel('Who can see this').selectOption('shared');
     await page.getByRole('button', { name: 'Done' }).click();
@@ -77,7 +77,7 @@ test.describe('Lead builds reports and dashboards', () => {
     await page.goto('/dashboards');
     await page.getByRole('button', { name: 'Copy to customize' }).click();
     await expect(page.getByRole('status')).toContainText('Your copy is ready');
-    await expect(page.getByLabel('Dashboard name')).toHaveValue('Copy of Delivery overview');
+    await expect(page.getByLabel('Summary name')).toHaveValue('Copy of Delivery overview');
     const before = await page.getByRole('region', { name: /widgets/ }).locator('article').count();
     await page.getByRole('article', { name: 'Open tickets', exact: true }).getByRole('button', { name: 'Remove' }).click();
     await expect(page.getByRole('region', { name: /widgets/ }).locator('article')).toHaveCount(before - 1);
@@ -89,9 +89,9 @@ test.describe('who can do what', () => {
     test.use({ storageState: '.auth/Consultant.json' });
     test('sees dashboards but cannot build', async ({ page }) => {
       await page.goto('/dashboards');
-      await expect(page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name: 'Dashboards' })).toBeVisible();
+      await expect(page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name: 'Summary' })).toBeVisible();
       await expect(page.getByRole('article', { name: 'Tickets by phase' })).toBeVisible();
-      await expect(page.getByRole('button', { name: 'New dashboard' })).toHaveCount(0);
+      await expect(page.getByRole('button', { name: 'New summary' })).toHaveCount(0);
       await expect(page.getByRole('button', { name: 'Copy to customize' })).toHaveCount(0);
       await page.goto('/reports/new');
       await expect(page.getByText('No access')).toBeVisible();
@@ -102,14 +102,14 @@ test.describe('who can do what', () => {
     test('has no dashboards', async ({ page }) => {
       await page.goto('/dashboards');
       await expect(page.getByText('No access')).toBeVisible();
-      await expect(page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name: 'Dashboards' })).toHaveCount(0);
+      await expect(page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name: 'Summary' })).toHaveCount(0);
     });
   });
   test.describe('Super Admin', () => {
     test.use({ storageState: '.auth/Super Admin.json' });
     test('built-in dashboards are shared by every project, so even a Super Admin copies them instead of editing', async ({ page }) => {
       await page.goto('/dashboards');
-      await expect(page.getByRole('button', { name: 'Edit dashboard' })).toHaveCount(0);
+      await expect(page.getByRole('button', { name: 'Edit summary' })).toHaveCount(0);
       await expect(page.getByRole('button', { name: 'Copy to customize' })).toBeVisible();
     });
   });

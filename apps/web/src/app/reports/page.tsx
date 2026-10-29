@@ -30,11 +30,11 @@ export default function Reports() {
       <Nav current="dashboards" />
       <main id="main">
         <div className="board-head">
-          <div><h2>Reports</h2><p>Every report you can use. Add them to any dashboard.</p></div>
+          <div><h2>Reports</h2><p>Every report you can use. Add them to any summary.</p></div>
           <div className="tools">
             <label className="sr" htmlFor="rq">Search reports</label>
             <input id="rq" className="search" type="search" placeholder="Search reports…" value={q} onChange={(e) => setQ(e.target.value)} />
-            <Link className="btn ghost" href="/dashboards" style={{ textDecoration: 'none' }}>Dashboards</Link>
+            <Link className="btn ghost" href="/dashboards" style={{ textDecoration: 'none' }}>Summary</Link>
             {can('report.build') && <Link className="btn" href="/reports/new" style={{ textDecoration: 'none' }}>New report</Link>}
           </div>
         </div>
@@ -54,7 +54,7 @@ export default function Reports() {
                   <Link className="btn ghost sm" href={`/reports/${r.id}`} style={{ textDecoration: 'none' }}>{r.canEdit ? 'Edit' : 'View'}</Link>{' '}
                   <a className="btn ghost sm" href={`/api/reports/${r.id}/csv`} download style={{ textDecoration: 'none' }}>CSV</a>{' '}
                   {can('report.build') && <button className="btn ghost sm" onClick={() => act(`/api/reports/${r.id}/duplicate`, 'POST', `Copied “${r.name}”.`)}>Copy</button>}{' '}
-                  {r.canEdit && <button className="link-btn" onClick={() => confirm(`Delete “${r.name}”? It is removed from every dashboard.`) && act(`/api/reports/${r.id}`, 'DELETE', `Deleted “${r.name}”.`)}>Delete</button>}
+                  {r.canEdit && <button className="link-btn" onClick={() => confirm(`Delete “${r.name}”? It is removed from every summary.`) && act(`/api/reports/${r.id}`, 'DELETE', `Deleted “${r.name}”.`)}>Delete</button>}
                 </td>
               </tr>))}
           </tbody>

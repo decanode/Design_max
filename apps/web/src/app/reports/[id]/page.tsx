@@ -185,7 +185,7 @@ export default function Builder() {
               <div className="field"><label htmlFor="vi">Who can see this report</label>
                 <select id="vi" value={visibility} onChange={(e) => setVisibility(e.target.value as 'private' | 'shared')}><option value="private">Only me</option><option value="shared">Everyone who can view reports</option></select></div>
             </fieldset>
-            {!readOnly && <div className="row"><button className="btn" type="submit" disabled={busy || !name.trim() || !!error}>{isNew ? (toDash ? 'Save and add to dashboard' : 'Create report') : 'Save changes'}</button>
+            {!readOnly && <div className="row"><button className="btn" type="submit" disabled={busy || !name.trim() || !!error}>{isNew ? (toDash ? 'Save and add to summary' : 'Create report') : 'Save changes'}</button>
               {!isNew && <button type="button" className="btn ghost" disabled={busy || !name.trim() || !!error} onClick={() => save(true)}>Save as new report</button>}</div>}
           </form>
 
