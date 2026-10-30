@@ -46,6 +46,7 @@ SAP Cloud ALM connector; Entra ID reconciliation; attachment download wiring; bu
 - No secrets are stored in the repo.
 
 ## Next ideas (not yet requested)
+**A written directive exists but is NOT started: `FEATURE_REPORTING_MODULE.md`** (Hybrid Reporting and AI SteerCo engine: timesheets, RAID log, project snapshots with RAG status, budget burn-down, capacity heatmap, UAT pass/fail widget, Gemini-drafted monthly SteerCo report). Several parts overlap with what now exists (flow reports, daily snapshots, Coming-soon module tiles for timesheets/risks/effort/cost): reconcile with those before building, and ask the user.
 Cloud ALM adapter; Entra reconciliation; real-Jira write-back dry run on MASALA1.0 once it is in Connected mode; UI for work-task templates; business-hours calendar; the Coming-soon modules (effort/cost estimation, risks, RACI, timesheets, milestones, change-control log, assumptions) now persist their on/off choice server-side and do nothing yet.
 
 ---
