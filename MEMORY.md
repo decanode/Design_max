@@ -1,5 +1,56 @@
 # MEMORY.md — Design Max State Log
 
+# START HERE (current state as of 2026-10-30)
+*A new session (for example Claude Code in local VS Code) should read this section first, then `system_ground_rules.md`, then `architecture_and_design_document.md`. Everything below this section is the chronological log; this section is the summary of it.*
+
+## What Design Max is
+An enterprise, chat-first project-lifecycle platform. npm workspaces: `apps/api` (Fastify + pg + zod + Socket.io, Vitest), `apps/web` (Next.js 16, React), `packages/doc-schema`, root Playwright (`tests/e2e`). PostgreSQL 16 + pgvector with **row-level security per project** (the API connects as the restricted `design_max_app` role; migrations run as the owner `antigravity`). 37 migrations (`apps/api/db/migrations/001..037`, applied in order by `npm run db:migrate`).
+
+## What exists (by area; the log below has the detail and the "why")
+- **Core:** projects, roles/permissions (Super Admin, Project Admin, project-owned custom roles), Members/Teams/profiles, column-level ticket-field security, multi-project switching, RLS isolation, audit log.
+- **Chat assistant:** role-aware (customer vs team persona), layered system prompts in `chat/prompts.ts`, LLM agent + deterministic scripted agent, creates a ticket only on explicit confirmation; stops offering tickets when the project's mode forbids creating them.
+- **Dynamic workflows:** ticket types and fields, methodologies (phases + transitions), project types, per-project lifecycles (custom statuses and moves per ticket type), ticket-creation approvals, multi-level approval workflows for FS/TS/Unit Test/Code Review documents.
+- **Documents:** FS/TS/TUT/CRC generation, live collaborative editing (Hocuspocus), review comments, Word export/merge, per-ticket-type document rules (off/optional/required to close).
+- **Tickets:** readable keys, priority, due date, internal/public notes, activity timeline, closing gates (required documents approved + customer sign-off), work items with dependencies and AI/standard breakdown.
+- **Planning module:** charter, WBS, convert to tickets, switchable per part under Project settings → Modules (placeholders marked "Coming soon" for effort, cost, risks, RACI and others).
+- **Operating modes (Full / Connected / Mirror):** see `FEATURE_OPERATING_MODES.md`. Capability matrix in `apps/api/src/rbac/modes.ts`; Jira + ServiceNow connectors with incremental read-only sync and history; status mapping; rule-driven write-back with trial run, queue, conflict protection, kill switch; webhooks.
+- **Reporting:** report builder + dashboards ("Summary" in the UI, route `/dashboards`), flow datasets (lead/cycle time percentiles, time in status, bounces, sign-off/approval turnaround, daily snapshots, stacked "pipeline over time"), Platform → Portfolio.
+- **Platform console (Super Admin):** Projects (list, project page, operating mode), Users (server-side search/paging, browse by project), Role catalog, Default ticket fields, Technology catalog, Workflows studio (ticket types, methodologies, project types, phase library), Documents, Portfolio, Activity.
+
+## Not built / open
+SAP Cloud ALM connector; Entra ID reconciliation; attachment download wiring; business-hours calendar; UI for a project's own work-task templates; "adopt mirrored project into Full"; per-type document rules only seeded for incident/change/problem/request item (requirement/WRICEF unchanged on purpose). Also pending an answer from the user: delete dev-DB debris (`Custom dd3ffo` role, user `c2fv8n8@t.dev`, project `P-9yn5x0`) and rebuild Platform → Users to match Members (the Users rebuild was done later; the debris question is still open).
+
+## Run it locally
+1. `docker compose up -d db` (or `npm run db:up`) gives Postgres 16 + pgvector on :5432 (owner `antigravity/antigravity`, db `antigravity`). `npm install`. Copy `.env.example` to `.env` (defaults work for dev; `DATABASE_URL` uses the restricted `design_max_app` account created by migration 012).
+2. `npm run db:migrate`, then `npm run dev:api` (port 4000) and `npm run dev:web` (port 3000). Or `./scripts/dev-up.sh` then `./scripts/dev.sh`.
+3. Dev sign-in: the login page lists demo accounts (Ada Admin = Super Admin, Pia Project Admin, Leo Lead, Mia Manager, Pam Project Manager, Sam Consultant, Cleo Customer ...). `AI_PROVIDER=offline` (or no key) uses the deterministic assistant; Gemini/GitHub Models/Anthropic keys are optional.
+4. `INTEGRATION_KEY` encrypts stored source-system credentials (a dev default is used when unset; **required in production**). `SYNC_SCHEDULER=off` disables the background sync/send/snapshot loop.
+
+## Tests (run what is relevant; the full suites are slow)
+- API: `cd apps/api && npx vitest run [path]` (332 tests at last full run, all passing). Files run serially against one shared test database; **tests must not delete other suites' rows** (this broke once: `etl.test.ts` is now scoped to its own project).
+- E2E: `npx playwright test [spec]` from the repo root (60 tests at last full run, all passing). It starts its own servers: a **test database `design_max_test` (dropped/recreated each run)**, API on 4100, web production build on 3100, a mock Gemini on 4300 and a **mock Jira on 4310 (`tests/e2e/mock-sources.mjs`, records every call)**. A cold run takes ~4.5 minutes. Playwright's default storage state is Super Admin; role specs use `.auth/<Role>.json`.
+- `npx tsc --noEmit` in `apps/api` and `apps/web` is a quick type check.
+
+## Conventions and gotchas (learned the hard way)
+- **Ground rules** (`system_ground_rules.md`): update `FEATURE_PROCESS_GUIDE.md` (plain-language guide) and this file after every feature; commit with the `Co-Authored-By: Claude ...` trailer; `architecture_and_design_document.md` is the source of truth. Ask the user before design changes, in plain non-technical words. When the user says "do not run tests", do not.
+- User style: plain, short, non-technical summaries; wants the system prompts/UX polished ("UI-UX-MAX-PRO"); uses plan mode for large features; prefers changes shown as outcomes, not code.
+- **Naming:** the UI says "Summary" for dashboards (URL `/dashboards`, API `/api/dashboards` unchanged). `feature_process_guide.md` was renamed `FEATURE_PROCESS_GUIDE.md`. `ticket_comments` is the Jira/ServiceNow *import* table; native comments are `ticket_notes`.
+- **Capabilities, not role checks, for modes:** use `assertCap(projectId, cap)` in functions that create/change tickets (chat, planning and import cannot bypass), and the permission filter in `loadUser` for routes/UI.
+- **Write-back safety:** never send anything unless caps.writeback AND connection enabled AND `writeback_enabled` AND ticket not paused; trial run (`dry_run`) is on by default; only a Super Admin enables sending or turns the trial off.
+- **Reports engine:** SQL only from whitelists; tickets-based datasets get `ticketScope`; the `snapshots` dataset is pre-aggregated and requires `ticket.view_all`; views are `security_invoker` so RLS applies.
+- **E2E lessons:** (1) a user with no project cookie lands in their alphabetically first project, so give test projects names that sort after "Default"; (2) toggles are `role="switch"` hidden inputs: use `getByRole('switch', ...).click({ force: true })`, not `.check()`; (3) wait for each assistant reply before typing the next chat message; (4) after creating via the UI, wait for the status flash before navigating; (5) `getByLabel` is a substring match, so use `{ exact: true }` or the form role when labels overlap.
+- Postgres/ICU: time-zone lists are canonical-only; hash-only `goto` is a no-op; controlled checkboxes need `click()`.
+
+## Environment-specific facts (NOT in git; they lived in the original Codespace)
+- The dev database in the Codespace holds a real connection **"Test Account" on project MASALA1.0** (Jira Cloud `https://anbu382.atlassian.net`, account `anbu382@gmail.com`, no JQL filter, write-back OFF with trial run ON) and **19 sample issues** created in Jira project **SCRUM** (SCRUM-13..31, all labelled `design-max-sample`; search `labels = design-max-sample` to find or delete them). SCRUM is team-managed with issue types Epic/Feature/Task/Subtask and statuses Idea, To Do, In Progress, In Review, Done. MASALA1.0 is still in **Full** mode; to see the Connections screen and sync, switch it to Mirror or Connected (Platform → Projects → MASALA1.0). A fresh local database will not have any of this: re-add the connection (a Super Admin, with a Jira API token) and the saved credential is encrypted with `INTEGRATION_KEY`.
+- No secrets are stored in the repo.
+
+## Next ideas (not yet requested)
+Cloud ALM adapter; Entra reconciliation; real-Jira write-back dry run on MASALA1.0 once it is in Connected mode; UI for work-task templates; business-hours calendar; the Coming-soon modules (effort/cost estimation, risks, RACI, timesheets, milestones, change-control log, assumptions) now persist their on/off choice server-side and do nothing yet.
+
+---
+## Chronological log (oldest first)
+
 ## Status
 Sprint 0: **complete**. Sprint 1 (ETL & ingestion workers): **core ETL complete; ingestion workers partial (see Open Items); validated against fixtures only** — no live Jira/SNOW/SAP/SharePoint/Git/OpenAI connection has been tested. Sprint 2 (Intelligent Intake & Chat): **built, verified with offline observer only**. Sprint 3 (Documentation Engine & Approvals): **built, verified with offline generator/mailbox only**. RBAC added afterwards. Next: Sprint 4 (SSO, polish, handover) — but see PENDING security-foundations proposal.
 
