@@ -18,7 +18,7 @@ An enterprise, chat-first project-lifecycle platform. npm workspaces: `apps/api`
 - **Platform console (Super Admin):** Projects (list, project page, operating mode), Users (server-side search/paging, browse by project), Role catalog, Default ticket fields, Technology catalog, Workflows studio (ticket types, methodologies, project types, phase library), Documents, Portfolio, Activity.
 
 ## Not built / open
-SAP Cloud ALM connector; Entra ID reconciliation; attachment download wiring; business-hours calendar; UI for a project's own work-task templates; "adopt mirrored project into Full"; per-type document rules only seeded for incident/change/problem/request item (requirement/WRICEF unchanged on purpose). Also pending an answer from the user: delete dev-DB debris (`Custom dd3ffo` role, user `c2fv8n8@t.dev`, project `P-9yn5x0`) and rebuild Platform → Users to match Members (the Users rebuild was done later; the debris question is still open).
+SAP Cloud ALM connector; Entra ID reconciliation; attachment download wiring; business-hours calendar; UI for a project's own work-task templates; "adopt mirrored project into Full"; per-type document rules only seeded for incident/change/problem/request item (requirement/WRICEF unchanged on purpose). Still waiting on the user's answer: whether to delete the dev-DB debris (`Custom dd3ffo` role, user `c2fv8n8@t.dev`, project `P-9yn5x0`). Never delete it unprompted.
 
 ## Run it locally
 1. `docker compose up -d db` (or `npm run db:up`) gives Postgres 16 + pgvector on :5432 (owner `antigravity/antigravity`, db `antigravity`). `npm install`. Copy `.env.example` to `.env` (defaults work for dev; `DATABASE_URL` uses the restricted `design_max_app` account created by migration 012).
